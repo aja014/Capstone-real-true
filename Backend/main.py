@@ -27,7 +27,7 @@ pwd_context = CryptContext(
 )
 
 def get_user_by_username(db: Session, username: str):
-    return db.query(models.User).filter(models.User.username == username).first()
+    return db.query(models.User).filter(models.User.username == username).first() # just for commit
 
 
     
