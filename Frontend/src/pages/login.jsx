@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Shield, User, Lock, ArrowRight, Eye, EyeOff } from "lucide-react";
 import Background_Cars from "../img/Background_Cars.jpg";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
 
 import Logo from "../img/MAAGAP_LOGO.png";
 
@@ -13,16 +14,28 @@ export default function MaagapLogin() {
 
   const navigate = useNavigate();
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     setIsLoading(true);
-    setTimeout(() => setIsLoading(false), 1500);
 
-    if (username === "admin" && password === "admin") {
-      localStorage.setItem("role", "user");
-      navigate("/policy");
-    } else {
-      localStorage.setItem("role", "admin");
-      navigate("/overview");
+    try {
+      const response = await axios.post("http://127.0.0.1:8000/login", {
+        username,
+        password,
+      });
+
+      const role = response.data.role;
+
+      localStorage.setItem("role", role);
+
+      if (role === "manager") {
+        navigate("/overview");
+      } else {
+        navigate("/policy");
+      }
+    } catch (error) {
+      alert("Invalid username or password");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -39,16 +52,16 @@ export default function MaagapLogin() {
         {/* Logo */}
         <div className="flex items-center mb-auto">
           <div className="rounded-md">
-            <img
-              className="w-full h-12"
-              src={Logo}
-              alt="Logo"
-            />
+            <img className="w-full h-12" src={Logo} alt="Logo" />
           </div>
-          
+
           <div className="leading-tight">
-            <p className="font-black text-black text-lg tracking-tight leading-none">MAAGAP</p>
-            <p className="text-black text-[11px] font-medium tracking-widest uppercase">Insurance, Inc.</p>
+            <p className="font-black text-black text-lg tracking-tight leading-none">
+              MAAGAP
+            </p>
+            <p className="text-black text-[11px] font-medium tracking-widest uppercase">
+              Insurance, Inc.
+            </p>
           </div>
         </div>
 
@@ -63,10 +76,16 @@ export default function MaagapLogin() {
               textAlignLast: "left",
             }}
           >
-            Be Ready.<br />Be Protected.
+            Be Ready.
+            <br />
+            Be Protected.
           </h1>
-          <p className="text-black/70 text-sm sm:text-base leading-relaxed max-w-sm" style={{ textAlign: "justify" }}>
-            Protect your vehicle and your future with coverage designed for real life.
+          <p
+            className="text-black/70 text-sm sm:text-base leading-relaxed max-w-sm"
+            style={{ textAlign: "justify" }}
+          >
+            Protect your vehicle and your future with coverage designed for real
+            life.
           </p>
         </div>
 
@@ -98,7 +117,11 @@ export default function MaagapLogin() {
               onClick={() => setShowPassword(!showPassword)}
               className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
             >
-              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              {showPassword ? (
+                <EyeOff className="w-4 h-4" />
+              ) : (
+                <Eye className="w-4 h-4" />
+              )}
             </button>
           </div>
 
@@ -142,7 +165,11 @@ export default function MaagapLogin() {
           className="absolute top-0 left-0 h-full w-28 bg-[#F5C800] z-10"
           style={{ clipPath: "polygon(0 0, 55% 0, 0 100%)" }}
         />
-        <img src={Background_Cars} alt="Cars on a road" className="absolute inset-0 w-full h-full object-cover opacity-85 blur-[.3px]" />
+        <img
+          src={Background_Cars}
+          alt="Cars on a road"
+          className="absolute inset-0 w-full h-full object-cover opacity-85 blur-[.3px]"
+        />
         {/* Road background via CSS gradient + pattern (no external image) */}
         {/* <div className="absolute inset-0 bg-gradient-to-br from-slate-500 via-slate-600 to-slate-800" /> */}
 
@@ -167,7 +194,9 @@ export default function MaagapLogin() {
 
         {/* Tagline overlay */}
         <div className="absolute bottom-10 right-10 text-right z-20">
-          <p className="text-white/60 text-xs tracking-widest uppercase font-light">Your journey, covered.</p>
+          <p className="text-white/60 text-xs tracking-widest uppercase font-light">
+            Your journey, covered.
+          </p>
         </div>
       </div>
     </div>

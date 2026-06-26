@@ -63,8 +63,9 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 
     # Create new user using the new string hash
     db_user = models.User(
-    username=user.username,
-    password=hashed_password_string
+        username=user.username,
+        password=hashed_password_string,
+        role="admin"
     )
     
     # Save to database
@@ -73,3 +74,32 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     db.refresh(db_user)
     
     return {"message": "User created!", "user": db_user}
+
+
+# Login endpoint
+@app.post("/login")
+def login(user: schemas.UserLogin, db: Session = Depends(get_db)):
+
+    db_user = get_user_by_username(db, user.username)
+
+    if not db_user:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid username or password"
+        )
+
+    password_matches = bcrypt.checkpw(
+        user.password.encode("utf-8"),
+        db_user.password.encode("utf-8")
+    )
+
+    if not password_matches:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid username or password"
+        )
+
+    return {
+        "message": "Login successful",
+        "role": db_user.role
+    }

@@ -6,17 +6,18 @@ import CreateAccountModal from "./CreateAccountModal";
 
 import Logo from "../img/MAAGAP_LOGO.png";
 
-export default function ProfileModal({ isOpen, onClose, maxHeight = "min(700px, calc(100vh - 24px))" }) {
+export default function ProfileModal({
+  isOpen,
+  onClose,
+  maxHeight = "min(700px, calc(100vh - 24px))",
+}) {
   const navigate = useNavigate();
 
   const userRole = localStorage.getItem("role");
 
-  const displayRole =
-    userRole === "admin"
-      ? "Manager"
-      : "Admin & Finance";
+  const displayRole = userRole === "manager" ? "Manager" : "Admin & Finance";
 
-  const accountName = userRole === "admin" ? "Juan Dela Cruz" : "Mario Lopez";
+  const accountName = userRole === "manager" ? "Juan Dela Cruz" : "Mario Lopez";
 
   const [openAccountModal, setOpenAccountModal] = useState(false);
 
@@ -38,7 +39,7 @@ export default function ProfileModal({ isOpen, onClose, maxHeight = "min(700px, 
           exit={{ opacity: 0 }}
           transition={{ duration: 0.25 }}
         >
-            <motion.div
+          <motion.div
             className="m-5 relative flex flex-col rounded-3xl shadow-2xl overflow-hidden"
             style={{
               width: "min(90vw, 320px)", // responsive: shrinks with viewport (zoom)
@@ -59,12 +60,7 @@ export default function ProfileModal({ isOpen, onClose, maxHeight = "min(700px, 
             {/* Header */}
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
               <div className="flex items-center">
-
-                <img
-                  className="w-12 h-12"
-                  src={Logo}
-                  alt="Logo"
-                />
+                <img className="w-12 h-12" src={Logo} alt="Logo" />
 
                 <div>
                   <p
@@ -132,16 +128,11 @@ export default function ProfileModal({ isOpen, onClose, maxHeight = "min(700px, 
                 style={{
                   width: 110,
                   height: 110,
-                  background:
-                    "linear-gradient(145deg, #8a8a8a, #666)",
+                  background: "linear-gradient(145deg, #8a8a8a, #666)",
                   boxShadow: "0 6px 24px rgba(0,0,0,0.18)",
                 }}
               >
-                <UserCircle2
-                  size={72}
-                  color="white"
-                  strokeWidth={1.2}
-                />
+                <UserCircle2 size={72} color="white" strokeWidth={1.2} />
               </div>
 
               {/* Name */}
@@ -154,7 +145,7 @@ export default function ProfileModal({ isOpen, onClose, maxHeight = "min(700px, 
                   marginBottom: 4,
                 }}
               >
-                {accountName} 
+                {accountName}
               </p>
 
               {/* Role */}
@@ -179,7 +170,7 @@ export default function ProfileModal({ isOpen, onClose, maxHeight = "min(700px, 
                 youremail@example.com
               </p>
 
-              {userRole === "admin" && (
+              {userRole === "manager" && (
                 <button
                   style={{
                     fontSize: 13,
@@ -213,7 +204,9 @@ export default function ProfileModal({ isOpen, onClose, maxHeight = "min(700px, 
       <CreateAccountModal
         key="create-account-modal"
         isOpen={openAccountModal}
-        onClose={() => { setOpenAccountModal(false) }}
+        onClose={() => {
+          setOpenAccountModal(false);
+        }}
       />
     </AnimatePresence>
   );

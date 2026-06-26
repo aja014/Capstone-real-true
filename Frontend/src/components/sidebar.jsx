@@ -20,37 +20,37 @@ const navItems = [
     icon: LayoutDashboard,
     label: "Overview",
     path: "/overview",
-    allowedRoles: ["admin"],
+    allowedRoles: ["manager"],
   },
   {
     icon: FileText,
     label: "Quotations/ Proposal",
     path: "/proposal",
-    allowedRoles: ["admin"],
+    allowedRoles: ["manager"],
   },
   {
     icon: BarChart2,
     label: "Policy Distribution",
     path: "/distribution",
-    allowedRoles: ["admin"],
+    allowedRoles: ["manager"],
   },
   {
     icon: RefreshCw,
     label: "Renewal Ratio Monitoring",
     path: "/renewal",
-    allowedRoles: ["admin"],
+    allowedRoles: ["manager"],
   },
   {
     icon: AlertCircle,
     label: "Claims",
     path: "/claims",
-    allowedRoles: ["admin"],
+    allowedRoles: ["manager"],
   },
   {
     icon: Users,
     label: "Policy Holder Information",
     path: "/policy",
-    allowedRoles: ["admin", "user"],
+    allowedRoles: ["manager", "user"],
   },
 ];
 
@@ -58,7 +58,7 @@ export default function Sidebar() {
 
   const [openModal, setOpenModal] = useState(false);
 
-  const role = localStorage.getItem("role") || "user";
+  const role = localStorage.getItem("role") || "admin";
 
   return (
     <>

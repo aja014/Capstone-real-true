@@ -3,9 +3,8 @@ from app.database import Base
 
 class User(Base):
     __tablename__ = "users"
-    
+
     id = Column(Integer, primary_key=True, index=True)
-    # email = Column(String(255), unique=True)
-    # username = Column(String(100), unique=True)
     username = Column(String(255), unique=True, index=True)
-    password = Column(String(255))  # We'll hash this later
+    password = Column(String(255))
+    role = Column(String(20), nullable=False, default="admin")
