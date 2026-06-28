@@ -24,8 +24,10 @@ export default function MaagapLogin() {
       });
 
       const role = response.data.role;
+      const token = response.data.access_token;
 
       localStorage.setItem("role", role);
+      localStorage.setItem("token", token);
 
       if (role === "manager") {
         navigate("/overview");

@@ -53,7 +53,10 @@ export default function CreateAccountModal({ isOpen, onClose }) {
     try {
       const response = await fetch("http://localhost:8000/users", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
         body: JSON.stringify({
           username: form.username,
           password: form.password,

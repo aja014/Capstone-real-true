@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.security import hash_password
-from Backend.app.services.user_service import get_user_by_username
+from app.services.user_service import get_user_by_username
+from app.security import get_current_user
 
 from app.database import get_db
 from app import models, schemas
@@ -13,7 +14,13 @@ router = APIRouter(
 
 
 @router.post("/users")
-def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+@router.post("/users")
+def create_user( user: schemas.UserCreate, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+    if current_user.role != "manager":
+        raise HTTPException(
+            status_code=403,
+            detail="Only managers can create admin accounts."
+        )
 
     existing_user = get_user_by_username(db, user.username)
 
