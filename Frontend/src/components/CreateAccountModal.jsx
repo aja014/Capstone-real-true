@@ -147,14 +147,14 @@ export default function CreateAccountModal({ isOpen, onClose }) {
                             {errors.username && <p className="text-[10px] text-red-500 mt-1 ml-1">{errors.username}</p>}
                         </div> */}
 
-            {/* Full Name */}
+            {/* Username */}
             <div>
               <div
                 className={`flex items-center gap-2 bg-white rounded-xl px-4 py-3 border ${errors.username ? "border-red-400" : "border-gray-200"} focus-within:border-yellow-400 transition`}
               >
                 <User size={15} className="text-gray-400 flex-shrink-0" />
                 <span className="text-xs font-semibold text-gray-600 whitespace-nowrap">
-                  Full Name
+                  Username
                 </span>
                 <input
                   type="text"

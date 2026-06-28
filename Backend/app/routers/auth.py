@@ -1,6 +1,8 @@
-import bcrypt
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from app.security import verify_password
+from Backend.app.services.user_service import get_user_by_username
+
 
 from app.database import get_db
 from app import models, schemas
@@ -9,10 +11,6 @@ router = APIRouter(
     prefix="",
     tags=["Authentication"]
 )
-
-
-def get_user_by_username(db: Session, username: str):
-    return db.query(models.User).filter(models.User.username == username).first()
 
 
 @router.post("/login")
@@ -26,12 +24,7 @@ def login(user: schemas.UserLogin, db: Session = Depends(get_db)):
             detail="Invalid username or password"
         )
 
-    password_matches = bcrypt.checkpw(
-        user.password.encode("utf-8"),
-        db_user.password.encode("utf-8")
-    )
-
-    if not password_matches:
+    if not verify_password(user.password, db_user.password):
         raise HTTPException(
             status_code=401,
             detail="Invalid username or password"
