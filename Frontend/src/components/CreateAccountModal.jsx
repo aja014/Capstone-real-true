@@ -10,6 +10,7 @@ import {
   CheckCircle,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import api from "../api/api";
 
 import Logo from "../img/MAAGAP_LOGO.png";
 
@@ -51,32 +52,24 @@ export default function CreateAccountModal({ isOpen, onClose }) {
     setLoading(true);
 
     try {
-      const response = await fetch("http://localhost:8000/users", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
-        body: JSON.stringify({
-          username: form.username,
-          password: form.password,
-        }),
+      await api.post("/users", {
+        username: form.username,
+        password: form.password,
       });
 
-      // ✅ Read response body even for errors
-      const data = await response.json();
-
-      if (response.ok) {
-        setStep("success");
-      } else {
-        // ✅ Show the error from backend
-        console.log("Full error response:", data);
-        const errorMessage = data.detail || "Registration failed";
-        setErrors({ submit: errorMessage });
-      }
+      setStep("success");
     } catch (error) {
-      console.error("Network error:", error);
-      setErrors({ submit: "Network error. Is backend running?" });
+      console.error(error);
+
+      if (error.response) {
+        setErrors({
+          submit: error.response.data.detail || "Registration failed",
+        });
+      } else {
+        setErrors({
+          submit: "Network error. Is backend running?",
+        });
+      }
     } finally {
       setLoading(false);
     }

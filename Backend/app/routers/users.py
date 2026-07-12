@@ -14,7 +14,6 @@ router = APIRouter(
 
 
 @router.post("/users")
-@router.post("/users")
 def create_user( user: schemas.UserCreate, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     if current_user.role != "manager":
         raise HTTPException(
