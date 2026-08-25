@@ -1,0 +1,253 @@
+import re
+import pandas as pd
+from rapidfuzz import fuzz
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app import models, schemas
+
+router = APIRouter(
+    prefix="/import/fire-property",
+    tags=["Bulk Import — Fire & Property"]
+)
+
+# ------------------------------------------------------------
+# Thresholds — same starting points as the Policyholder import.
+# Retune once real company data is available.
+# ------------------------------------------------------------
+MATCH_THRESHOLD = 90
+REVIEW_THRESHOLD = 70
+SURVEY_DUPLICATE_THRESHOLD = 85  # how similar location_of_risk must be to call it the same property
+
+
+SURVEY_COLUMN_MAP = {
+    "nameofinsured": "name_of_insured",
+    "contactperson": "contact_person",
+    "briefdescriptionofownersbusiness": "owner_business_description",
+    "locationofrisk": "location_of_risk",
+    "districtnoblockno": "district_block_no",
+    "telfaxno": "tel_fax_no",
+    "currentblockaccumulation": "current_block_accumulation",
+    "zone": "zone",
+    "ti": "ti",
+    "riskclass": "risk_class",
+    "description": "description",
+    "maximumamountsubject": "maximum_amount_subject",
+    "lossrecord": "loss_record",
+}
+
+
+def normalize_header(header: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(header).strip().lower())
+
+
+def clean_cell_value(value):
+    """
+    Converts a pandas cell value to a clean string. If an Excel column mixes
+    numbers with any blank cells, pandas upcasts the whole column to float64
+    (e.g. a phone/reference number becomes "...0"). This strips that fake
+    trailing ".0" while leaving genuine decimals untouched.
+    """
+    if pd.isna(value):
+        return None
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def row_to_survey_fields(row: pd.Series) -> dict:
+    fields = {}
+    for col, value in row.items():
+        mapped = SURVEY_COLUMN_MAP.get(normalize_header(col))
+        if mapped:
+            cleaned = clean_cell_value(value)
+            if cleaned is not None:
+                fields[mapped] = cleaned
+
+    # maximum_amount_subject needs to become a real number — strip "Php", commas, spaces
+    if "maximum_amount_subject" in fields:
+        cleaned = re.sub(r"[^\d.]", "", fields["maximum_amount_subject"])
+        fields["maximum_amount_subject"] = cleaned if cleaned else None
+
+    return fields
+
+
+def full_name(last: str, first: str = "", middle: str = "") -> str:
+    return f"{first or ''} {middle or ''} {last or ''}".strip().lower()
+
+
+def match_score(cn, cp, en, ep) -> float:
+    """
+    Policyholder-level match: name + phone only.
+    NOTE: deliberately does NOT factor in location_of_risk. That field is the
+    PROPERTY's address, not the policyholder's — the same company insuring two
+    different properties would otherwise score as "different companies" just
+    because the locations differ. Location-based duplicate detection happens
+    separately, at the survey level (see the duplicate-survey check below).
+    """
+    name_score = fuzz.token_sort_ratio(cn, en)
+    phone_match = 100 if cp and cp == ep else 0
+    return (name_score * 0.8) + (phone_match * 0.2)
+
+
+@router.post("/surveys/upload", response_model=schemas.ImportSummary)
+def upload_surveys(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    if not file.filename.lower().endswith((".xlsx", ".xls", ".csv")):
+        raise HTTPException(status_code=400, detail="Only .xlsx, .xls, or .csv files are supported")
+
+    try:
+        df = pd.read_csv(file.file) if file.filename.lower().endswith(".csv") else pd.read_excel(file.file)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not read file: {e}")
+
+    # Policyholder comparison pool — same pending-pool pattern as the
+    # Customer Information import, so in-batch ambiguous rows still chain correctly.
+    ph_pool = []
+    for ph in db.query(models.Policyholder).all():
+        ph_pool.append({
+            "source": "db", "id": ph.id,
+            "name": full_name(ph.last_name, ph.first_name, ph.middle_name),
+            "addr": (ph.present_address or "").lower(),
+            "phone": (ph.mobile_number or "").strip(),
+        })
+
+    matched_count = 0
+    unmatched_created_count = 0
+    needs_review_count = 0
+    import_record_ids = []
+
+    for idx, row in df.iterrows():
+        source_row = idx + 2
+        fields = row_to_survey_fields(row)
+        raw_data = {str(k): clean_cell_value(v) for k, v in row.items()}
+
+        candidate_name = full_name(fields.get("name_of_insured", ""))
+        candidate_addr = (fields.get("location_of_risk") or "").lower()
+        candidate_phone = (fields.get("tel_fax_no") or "").strip()
+
+        best_score, best_entry = 0, None
+        for entry in ph_pool:
+            score = match_score(candidate_name, candidate_phone, entry["name"], entry["phone"])
+            if score > best_score:
+                best_score, best_entry = score, entry
+
+        matched_case_id = None
+
+        # ------------------------------------------------------------
+        # STEP 1 — resolve the policyholder
+        # ------------------------------------------------------------
+        if best_score >= MATCH_THRESHOLD and best_entry and best_entry["source"] == "db":
+            policyholder_id = best_entry["id"]
+            is_new_policyholder = False
+
+        elif best_score >= REVIEW_THRESHOLD:
+            # Ambiguous — pause the whole row, don't touch cases/surveys
+            record = models.ImportRecord(
+                source_file=file.filename, source_row=source_row,
+                match_status=models.MatchStatus.needs_review,
+                raw_data=raw_data,
+            )
+            db.add(record)
+            db.commit()
+            db.refresh(record)
+            import_record_ids.append(record.id)
+            needs_review_count += 1
+
+            ph_pool.append({
+                "source": "pending", "id": None,
+                "name": candidate_name, "addr": candidate_addr, "phone": candidate_phone,
+            })
+            continue
+
+        else:
+            # Brand new policyholder (individual OR business name in last_name)
+            new_ph = models.Policyholder(last_name=fields.get("name_of_insured", "").strip() or None)
+            db.add(new_ph)
+            db.commit()
+            db.refresh(new_ph)
+
+            ph_pool.append({
+                "source": "db", "id": new_ph.id,
+                "name": candidate_name, "addr": candidate_addr, "phone": candidate_phone,
+            })
+
+            policyholder_id = new_ph.id
+            is_new_policyholder = True
+
+        # ------------------------------------------------------------
+        # STEP 2 — for a KNOWN policyholder, check for a duplicate survey.
+        # A brand new policyholder can't have a duplicate, so skip straight to creating.
+        # ------------------------------------------------------------
+        is_duplicate = False
+
+        if not is_new_policyholder:
+            existing_surveys = (
+                db.query(models.FirePropertySurvey)
+                .join(models.InsuranceCase)
+                .filter(
+                    models.InsuranceCase.policyholder_id == policyholder_id,
+                    models.InsuranceCase.line_type == models.LineType.fire_property,
+                )
+                .all()
+            )
+
+            best_dup_score, best_dup_case_id = 0, None
+            for survey in existing_surveys:
+                existing_loc = (survey.location_of_risk or "").lower()
+                score = fuzz.token_sort_ratio(candidate_addr, existing_loc) if candidate_addr and existing_loc else 0
+                if score > best_dup_score:
+                    best_dup_score, best_dup_case_id = score, survey.insurance_case_id
+
+            if best_dup_score >= SURVEY_DUPLICATE_THRESHOLD:
+                is_duplicate = True
+                matched_case_id = best_dup_case_id
+
+        # ------------------------------------------------------------
+        # STEP 3 — create the case + survey, unless it's a confirmed duplicate
+        # ------------------------------------------------------------
+        if is_duplicate:
+            status = models.MatchStatus.matched
+            matched_count += 1
+        else:
+            new_case = models.InsuranceCase(
+                policyholder_id=policyholder_id,
+                line_type=models.LineType.fire_property,
+            )
+            db.add(new_case)
+            db.commit()
+            db.refresh(new_case)
+
+            survey_fields = {k: v for k, v in fields.items() if k != "name_of_insured"}
+            new_survey = models.FirePropertySurvey(
+                insurance_case_id=new_case.id,
+                name_of_insured=fields.get("name_of_insured"),
+                **survey_fields,
+            )
+            db.add(new_survey)
+            db.commit()
+
+            matched_case_id = new_case.id
+            status = models.MatchStatus.unmatched
+            unmatched_created_count += 1
+
+        record = models.ImportRecord(
+            source_file=file.filename, source_row=source_row,
+            match_status=status,
+            matched_policyholder_id=policyholder_id,
+            matched_case_id=matched_case_id,
+            raw_data=raw_data,
+        )
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        import_record_ids.append(record.id)
+
+    return schemas.ImportSummary(
+        source_file=file.filename,
+        total_rows=len(df),
+        matched=matched_count,
+        unmatched_created=unmatched_created_count,
+        needs_review=needs_review_count,
+        import_record_ids=import_record_ids,
+    )
