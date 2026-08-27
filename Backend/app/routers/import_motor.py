@@ -124,55 +124,139 @@ def upload_motor_quotations(file: UploadFile = File(...), db: Session = Depends(
     matched_count = 0
     unmatched_created_count = 0
     needs_review_count = 0
+    failed_count = 0
     import_record_ids = []
+    errors = []
 
     for idx, row in df.iterrows():
         source_row = idx + 2
-        fields = row_to_fields(row)
-        raw_data = {str(k): clean_cell_value(v) for k, v in row.items()}
 
-        plate_no = fields.get("plate_no", "")
-        engine_no = fields.get("motor_engine_no", "")
-        chassis_no = fields.get("serial_chassis_no", "")
+        try:
+            fields = row_to_fields(row)
+            raw_data = {str(k): clean_cell_value(v) for k, v in row.items()}
 
-        existing_vehicle = find_existing_vehicle(db, plate_no, engine_no, chassis_no)
+            plate_no = fields.get("plate_no", "")
+            engine_no = fields.get("motor_engine_no", "")
+            chassis_no = fields.get("serial_chassis_no", "")
 
-        matched_policyholder_id = None
-        matched_case_id = None
+            existing_vehicle = find_existing_vehicle(db, plate_no, engine_no, chassis_no)
 
-        # ------------------------------------------------------------
-        # CASE A — this exact vehicle is already known.
-        # This is a re-quote: reuse its existing case, unless this specific
-        # quotation (same date + same amount) is a re-uploaded duplicate.
-        # ------------------------------------------------------------
-        if existing_vehicle:
-            case = existing_vehicle.insurance_case
-            matched_policyholder_id = case.policyholder_id
-            matched_case_id = case.id
+            matched_policyholder_id = None
+            matched_case_id = None
 
-            existing_quotations = db.query(models.MotorQuotation).filter(
-                models.MotorQuotation.vehicle_id == existing_vehicle.id
-            ).all()
+            # ------------------------------------------------------------
+            # CASE A — this exact vehicle is already known.
+            # This is a re-quote: reuse its existing case, unless this specific
+            # quotation (same date + same amount) is a re-uploaded duplicate.
+            # ------------------------------------------------------------
+            if existing_vehicle:
+                case = existing_vehicle.insurance_case
+                matched_policyholder_id = case.policyholder_id
+                matched_case_id = case.id
 
-            def _amount_equal(a, b):
-                try:
-                    return a is not None and b is not None and float(a) == float(b)
-                except (TypeError, ValueError):
-                    return False
+                existing_quotations = db.query(models.MotorQuotation).filter(
+                    models.MotorQuotation.vehicle_id == existing_vehicle.id
+                ).all()
 
-            is_duplicate = any(
-                q.quotation_date == fields.get("quotation_date")
-                and _amount_equal(q.total_amount_due, fields.get("total_amount_due"))
-                for q in existing_quotations
-            )
+                def _amount_equal(a, b):
+                    try:
+                        return a is not None and b is not None and float(a) == float(b)
+                    except (TypeError, ValueError):
+                        return False
 
-            if is_duplicate:
-                status = models.MatchStatus.matched
-                matched_count += 1
+                is_duplicate = any(
+                    q.quotation_date == fields.get("quotation_date")
+                    and _amount_equal(q.total_amount_due, fields.get("total_amount_due"))
+                    for q in existing_quotations
+                )
+
+                if is_duplicate:
+                    status = models.MatchStatus.matched
+                else:
+                    new_quotation = models.MotorQuotation(
+                        insurance_case_id=case.id,
+                        vehicle_id=existing_vehicle.id,
+                        quotation_date=fields.get("quotation_date") or None,
+                        insured_name=fields.get("insured_name"),
+                        address=fields.get("address"),
+                        unit=fields.get("unit"),
+                        classification=fields.get("classification"),
+                        color=fields.get("color"),
+                        deductible=fields.get("deductible") or None,
+                        plate_no=plate_no or None,
+                        total_amount_due=fields.get("total_amount_due") or None,
+                    )
+                    db.add(new_quotation)
+                    db.flush()
+
+                    status = models.MatchStatus.unmatched
+
+            # ------------------------------------------------------------
+            # CASE B — brand new vehicle. Match/create the owner, then create
+            # a fresh case + vehicle + quotation.
+            # ------------------------------------------------------------
             else:
+                candidate_name = full_name(fields.get("insured_name", ""))
+
+                best_score, best_entry = 0, None
+                for entry in ph_pool:
+                    score = fuzz.token_sort_ratio(candidate_name, entry["name"])
+                    if score > best_score:
+                        best_score, best_entry = score, entry
+
+                if best_score >= MATCH_THRESHOLD and best_entry:
+                    policyholder_id = best_entry["id"]
+
+                elif best_score >= REVIEW_THRESHOLD:
+                    record = models.ImportRecord(
+                        source_file=file.filename, source_row=source_row,
+                        match_status=models.MatchStatus.needs_review,
+                        raw_data=raw_data,
+                    )
+                    db.add(record)
+                    db.flush()
+                    db.refresh(record)
+                    db.commit()
+
+                    import_record_ids.append(record.id)
+                    needs_review_count += 1
+                    continue
+
+                else:
+                    new_ph = models.Policyholder(last_name=fields.get("insured_name", "").strip() or None)
+                    db.add(new_ph)
+                    db.flush()
+                    db.refresh(new_ph)
+
+                    ph_pool.append({"source": "db", "id": new_ph.id, "name": candidate_name})
+                    policyholder_id = new_ph.id
+
+                new_case = models.InsuranceCase(
+                    policyholder_id=policyholder_id,
+                    line_type=models.LineType.motor_car,
+                )
+                db.add(new_case)
+                db.flush()
+                db.refresh(new_case)
+
+                new_vehicle = models.Vehicle(
+                    insurance_case_id=new_case.id,
+                    model=fields.get("model"),
+                    make=fields.get("make"),
+                    body_type=fields.get("body_type"),
+                    color=fields.get("color"),
+                    plate_no=plate_no or None,
+                    motor_engine_no=engine_no or None,
+                    serial_chassis_no=chassis_no or None,
+                    authorized_capacity=fields.get("authorized_capacity"),
+                )
+                db.add(new_vehicle)
+                db.flush()
+                db.refresh(new_vehicle)
+
                 new_quotation = models.MotorQuotation(
-                    insurance_case_id=case.id,
-                    vehicle_id=existing_vehicle.id,
+                    insurance_case_id=new_case.id,
+                    vehicle_id=new_vehicle.id,
                     quotation_date=fields.get("quotation_date") or None,
                     insured_name=fields.get("insured_name"),
                     address=fields.get("address"),
@@ -184,104 +268,38 @@ def upload_motor_quotations(file: UploadFile = File(...), db: Session = Depends(
                     total_amount_due=fields.get("total_amount_due") or None,
                 )
                 db.add(new_quotation)
-                db.commit()
+                db.flush()
 
+                matched_policyholder_id = policyholder_id
+                matched_case_id = new_case.id
                 status = models.MatchStatus.unmatched
+
+            record = models.ImportRecord(
+                source_file=file.filename, source_row=source_row,
+                match_status=status,
+                matched_policyholder_id=matched_policyholder_id,
+                matched_case_id=matched_case_id,
+                raw_data=raw_data,
+            )
+            db.add(record)
+            db.flush()
+            db.refresh(record)
+
+            db.commit()  # everything created for this row is saved together, or not at all
+
+            import_record_ids.append(record.id)
+            if status == models.MatchStatus.matched:
+                matched_count += 1
+            else:
                 unmatched_created_count += 1
 
-        # ------------------------------------------------------------
-        # CASE B — brand new vehicle. Match/create the owner, then create
-        # a fresh case + vehicle + quotation.
-        # ------------------------------------------------------------
-        else:
-            candidate_name = full_name(fields.get("insured_name", ""))
-
-            best_score, best_entry = 0, None
-            for entry in ph_pool:
-                score = fuzz.token_sort_ratio(candidate_name, entry["name"])
-                if score > best_score:
-                    best_score, best_entry = score, entry
-
-            if best_score >= MATCH_THRESHOLD and best_entry:
-                policyholder_id = best_entry["id"]
-
-            elif best_score >= REVIEW_THRESHOLD:
-                record = models.ImportRecord(
-                    source_file=file.filename, source_row=source_row,
-                    match_status=models.MatchStatus.needs_review,
-                    raw_data=raw_data,
-                )
-                db.add(record)
-                db.commit()
-                db.refresh(record)
-                import_record_ids.append(record.id)
-                needs_review_count += 1
-                continue
-
-            else:
-                new_ph = models.Policyholder(last_name=fields.get("insured_name", "").strip() or None)
-                db.add(new_ph)
-                db.commit()
-                db.refresh(new_ph)
-
-                ph_pool.append({"source": "db", "id": new_ph.id, "name": candidate_name})
-                policyholder_id = new_ph.id
-
-            new_case = models.InsuranceCase(
-                policyholder_id=policyholder_id,
-                line_type=models.LineType.motor_car,
-            )
-            db.add(new_case)
-            db.commit()
-            db.refresh(new_case)
-
-            new_vehicle = models.Vehicle(
-                insurance_case_id=new_case.id,
-                model=fields.get("model"),
-                make=fields.get("make"),
-                body_type=fields.get("body_type"),
-                color=fields.get("color"),
-                plate_no=plate_no or None,
-                motor_engine_no=engine_no or None,
-                serial_chassis_no=chassis_no or None,
-                authorized_capacity=fields.get("authorized_capacity"),
-            )
-            db.add(new_vehicle)
-            db.commit()
-            db.refresh(new_vehicle)
-
-            new_quotation = models.MotorQuotation(
-                insurance_case_id=new_case.id,
-                vehicle_id=new_vehicle.id,
-                quotation_date=fields.get("quotation_date") or None,
-                insured_name=fields.get("insured_name"),
-                address=fields.get("address"),
-                unit=fields.get("unit"),
-                classification=fields.get("classification"),
-                color=fields.get("color"),
-                deductible=fields.get("deductible") or None,
-                plate_no=plate_no or None,
-                total_amount_due=fields.get("total_amount_due") or None,
-            )
-            db.add(new_quotation)
-            db.commit()
-
-            matched_policyholder_id = policyholder_id
-            matched_case_id = new_case.id
-            status = models.MatchStatus.unmatched
-            unmatched_created_count += 1
-
-        record = models.ImportRecord(
-            source_file=file.filename, source_row=source_row,
-            match_status=status,
-            matched_policyholder_id=matched_policyholder_id,
-            matched_case_id=matched_case_id,
-            raw_data=raw_data,
-        )
-        db.add(record)
-        db.commit()
-        db.refresh(record)
-        import_record_ids.append(record.id)
+        except Exception as e:
+            # One bad row should never take down the whole upload. Undo
+            # anything this row partially created, record what went wrong,
+            # and move on to the next row.
+            db.rollback()
+            failed_count += 1
+            errors.append(schemas.ImportRowError(source_row=source_row, error=str(e)))
 
     return schemas.ImportSummary(
         source_file=file.filename,
@@ -289,5 +307,7 @@ def upload_motor_quotations(file: UploadFile = File(...), db: Session = Depends(
         matched=matched_count,
         unmatched_created=unmatched_created_count,
         needs_review=needs_review_count,
+        failed=failed_count,
         import_record_ids=import_record_ids,
+        errors=errors,
     )

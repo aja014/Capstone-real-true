@@ -127,85 +127,107 @@ def upload_policyholders(file: UploadFile = File(...), db: Session = Depends(get
     matched_count = 0
     unmatched_created_count = 0
     needs_review_count = 0
+    failed_count = 0
     import_record_ids = []
+    errors = []
 
     for idx, row in df.iterrows():
         source_row = idx + 2  # +2 accounts for the header row + 0-based index, matching Excel's row numbers
-        fields = row_to_policyholder_fields(row)
-        raw_data = {str(k): clean_cell_value(v) for k, v in row.items()}
 
-        candidate_name = full_name(
-            fields.get("last_name", ""),
-            fields.get("first_name", ""),
-            fields.get("middle_name", "")
-        )
-        candidate_addr = (fields.get("present_address") or "").lower()
-        candidate_phone = (fields.get("mobile_number") or "").strip()
+        try:
+            fields = row_to_policyholder_fields(row)
+            raw_data = {str(k): clean_cell_value(v) for k, v in row.items()}
 
-        best_score = 0
-        best_entry = None
-        for entry in pool:
-            score = match_score(
-                candidate_name, candidate_addr, candidate_phone,
-                entry["name"], entry["addr"], entry["phone"]
+            candidate_name = full_name(
+                fields.get("last_name", ""),
+                fields.get("first_name", ""),
+                fields.get("middle_name", "")
             )
-            if score > best_score:
-                best_score = score
-                best_entry = entry
+            candidate_addr = (fields.get("present_address") or "").lower()
+            candidate_phone = (fields.get("mobile_number") or "").strip()
 
-        if best_score >= MATCH_THRESHOLD and best_entry and best_entry["source"] == "db":
-            # Confidently the same, already-confirmed person
-            status = models.MatchStatus.matched
-            matched_policyholder_id = best_entry["id"]
-            matched_count += 1
+            best_score = 0
+            best_entry = None
+            for entry in pool:
+                score = match_score(
+                    candidate_name, candidate_addr, candidate_phone,
+                    entry["name"], entry["addr"], entry["phone"]
+                )
+                if score > best_score:
+                    best_score = score
+                    best_entry = entry
 
-        elif best_score >= REVIEW_THRESHOLD:
-            # Either close to a confirmed record, or close to another
-            # ambiguous row earlier in this same file — either way, a
-            # human should look at it. Add it to the pool so any FURTHER
-            # duplicates later in the file also get linked to this group.
-            status = models.MatchStatus.needs_review
-            matched_policyholder_id = None
-            needs_review_count += 1
+            if best_score >= MATCH_THRESHOLD and best_entry and best_entry["source"] == "db":
+                # Confidently the same, already-confirmed person
+                status = models.MatchStatus.matched
+                matched_policyholder_id = best_entry["id"]
 
-            pool.append({
-                "source": "pending",
-                "id": None,
-                "name": candidate_name,
-                "addr": candidate_addr,
-                "phone": candidate_phone,
-            })
+            elif best_score >= REVIEW_THRESHOLD:
+                # Either close to a confirmed record, or close to another
+                # ambiguous row earlier in this same file — either way, a
+                # human should look at it. Add it to the pool so any FURTHER
+                # duplicates later in the file also get linked to this group.
+                status = models.MatchStatus.needs_review
+                matched_policyholder_id = None
 
-        else:
-            # Confidently new — auto-create the policyholder
-            new_ph = models.Policyholder(**fields)
-            db.add(new_ph)
-            db.commit()
-            db.refresh(new_ph)
+                pool.append({
+                    "source": "pending",
+                    "id": None,
+                    "name": candidate_name,
+                    "addr": candidate_addr,
+                    "phone": candidate_phone,
+                })
 
-            status = models.MatchStatus.unmatched
-            matched_policyholder_id = new_ph.id
-            unmatched_created_count += 1
+            else:
+                # Confidently new — auto-create the policyholder.
+                # flush() (not commit()) pushes this to the DB and assigns a
+                # real ID within the CURRENT transaction, without finalizing
+                # it — so if anything later in this row fails, rolling back
+                # undoes this too, instead of leaving an orphaned record.
+                new_ph = models.Policyholder(**fields)
+                db.add(new_ph)
+                db.flush()
+                db.refresh(new_ph)
 
-            pool.append({
-                "source": "db",
-                "id": new_ph.id,
-                "name": candidate_name,
-                "addr": candidate_addr,
-                "phone": candidate_phone,
-            })
+                status = models.MatchStatus.unmatched
+                matched_policyholder_id = new_ph.id
 
-        import_record = models.ImportRecord(
-            source_file=file.filename,
-            source_row=source_row,
-            match_status=status,
-            matched_policyholder_id=matched_policyholder_id,
-            raw_data=raw_data,
-        )
-        db.add(import_record)
-        db.commit()
-        db.refresh(import_record)
-        import_record_ids.append(import_record.id)
+                pool.append({
+                    "source": "db",
+                    "id": new_ph.id,
+                    "name": candidate_name,
+                    "addr": candidate_addr,
+                    "phone": candidate_phone,
+                })
+
+            import_record = models.ImportRecord(
+                source_file=file.filename,
+                source_row=source_row,
+                match_status=status,
+                matched_policyholder_id=matched_policyholder_id,
+                raw_data=raw_data,
+            )
+            db.add(import_record)
+            db.flush()
+            db.refresh(import_record)
+
+            db.commit()  # everything created for this row is saved together, or not at all
+
+            import_record_ids.append(import_record.id)
+            if status == models.MatchStatus.matched:
+                matched_count += 1
+            elif status == models.MatchStatus.needs_review:
+                needs_review_count += 1
+            else:
+                unmatched_created_count += 1
+
+        except Exception as e:
+            # One bad row should never take down the whole upload. Undo
+            # anything this row partially created, record what went wrong,
+            # and move on to the next row.
+            db.rollback()
+            failed_count += 1
+            errors.append(schemas.ImportRowError(source_row=source_row, error=str(e)))
 
     return schemas.ImportSummary(
         source_file=file.filename,
@@ -213,7 +235,9 @@ def upload_policyholders(file: UploadFile = File(...), db: Session = Depends(get
         matched=matched_count,
         unmatched_created=unmatched_created_count,
         needs_review=needs_review_count,
+        failed=failed_count,
         import_record_ids=import_record_ids,
+        errors=errors,
     )
 
 

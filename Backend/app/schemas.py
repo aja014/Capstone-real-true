@@ -29,7 +29,7 @@ class LineType(str, Enum):
 
 class PolicyholderCreate(BaseModel):
     last_name: str
-    first_name: str
+    first_name: Optional[str] = None  # blank for business-name-only records (e.g. Fire/Property "Name of Insured")
     middle_name: Optional[str] = None
     nationality: Optional[str] = None
     marital_status: Optional[str] = None
@@ -298,13 +298,20 @@ class ImportRecordOut(BaseModel):
         from_attributes = True
 
 
+class ImportRowError(BaseModel):
+    source_row: Optional[int] = None
+    error: str
+
+
 class ImportSummary(BaseModel):
     source_file: str
     total_rows: int
     matched: int
     unmatched_created: int
     needs_review: int
+    failed: int = 0
     import_record_ids: list[int]
+    errors: list[ImportRowError] = []
 
 
 class ResolveImportRecord(BaseModel):

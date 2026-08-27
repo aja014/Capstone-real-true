@@ -115,133 +115,154 @@ def upload_surveys(file: UploadFile = File(...), db: Session = Depends(get_db)):
     matched_count = 0
     unmatched_created_count = 0
     needs_review_count = 0
+    failed_count = 0
     import_record_ids = []
+    errors = []
 
     for idx, row in df.iterrows():
         source_row = idx + 2
-        fields = row_to_survey_fields(row)
-        raw_data = {str(k): clean_cell_value(v) for k, v in row.items()}
 
-        candidate_name = full_name(fields.get("name_of_insured", ""))
-        candidate_addr = (fields.get("location_of_risk") or "").lower()
-        candidate_phone = (fields.get("tel_fax_no") or "").strip()
+        try:
+            fields = row_to_survey_fields(row)
+            raw_data = {str(k): clean_cell_value(v) for k, v in row.items()}
 
-        best_score, best_entry = 0, None
-        for entry in ph_pool:
-            score = match_score(candidate_name, candidate_phone, entry["name"], entry["phone"])
-            if score > best_score:
-                best_score, best_entry = score, entry
+            candidate_name = full_name(fields.get("name_of_insured", ""))
+            candidate_addr = (fields.get("location_of_risk") or "").lower()
+            candidate_phone = (fields.get("tel_fax_no") or "").strip()
 
-        matched_case_id = None
+            best_score, best_entry = 0, None
+            for entry in ph_pool:
+                score = match_score(candidate_name, candidate_phone, entry["name"], entry["phone"])
+                if score > best_score:
+                    best_score, best_entry = score, entry
 
-        # ------------------------------------------------------------
-        # STEP 1 — resolve the policyholder
-        # ------------------------------------------------------------
-        if best_score >= MATCH_THRESHOLD and best_entry and best_entry["source"] == "db":
-            policyholder_id = best_entry["id"]
-            is_new_policyholder = False
+            matched_case_id = None
 
-        elif best_score >= REVIEW_THRESHOLD:
-            # Ambiguous — pause the whole row, don't touch cases/surveys
+            # ------------------------------------------------------------
+            # STEP 1 — resolve the policyholder
+            # ------------------------------------------------------------
+            if best_score >= MATCH_THRESHOLD and best_entry and best_entry["source"] == "db":
+                policyholder_id = best_entry["id"]
+                is_new_policyholder = False
+
+            elif best_score >= REVIEW_THRESHOLD:
+                # Ambiguous — pause the whole row, don't touch cases/surveys
+                record = models.ImportRecord(
+                    source_file=file.filename, source_row=source_row,
+                    match_status=models.MatchStatus.needs_review,
+                    raw_data=raw_data,
+                )
+                db.add(record)
+                db.flush()
+                db.refresh(record)
+                db.commit()
+
+                import_record_ids.append(record.id)
+                needs_review_count += 1
+
+                ph_pool.append({
+                    "source": "pending", "id": None,
+                    "name": candidate_name, "addr": candidate_addr, "phone": candidate_phone,
+                })
+                continue
+
+            else:
+                # Brand new policyholder (individual OR business name in last_name).
+                # flush() (not commit()) so a later failure in this same row
+                # can still roll this back cleanly instead of leaving it orphaned.
+                new_ph = models.Policyholder(last_name=fields.get("name_of_insured", "").strip() or None)
+                db.add(new_ph)
+                db.flush()
+                db.refresh(new_ph)
+
+                ph_pool.append({
+                    "source": "db", "id": new_ph.id,
+                    "name": candidate_name, "addr": candidate_addr, "phone": candidate_phone,
+                })
+
+                policyholder_id = new_ph.id
+                is_new_policyholder = True
+
+            # ------------------------------------------------------------
+            # STEP 2 — for a KNOWN policyholder, check for a duplicate survey.
+            # A brand new policyholder can't have a duplicate, so skip straight to creating.
+            # ------------------------------------------------------------
+            is_duplicate = False
+
+            if not is_new_policyholder:
+                existing_surveys = (
+                    db.query(models.FirePropertySurvey)
+                    .join(models.InsuranceCase)
+                    .filter(
+                        models.InsuranceCase.policyholder_id == policyholder_id,
+                        models.InsuranceCase.line_type == models.LineType.fire_property,
+                    )
+                    .all()
+                )
+
+                best_dup_score, best_dup_case_id = 0, None
+                for survey in existing_surveys:
+                    existing_loc = (survey.location_of_risk or "").lower()
+                    score = fuzz.token_sort_ratio(candidate_addr, existing_loc) if candidate_addr and existing_loc else 0
+                    if score > best_dup_score:
+                        best_dup_score, best_dup_case_id = score, survey.insurance_case_id
+
+                if best_dup_score >= SURVEY_DUPLICATE_THRESHOLD:
+                    is_duplicate = True
+                    matched_case_id = best_dup_case_id
+
+            # ------------------------------------------------------------
+            # STEP 3 — create the case + survey, unless it's a confirmed duplicate
+            # ------------------------------------------------------------
+            if is_duplicate:
+                status = models.MatchStatus.matched
+            else:
+                new_case = models.InsuranceCase(
+                    policyholder_id=policyholder_id,
+                    line_type=models.LineType.fire_property,
+                )
+                db.add(new_case)
+                db.flush()
+                db.refresh(new_case)
+
+                survey_fields = {k: v for k, v in fields.items() if k != "name_of_insured"}
+                new_survey = models.FirePropertySurvey(
+                    insurance_case_id=new_case.id,
+                    name_of_insured=fields.get("name_of_insured"),
+                    **survey_fields,
+                )
+                db.add(new_survey)
+                db.flush()
+
+                matched_case_id = new_case.id
+                status = models.MatchStatus.unmatched
+
             record = models.ImportRecord(
                 source_file=file.filename, source_row=source_row,
-                match_status=models.MatchStatus.needs_review,
+                match_status=status,
+                matched_policyholder_id=policyholder_id,
+                matched_case_id=matched_case_id,
                 raw_data=raw_data,
             )
             db.add(record)
-            db.commit()
+            db.flush()
             db.refresh(record)
+
+            db.commit()  # everything created for this row is saved together, or not at all
+
             import_record_ids.append(record.id)
-            needs_review_count += 1
+            if status == models.MatchStatus.matched:
+                matched_count += 1
+            else:
+                unmatched_created_count += 1
 
-            ph_pool.append({
-                "source": "pending", "id": None,
-                "name": candidate_name, "addr": candidate_addr, "phone": candidate_phone,
-            })
-            continue
-
-        else:
-            # Brand new policyholder (individual OR business name in last_name)
-            new_ph = models.Policyholder(last_name=fields.get("name_of_insured", "").strip() or None)
-            db.add(new_ph)
-            db.commit()
-            db.refresh(new_ph)
-
-            ph_pool.append({
-                "source": "db", "id": new_ph.id,
-                "name": candidate_name, "addr": candidate_addr, "phone": candidate_phone,
-            })
-
-            policyholder_id = new_ph.id
-            is_new_policyholder = True
-
-        # ------------------------------------------------------------
-        # STEP 2 — for a KNOWN policyholder, check for a duplicate survey.
-        # A brand new policyholder can't have a duplicate, so skip straight to creating.
-        # ------------------------------------------------------------
-        is_duplicate = False
-
-        if not is_new_policyholder:
-            existing_surveys = (
-                db.query(models.FirePropertySurvey)
-                .join(models.InsuranceCase)
-                .filter(
-                    models.InsuranceCase.policyholder_id == policyholder_id,
-                    models.InsuranceCase.line_type == models.LineType.fire_property,
-                )
-                .all()
-            )
-
-            best_dup_score, best_dup_case_id = 0, None
-            for survey in existing_surveys:
-                existing_loc = (survey.location_of_risk or "").lower()
-                score = fuzz.token_sort_ratio(candidate_addr, existing_loc) if candidate_addr and existing_loc else 0
-                if score > best_dup_score:
-                    best_dup_score, best_dup_case_id = score, survey.insurance_case_id
-
-            if best_dup_score >= SURVEY_DUPLICATE_THRESHOLD:
-                is_duplicate = True
-                matched_case_id = best_dup_case_id
-
-        # ------------------------------------------------------------
-        # STEP 3 — create the case + survey, unless it's a confirmed duplicate
-        # ------------------------------------------------------------
-        if is_duplicate:
-            status = models.MatchStatus.matched
-            matched_count += 1
-        else:
-            new_case = models.InsuranceCase(
-                policyholder_id=policyholder_id,
-                line_type=models.LineType.fire_property,
-            )
-            db.add(new_case)
-            db.commit()
-            db.refresh(new_case)
-
-            survey_fields = {k: v for k, v in fields.items() if k != "name_of_insured"}
-            new_survey = models.FirePropertySurvey(
-                insurance_case_id=new_case.id,
-                name_of_insured=fields.get("name_of_insured"),
-                **survey_fields,
-            )
-            db.add(new_survey)
-            db.commit()
-
-            matched_case_id = new_case.id
-            status = models.MatchStatus.unmatched
-            unmatched_created_count += 1
-
-        record = models.ImportRecord(
-            source_file=file.filename, source_row=source_row,
-            match_status=status,
-            matched_policyholder_id=policyholder_id,
-            matched_case_id=matched_case_id,
-            raw_data=raw_data,
-        )
-        db.add(record)
-        db.commit()
-        db.refresh(record)
-        import_record_ids.append(record.id)
+        except Exception as e:
+            # One bad row should never take down the whole upload. Undo
+            # anything this row partially created, record what went wrong,
+            # and move on to the next row.
+            db.rollback()
+            failed_count += 1
+            errors.append(schemas.ImportRowError(source_row=source_row, error=str(e)))
 
     return schemas.ImportSummary(
         source_file=file.filename,
@@ -249,5 +270,7 @@ def upload_surveys(file: UploadFile = File(...), db: Session = Depends(get_db)):
         matched=matched_count,
         unmatched_created=unmatched_created_count,
         needs_review=needs_review_count,
+        failed=failed_count,
         import_record_ids=import_record_ids,
+        errors=errors,
     )
