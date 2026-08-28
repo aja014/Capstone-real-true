@@ -1,3 +1,4 @@
+import re
 import pandas as pd
 from rapidfuzz import fuzz
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
@@ -82,6 +83,26 @@ def full_name(last: str, first: str, middle: str = "") -> str:
     return f"{first or ''} {middle or ''} {last or ''}".strip().lower()
 
 
+def normalize_phone(value: str) -> str:
+    """
+    Strips formatting and reduces a phone number to its bare subscriber
+    number, so differently formatted versions of the same number are
+    recognized as equal. This needs to explicitly strip the PH country code
+    (63) and local trunk prefix (0) rather than just keeping the last N
+    digits — those two prefixes are different lengths, so "+63 49 543 2109"
+    and "049-543-2109" would otherwise misalign and still fail to match
+    despite being the exact same number.
+    """
+    if not value:
+        return ""
+    digits = re.sub(r"\D", "", value)
+    if digits.startswith("63") and len(digits) > 10:
+        digits = digits[2:]
+    if digits.startswith("0"):
+        digits = digits[1:]
+    return digits
+
+
 def match_score(candidate_name: str, candidate_addr: str, candidate_phone: str,
                  existing_name: str, existing_addr: str, existing_phone: str) -> float:
     """
@@ -121,7 +142,7 @@ def upload_policyholders(file: UploadFile = File(...), db: Session = Depends(get
             "id": ph.id,
             "name": full_name(ph.last_name, ph.first_name, ph.middle_name),
             "addr": (ph.present_address or "").lower(),
-            "phone": (ph.mobile_number or "").strip(),
+            "phone": normalize_phone(ph.mobile_number),
         })
 
     matched_count = 0
@@ -144,7 +165,7 @@ def upload_policyholders(file: UploadFile = File(...), db: Session = Depends(get
                 fields.get("middle_name", "")
             )
             candidate_addr = (fields.get("present_address") or "").lower()
-            candidate_phone = (fields.get("mobile_number") or "").strip()
+            candidate_phone = normalize_phone(fields.get("mobile_number"))
 
             best_score = 0
             best_entry = None

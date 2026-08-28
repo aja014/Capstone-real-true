@@ -70,11 +70,40 @@ def row_to_survey_fields(row: pd.Series) -> dict:
         cleaned = re.sub(r"[^\d.]", "", fields["maximum_amount_subject"])
         fields["maximum_amount_subject"] = cleaned if cleaned else None
 
+    # risk_class must be "a" or "b" — normalize case, and fail with a clear,
+    # specific message here rather than letting a bad value hit the database
+    # and surface as a raw "Data too long for column" error instead.
+    if "risk_class" in fields:
+        normalized = fields["risk_class"].strip().lower()
+        if normalized not in ("a", "b"):
+            raise ValueError(
+                f'risk_class must be "a" or "b", got "{fields["risk_class"]}"'
+            )
+        fields["risk_class"] = normalized
+
     return fields
 
 
 def full_name(last: str, first: str = "", middle: str = "") -> str:
     return f"{first or ''} {middle or ''} {last or ''}".strip().lower()
+
+
+def normalize_phone(value: str) -> str:
+    """
+    Strips formatting and reduces a phone number to its bare subscriber
+    number. Explicitly strips the PH country code (63) and local trunk
+    prefix (0) — those two prefixes are different lengths, so a naive
+    "keep the last N digits" approach would misalign local vs international
+    formats of the same number and still fail to match them.
+    """
+    if not value:
+        return ""
+    digits = re.sub(r"\D", "", value)
+    if digits.startswith("63") and len(digits) > 10:
+        digits = digits[2:]
+    if digits.startswith("0"):
+        digits = digits[1:]
+    return digits
 
 
 def match_score(cn, cp, en, ep) -> float:
@@ -109,7 +138,7 @@ def upload_surveys(file: UploadFile = File(...), db: Session = Depends(get_db)):
             "source": "db", "id": ph.id,
             "name": full_name(ph.last_name, ph.first_name, ph.middle_name),
             "addr": (ph.present_address or "").lower(),
-            "phone": (ph.mobile_number or "").strip(),
+            "phone": normalize_phone(ph.mobile_number),
         })
 
     matched_count = 0
@@ -128,7 +157,7 @@ def upload_surveys(file: UploadFile = File(...), db: Session = Depends(get_db)):
 
             candidate_name = full_name(fields.get("name_of_insured", ""))
             candidate_addr = (fields.get("location_of_risk") or "").lower()
-            candidate_phone = (fields.get("tel_fax_no") or "").strip()
+            candidate_phone = normalize_phone(fields.get("tel_fax_no"))
 
             best_score, best_entry = 0, None
             for entry in ph_pool:

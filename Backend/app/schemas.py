@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional, Any
@@ -110,6 +110,16 @@ class FirePropertySurveyCreate(BaseModel):
     longitude: Optional[Decimal] = None
     flood_risk_flag: Optional[bool] = None
     flood_risk_category: Optional[str] = None
+
+    @field_validator("risk_class")
+    @classmethod
+    def validate_risk_class(cls, v):
+        if v is None or v == "":
+            return v
+        v = v.strip().lower()
+        if v not in ("a", "b"):
+            raise ValueError('risk_class must be "a" (concrete) or "b" (concrete & wood/light materials)')
+        return v
 
 
 class FirePropertySurveyOut(FirePropertySurveyCreate):
