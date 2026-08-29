@@ -1,17 +1,20 @@
-import { useState } from "react";
-import { ChevronDown, Search, Upload, FileText } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { ChevronDown, Search, Upload, FileText, Trash2 } from "lucide-react";
+import axios from "axios";
 import Sidebar from "../components/sidebar";
 import UploadModal from "../components/UploadFileModal";
+import NeedsReviewModal from "../components/NeedsReviewModal";
 import { FullCalendarPicker } from "../components/DatePicker";
 import ImageForSurveyTable from "../img/Background_Cars.jpg"
 
+const API_BASE_URL = "http://127.0.0.1:8000";
 
-// ── Stat Cards 
+// ── Stat Cards
 const statCards = [
   { label: "Total Policies", value: "731" },
   { label: "Total Quotation", value: "934" },
   { label: "Total Claims", value: "421" },
-  { label: "Total Client Information", value: "1011" },
+  { label: "Total Client Information", value: null }, // filled in dynamically at render time
   { label: "Total Survey Report", value: "1011" },
 ];
 
@@ -70,23 +73,6 @@ const claimsData = [
   { claim: "CLM-3012", policy: "POL-1005", client: "Lina Mercado", loss: "03/25/2026", reported: "03/26/2026", line: "Fire & Property", type: "Fire", reserve: "₱1,550,000", paid: "₱0", status: "Approved", fraud: "No" },
 ];
 
-const clientData = [
-  { id: "CLT-001", client: "Juan Dela Cruz", age: 45, sex: "M", contact: "09171234567", email: "juan.delacruz@email.com", address: "22 F. Torres St., Barangay Calvario, Meycauayan City, Bulacan" },
-  { id: "CLT-002", client: "Maria Santos", age: 38, sex: "F", contact: "09281234568", email: "maria.santos@email.com", address: "45 Mabini St., Barangay Poblacion, Baliuag, Bulacan" },
-  { id: "CLT-003", client: "Ricardo Santiago", age: 52, sex: "M", contact: "09151234569", email: "ricardo.santiago@email.com", address: "78 Purok 3, Barangay Sta. Clara, Malolos City, Bulacan" },
-  { id: "CLT-004", client: "Sofia Ramirez", age: 29, sex: "F", contact: "09361234570", email: "sofia.ramirez@email.com", address: "22 F. Torres St., Barangay Calvario, Meycauayan City, Bulacan" },
-  { id: "CLT-005", client: "Antonio Reyes", age: 41, sex: "M", contact: "09181234571", email: "antonio.reyes@email.com", address: "56 Burgos St., Barangay Pulong Buhangin, Santa Maria, Bulacan" },
-  { id: "CLT-006", client: "Carmen Flores", age: 34, sex: "F", contact: "09451234572", email: "carmen.flores@email.com", address: "12 Purok 5, Barangay Lambakin, Marilao, Bulacan" },
-  { id: "CLT-007", client: "Gregorio Fernandez", age: 60, sex: "M", contact: "09221234573", email: "gregorio.fernandez@email.com", address: "89 Rizal Ave., Barangay San Vicente, Malolos City, Bulacan" },
-  { id: "CLT-008", client: "Elena Cruz", age: 27, sex: "F", contact: "09191234574", email: "elena.cruz@email.com", address: "34 M.H. Del Pilar St., Barangay San Jose, San Jose del Monte, Bulacan" },
-  { id: "CLT-009", client: "Manuel Chua", age: 48, sex: "M", contact: "09381234575", email: "manuel.chua@email.com", address: "67 Purok 2, Barangay Poblacion, Plaridel, Bulacan" },
-  { id: "CLT-010", client: "Melchora Aquino", age: 55, sex: "F", contact: "09491234576", email: "melchora.aquino@email.com", address: "34 Rizal St., Barangay Sta. Isabel, Malolos City, Bulacan" },
-  { id: "CLT-011", client: "Diego Santos", age: 33, sex: "M", contact: "09561234577", email: "diego.santos@email.com", address: "12 Purok 4, Barangay San Jose, Marilao, Bulacan" },
-  { id: "CLT-012", client: "Ana Reyes", age: 44, sex: "F", contact: "09671234578", email: "ana.reyes@email.com", address: "78 Mabini St., Barangay Poblacion, Malolos City, Bulacan" },
-  { id: "CLT-013", client: "Pedro Gomez", age: 37, sex: "M", contact: "09781234579", email: "pedro.gomez@email.com", address: "56 Burgos Ave., Barangay San Nicolas, San Jose del Monte, Bulacan" },
-  { id: "CLT-014", client: "Luisa Mercado", age: 50, sex: "F", contact: "09891234580", email: "luisa.mercado@email.com", address: "23 Purok 1, Barangay Sto. Cristo, Meycauayan City, Bulacan" },
-];
-
 const surveyData = [
   { id: "SURV-001", policy: "POL-1001", client: "Juan Dela Cruz", date: "01/10/2026", propType: "Motor Vehicle", location: "123 Rizal St., Malolos City", grade: "Low", findings: "Vehicle in good c...", reco: "Regular mainte...", photo: ImageForSurveyTable },
   { id: "SURV-002", policy: "POL-1002", client: "Maria Santos", date: "01/25/2026", propType: "Motor Vehicle", location: "45 Mabini St., Baliuag", grade: "Moderate", findings: "Minor scratches...", reco: "Secure accessori...", photo: ImageForSurveyTable },
@@ -101,15 +87,6 @@ const surveyData = [
   { id: "SURV-011", policy: "POL-1006", client: "Roberto Gomez", date: "03/12/2026", propType: "Commercial Building", location: "78 Purok 1, Malolos City", grade: "Moderate", findings: "Minor facade issues...", reco: "Repaint exterior...", photo: ImageForSurveyTable },
   { id: "SURV-012", policy: "POL-1015", client: "Elena Cruz", date: "03/15/2026", propType: "Motor Vehicle", location: "56 Burgos St., Santa Maria", grade: "Low", findings: "Good overall cond...", reco: "Routine check...", photo: ImageForSurveyTable },
 ];
-
-// ── Dataset map ───────────────────────────────────────────────────────────────
-const DATA_MAP = {
-  "Policy": policyData,
-  "Quotation": quotationData,
-  "Claims": claimsData,
-  "Client Information": clientData,
-  "Survey Report": surveyData,
-};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function Dropdown({ label, options, value, onChange }) {
@@ -203,20 +180,30 @@ function ClaimsTable({ rows }) {
   );
 }
 
-function ClientTable({ rows }) {
+function ClientTable({ rows, onDelete }) {
   return (
     <table className="w-full text-xs text-center">
       <thead><tr className="border-b border-gray-100">
-        {["Client ID", "Client Name", "Age", "Sex", "Contact Number", "Email Address", "Address"].map(h =>
+        {["Client ID", "Client Name", "Sex", "Contact Number", "Email Address", "Address", ""].map(h =>
           <th key={h} className="py-3 px-3 text-gray-700 font-bold whitespace-nowrap">{h}</th>)}
       </tr></thead>
       <tbody>{rows.map((r, i) => (
         <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 transition">
           <td className="py-3 px-3">{r.id}</td><td className="py-3 px-3">{r.client}</td>
-          <td className="py-3 px-3">{r.age}</td><td className="py-3 px-3">{r.sex}</td>
+          <td className="py-3 px-3">{r.sex}</td>
           <td className="py-3 px-3">{r.contact}</td>
           <td className="py-3 px-3 text-blue-500">{r.email}</td>
           <td className="py-3 px-3 text-left max-w-[180px]">{r.address}</td>
+          <td className="py-3 px-3">
+            <button
+              type="button"
+              title="Delete client"
+              onClick={() => onDelete?.(r)}
+              className="text-gray-400 hover:text-red-500 transition"
+            >
+              <Trash2 className="w-3.5 h-3.5 mx-auto" />
+            </button>
+          </td>
         </tr>
       ))}</tbody>
     </table>
@@ -293,6 +280,89 @@ export default function PolicyHolderInformation() {
   const [year, setYear] = useState(2026);
   const handleMonthChange = (m) => { setMonth(m); setPage(1); };
 
+  const [clientRecords, setClientRecords] = useState([]);
+  const [clientLoading, setClientLoading] = useState(true);
+  const [clientError, setClientError] = useState(null);
+
+  const fetchClients = useCallback(async () => {
+    setClientLoading(true);
+    setClientError(null);
+    try {
+      const token = localStorage.getItem("token");
+      const response = await axios.get(`${API_BASE_URL}/policyholders`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const transformed = response.data.map((p) => ({
+        id: p.id,
+        client: [p.first_name, p.middle_name, p.last_name].filter(Boolean).join(" "),
+        sex: p.gender || "",
+        contact: p.mobile_number || "",
+        email: p.email_address || "",
+        address: p.present_address || "",
+      }));
+      setClientRecords(transformed);
+    } catch (err) {
+      setClientError("Failed to load client information.");
+    } finally {
+      setClientLoading(false);
+    }
+  }, []);
+
+  const [needsReviewOpen, setNeedsReviewOpen] = useState(false);
+  const [needsReviewRecords, setNeedsReviewRecords] = useState([]);
+  const [needsReviewLoading, setNeedsReviewLoading] = useState(true);
+
+  const fetchNeedsReview = useCallback(async () => {
+    setNeedsReviewLoading(true);
+    try {
+      const token = localStorage.getItem("token");
+      const response = await axios.get(`${API_BASE_URL}/import/policyholders/needs-review`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      setNeedsReviewRecords(response.data);
+    } catch (err) {
+      // Non-fatal for the page — the badge just won't update.
+    } finally {
+      setNeedsReviewLoading(false);
+    }
+  }, []);
+
+  const refreshClientData = useCallback(() => {
+    fetchClients();
+    fetchNeedsReview();
+  }, [fetchClients, fetchNeedsReview]);
+
+  const deletePolicyholder = useCallback(async (row) => {
+    if (!window.confirm(`Delete client "${row.client}"? This moves the record to the deleted archive.`)) return;
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(`${API_BASE_URL}/policyholders/${row.id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      refreshClientData();
+    } catch (err) {
+      alert(err.response?.data?.detail || "Failed to delete this client.");
+    }
+  }, [refreshClientData]);
+
+  useEffect(() => {
+    fetchClients();
+    fetchNeedsReview();
+  }, [fetchClients, fetchNeedsReview]);
+
+  const DATA_MAP = {
+    "Policy": policyData,
+    "Quotation": quotationData,
+    "Claims": claimsData,
+    "Client Information": clientRecords,
+    "Survey Report": surveyData,
+  };
+
+  const displayStatCards = statCards.map((c) =>
+    c.label === "Total Client Information"
+      ? { ...c, value: clientLoading ? "…" : String(clientRecords.length) }
+      : c
+  );
 
   const handleTypeChange = (t) => { setType(t); setPage(1); setSearch(""); };
   const handleSearch = (v) => { setSearch(v); setPage(1); };
@@ -340,7 +410,7 @@ export default function PolicyHolderInformation() {
 
         {/* Stat Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-          {statCards.map((c, i) => (
+          {displayStatCards.map((c, i) => (
             <div key={c.label}
               onClick={() => handleTypeChange(TYPE_OPTIONS[i])}
               className={`bg-white rounded-2xl px-4 py-4 shadow-sm flex flex-col justify-between min-h-[100px] cursor-pointer transition hover:shadow-md
@@ -360,6 +430,16 @@ export default function PolicyHolderInformation() {
               className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition"
               title="Upload file">
               <Upload className="w-3.5 h-3.5 text-gray-500" />
+            </button>
+            <button onClick={() => setNeedsReviewOpen(true)}
+              className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition"
+              title="Import rows needing review">
+              Needs Review
+              {!needsReviewLoading && needsReviewRecords.length > 0 && (
+                <span className="bg-red-500 text-white rounded-full text-[10px] leading-none px-1.5 py-0.5">
+                  {needsReviewRecords.length}
+                </span>
+              )}
             </button>
             <Dropdown label="Type" options={TYPE_OPTIONS} value={type} onChange={handleTypeChange} />
 
@@ -389,13 +469,17 @@ export default function PolicyHolderInformation() {
 
           {/* Dynamic Table */}
           <div className="overflow-x-auto flex-1">
-            {pageRows.length === 0
+            {type === "Client Information" && clientLoading
+              ? <p className="text-center py-8 text-gray-400 text-xs">Loading client information...</p>
+              : type === "Client Information" && clientError
+              ? <p className="text-center py-8 text-red-400 text-xs">{clientError}</p>
+              : pageRows.length === 0
               ? <p className="text-center py-8 text-gray-400 text-xs">No records found.</p>
               : <>
                 {type === "Policy" && <PolicyTable rows={pageRows} />}
                 {type === "Quotation" && <QuotationTable rows={pageRows} />}
                 {type === "Claims" && <ClaimsTable rows={pageRows} />}
-                {type === "Client Information" && <ClientTable rows={pageRows} />}
+                {type === "Client Information" && <ClientTable rows={pageRows} onDelete={deletePolicyholder} />}
                 {type === "Survey Report" && <SurveyTable rows={pageRows} />}
               </>
             }
@@ -410,7 +494,15 @@ export default function PolicyHolderInformation() {
         </div>
       </div>
 
-      <UploadModal isOpen={uploadOpen} onClose={() => setUploadOpen(false)} />
+      <UploadModal isOpen={uploadOpen} onClose={() => setUploadOpen(false)} onUploadSuccess={refreshClientData} />
+      <NeedsReviewModal
+        isOpen={needsReviewOpen}
+        onClose={() => setNeedsReviewOpen(false)}
+        records={needsReviewRecords}
+        loading={needsReviewLoading}
+        policyholders={clientRecords}
+        onResolved={refreshClientData}
+      />
     </div>
   );
 }

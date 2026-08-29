@@ -42,6 +42,47 @@ def get_policyholder(policyholder_id: int, db: Session = Depends(get_db)):
     return db_policyholder
 
 
+@router.delete("/policyholders/{policyholder_id}", response_model=schemas.DeletedPolicyholderOut)
+def delete_policyholder(policyholder_id: int, db: Session = Depends(get_db)):
+    db_policyholder = db.query(models.Policyholder).filter(
+        models.Policyholder.id == policyholder_id
+    ).first()
+
+    if not db_policyholder:
+        raise HTTPException(status_code=404, detail="Policyholder not found")
+
+    case_count = db.query(models.InsuranceCase).filter(
+        models.InsuranceCase.policyholder_id == policyholder_id
+    ).count()
+    if case_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete: this policyholder has {case_count} insurance case(s) on file. "
+                   "Remove or reassign those first.",
+        )
+
+    snapshot = schemas.PolicyholderOut.model_validate(db_policyholder).model_dump(mode="json")
+    archived = models.DeletedPolicyholder(original_id=db_policyholder.id, data=snapshot)
+    db.add(archived)
+
+    # Import records referencing this policyholder are independent audit
+    # trail entries, not dependents — unlink rather than delete them.
+    db.query(models.ImportRecord).filter(
+        models.ImportRecord.matched_policyholder_id == policyholder_id
+    ).update({"matched_policyholder_id": None})
+
+    db.delete(db_policyholder)
+    db.commit()
+    db.refresh(archived)
+
+    return archived
+
+
+@router.get("/deleted-policyholders", response_model=list[schemas.DeletedPolicyholderOut])
+def list_deleted_policyholders(db: Session = Depends(get_db)):
+    return db.query(models.DeletedPolicyholder).order_by(models.DeletedPolicyholder.deleted_at.desc()).all()
+
+
 # ------------------------------------------------------------
 # INSURANCE CASES
 # ------------------------------------------------------------

@@ -324,6 +324,26 @@ class ImportSummary(BaseModel):
     errors: list[ImportRowError] = []
 
 
+class DeletedPolicyholderOut(BaseModel):
+    id: int
+    original_id: int
+    data: dict[str, Any]
+    deleted_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DeletedImportRecordOut(BaseModel):
+    id: int
+    original_id: int
+    data: dict[str, Any]
+    deleted_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class ResolveImportRecord(BaseModel):
     # Provide ONE of these two:
     matched_policyholder_id: Optional[int] = None  # link this row to an existing policyholder

@@ -1,26 +1,68 @@
 import { useState } from "react";
-import { Upload, CheckCircle, X } from "lucide-react";
+import { Upload, CheckCircle, XCircle, X, Loader2 } from "lucide-react";
+import axios from "axios";
 
-export default function UploadModal({ isOpen, onClose }) {
+const API_BASE_URL = "http://127.0.0.1:8000";
+
+export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
   const [uploadedFile, setUploadedFile] = useState(null);
   const [dragging, setDragging] = useState(false);
+  const [status, setStatus] = useState("idle"); // idle | uploading | done | error
+  const [summary, setSummary] = useState(null);
+  const [errorMsg, setErrorMsg] = useState(null);
 
   if (!isOpen) return null;
 
+  const uploadFile = async (file) => {
+    setUploadedFile(file);
+    setStatus("uploading");
+    setErrorMsg(null);
+    setSummary(null);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const token = localStorage.getItem("token");
+      const response = await axios.post(
+        `${API_BASE_URL}/import/policyholders/upload`,
+        formData,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      );
+      setSummary(response.data);
+      setStatus("done");
+      onUploadSuccess?.();
+    } catch (err) {
+      setErrorMsg(err.response?.data?.detail || "Upload failed. Check the file and try again.");
+      setStatus("error");
+    }
+  };
+
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
-    if (file) setUploadedFile(file);
+    if (file) uploadFile(file);
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
     setDragging(false);
     const file = e.dataTransfer.files?.[0];
-    if (file) setUploadedFile(file);
+    if (file) uploadFile(file);
+  };
+
+  const reset = (e) => {
+    e.preventDefault();
+    setUploadedFile(null);
+    setStatus("idle");
+    setSummary(null);
+    setErrorMsg(null);
   };
 
   const handleClose = () => {
     setUploadedFile(null);
+    setStatus("idle");
+    setSummary(null);
+    setErrorMsg(null);
     onClose();
   };
 
@@ -46,10 +88,16 @@ export default function UploadModal({ isOpen, onClose }) {
         </button>
 
         {/* Upload Area */}
-        <label className="flex h-full cursor-pointer flex-col items-center justify-center">
-          <input type="file" className="hidden" onChange={handleFileChange} />
+        <label className="flex h-full cursor-pointer flex-col items-center justify-center px-8 text-center">
+          <input
+            type="file"
+            className="hidden"
+            accept=".xlsx,.xls,.csv"
+            onChange={handleFileChange}
+            disabled={status === "uploading"}
+          />
 
-          {!uploadedFile ? (
+          {status === "idle" && (
             <>
               <Upload
                 size={30}
@@ -62,20 +110,53 @@ export default function UploadModal({ isOpen, onClose }) {
               </p>
               <p className="mt-1 text-xs text-gray-500">or click anywhere to browse</p>
             </>
-          ) : (
+          )}
+
+          {status === "uploading" && (
             <>
-              <CheckCircle size={70} className="text-[#FBBF24]" />
-              <h2 className="mt-3 text-2xl font-bold text-[#FBBF24]">Uploaded!</h2>
-              <p className="mt-2 text-md text-gray-700 font-medium max-w-[500px] truncate text-center px-4">
-                {uploadedFile.name}
+              <Loader2 size={40} className="animate-spin text-black" />
+              <h2 className="mt-3 text-2xl font-bold text-black">Uploading...</h2>
+              <p className="mt-2 text-md text-gray-700 font-medium max-w-[500px] truncate">
+                {uploadedFile?.name}
               </p>
-              <p className="mt-1 text-xs text-gray-500">File uploaded successfully</p>
+            </>
+          )}
+
+          {status === "done" && summary && (
+            <>
+              <CheckCircle size={60} className="text-[#FBBF24]" />
+              <h2 className="mt-3 text-2xl font-bold text-[#FBBF24]">Import complete</h2>
+              <p className="mt-2 text-sm text-gray-700">
+                {summary.total_rows} row{summary.total_rows !== 1 ? "s" : ""} —{" "}
+                {summary.matched} matched, {summary.unmatched_created} new,{" "}
+                {summary.needs_review} needs review, {summary.failed} failed
+              </p>
+              {summary.failed > 0 && summary.errors?.[0] && (
+                <p className="mt-1 text-xs text-red-500 max-w-[480px] truncate">
+                  Row {summary.errors[0].source_row}: {summary.errors[0].error}
+                </p>
+              )}
               <button
                 type="button"
-                onClick={(e) => { e.preventDefault(); setUploadedFile(null); }}
-                className="mt-5 text-xs text-gray-500 underline hover:text-gray-700 transition"
+                onClick={reset}
+                className="mt-4 text-xs text-gray-500 underline hover:text-gray-700 transition"
               >
                 Upload another file
+              </button>
+            </>
+          )}
+
+          {status === "error" && (
+            <>
+              <XCircle size={60} className="text-red-500" />
+              <h2 className="mt-3 text-2xl font-bold text-red-500">Upload failed</h2>
+              <p className="mt-2 text-sm text-gray-700 max-w-[480px]">{errorMsg}</p>
+              <button
+                type="button"
+                onClick={reset}
+                className="mt-4 text-xs text-gray-500 underline hover:text-gray-700 transition"
+              >
+                Try again
               </button>
             </>
           )}

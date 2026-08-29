@@ -120,6 +120,35 @@ class ImportRecord(Base):
 
 
 # ------------------------------------------------------------
+# DELETED-RECORD ARCHIVE
+# ------------------------------------------------------------
+# Separate tables (rather than a soft-delete flag on the live tables) so a
+# delete never requires ALTERing an existing table — create_all() only
+# creates new tables, it doesn't add columns to ones that already exist.
+# Each row is a full JSON snapshot of the record at the moment it was
+# deleted, so it can be inspected or manually restored later if needed.
+
+class DeletedPolicyholder(Base):
+    __tablename__ = "deleted_policyholders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    original_id = Column(Integer, nullable=False)
+    data = Column(JSON, nullable=False)
+    deleted_at = Column(DateTime, server_default=func.now())
+    deleted_by = Column(String(255), nullable=True)  # populated once auth is required on this router
+
+
+class DeletedImportRecord(Base):
+    __tablename__ = "deleted_import_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    original_id = Column(Integer, nullable=False)
+    data = Column(JSON, nullable=False)
+    deleted_at = Column(DateTime, server_default=func.now())
+    deleted_by = Column(String(255), nullable=True)
+
+
+# ------------------------------------------------------------
 # FIRE / PROPERTY
 # ------------------------------------------------------------
 
