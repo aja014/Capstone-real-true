@@ -1,7 +1,7 @@
 from pydantic import BaseModel, field_validator
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional, Any
+from typing import Optional, Any, Literal
 from enum import Enum
 
 
@@ -296,8 +296,11 @@ class MatchStatus(str, Enum):
 
 class ImportType(str, Enum):
     policyholder = "policyholder"
-    fire_property = "fire_property"
-    motor = "motor"
+    fire_property = "fire_property"                    # survey
+    motor = "motor"                                     # motor quotation
+    fire_property_quotation = "fire_property_quotation"
+    fire_property_policy = "fire_property_policy"
+    motor_policy = "motor_policy"
 
 
 class ImportRecordOut(BaseModel):
@@ -352,6 +355,51 @@ class DeletedImportRecordOut(BaseModel):
 
 
 class ResolveImportRecord(BaseModel):
-    # Provide ONE of these two:
+    # Provide ONE of these three:
     matched_policyholder_id: Optional[int] = None  # link this row to an existing policyholder
     create_new: bool = False  # or create a brand-new policyholder from this row's raw_data
+    # or (Policy import rows only, once matched_policyholder_id is already set on the
+    # record) finalize the policy using this explicitly chosen quotation
+    matched_quotation_id: Optional[int] = None
+
+
+class QuotationCandidate(BaseModel):
+    id: int
+    quotation_date: Optional[date] = None
+    amount: Optional[Decimal] = None
+    case_id: int
+
+
+# ------------------------------------------------------------
+# BULK IMPORT — BATCH (folder upload with auto type detection)
+# ------------------------------------------------------------
+
+class ImportTypeCandidate(BaseModel):
+    import_type: ImportType
+    label: str
+    score: float
+    matched_columns: list[str]
+
+
+class DetectedFile(BaseModel):
+    filename: str
+    candidates: list[ImportTypeCandidate]
+    best_guess: Optional[ImportType] = None
+    confidence: Literal["high", "low", "none"]
+    ambiguous: bool
+    error: Optional[str] = None
+
+
+class BatchDetectResult(BaseModel):
+    files: list[DetectedFile]
+
+
+class BatchFileResult(BaseModel):
+    filename: str
+    import_type: ImportType
+    summary: Optional[ImportSummary] = None
+    error: Optional[str] = None
+
+
+class BatchImportSummary(BaseModel):
+    files: list[BatchFileResult]

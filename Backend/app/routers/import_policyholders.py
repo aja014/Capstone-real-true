@@ -327,11 +327,41 @@ def list_deleted_import_records(db: Session = Depends(get_db)):
 _NEW_POLICYHOLDER_FIELDS = {
     models.ImportType.fire_property: import_fire_property.new_policyholder_fields,
     models.ImportType.motor: import_motor.new_policyholder_fields,
+    models.ImportType.fire_property_quotation: import_fire_property.new_policyholder_fields_for_fire_quotation,
+    models.ImportType.fire_property_policy: import_fire_property.new_policyholder_fields_for_fire_policy,
+    models.ImportType.motor_policy: import_motor.new_policyholder_fields_for_motor_policy,
 }
 _RESOLVE_FOR_POLICYHOLDER = {
     models.ImportType.fire_property: import_fire_property.resolve_for_policyholder,
     models.ImportType.motor: import_motor.resolve_for_policyholder,
+    models.ImportType.fire_property_quotation: import_fire_property.resolve_fire_quotation_for_policyholder,
+    models.ImportType.fire_property_policy: import_fire_property.resolve_fire_policy_for_policyholder,
+    models.ImportType.motor_policy: import_motor.resolve_motor_policy_for_policyholder,
 }
+# The two Policy types only: once a policyholder is already resolved, staff can
+# explicitly pick which quotation a stuck row belongs to (see the quotation-candidates
+# endpoint below) instead of relying on the amount/date matching heuristic.
+_CREATE_POLICY_FROM_QUOTATION = {
+    models.ImportType.fire_property_policy: import_fire_property.create_fire_policy_from_quotation,
+    models.ImportType.motor_policy: import_motor.create_motor_policy_from_quotation,
+}
+_LIST_QUOTATION_CANDIDATES = {
+    models.ImportType.fire_property_policy: import_fire_property.list_fire_policy_quotation_candidates,
+    models.ImportType.motor_policy: import_motor.list_motor_policy_quotation_candidates,
+}
+
+
+@router.get("/records/{record_id}/quotation-candidates", response_model=list[schemas.QuotationCandidate])
+def get_quotation_candidates(record_id: int, db: Session = Depends(get_db)):
+    record = db.query(models.ImportRecord).filter(models.ImportRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Import record not found")
+    if record.import_type not in _LIST_QUOTATION_CANDIDATES:
+        raise HTTPException(status_code=400, detail="This import type has no quotation candidates")
+    if not record.matched_policyholder_id:
+        raise HTTPException(status_code=400, detail="Resolve the policyholder for this row first")
+
+    return _LIST_QUOTATION_CANDIDATES[record.import_type](db, record.matched_policyholder_id)
 
 
 @router.patch("/records/{record_id}/resolve", response_model=schemas.ImportRecordOut)
@@ -347,7 +377,30 @@ def resolve_import_record(
     if record.match_status != models.MatchStatus.needs_review:
         raise HTTPException(status_code=400, detail="Only needs_review records can be resolved")
 
-    if resolution.matched_policyholder_id:
+    # Path A — finalize a Policy row using an explicitly chosen quotation. Only
+    # reachable once the policyholder is already resolved (see get_quotation_candidates).
+    if resolution.matched_quotation_id:
+        if record.import_type not in _CREATE_POLICY_FROM_QUOTATION:
+            raise HTTPException(status_code=400, detail="matched_quotation_id only applies to Policy import rows")
+        if not record.matched_policyholder_id:
+            raise HTTPException(status_code=400, detail="Resolve the policyholder for this row first")
+
+        matched_case_id, status = _CREATE_POLICY_FROM_QUOTATION[record.import_type](
+            db, record, resolution.matched_quotation_id
+        )
+        record.matched_case_id = matched_case_id
+        record.match_status = status
+        db.commit()
+        db.refresh(record)
+        return record
+
+    # Path B — resolve/confirm the policyholder. If it was already set on an earlier
+    # attempt (a Policy row that got stuck purely on the quotation step), reuse it
+    # instead of requiring the caller to re-supply matched_policyholder_id/create_new.
+    if record.matched_policyholder_id is not None:
+        policyholder_id = record.matched_policyholder_id
+
+    elif resolution.matched_policyholder_id:
         ph = db.query(models.Policyholder).filter(
             models.Policyholder.id == resolution.matched_policyholder_id
         ).first()
@@ -378,7 +431,7 @@ def resolve_import_record(
     else:
         raise HTTPException(
             status_code=400,
-            detail="Provide either matched_policyholder_id or create_new=true"
+            detail="Provide matched_policyholder_id, create_new=true, or matched_quotation_id"
         )
 
     record.matched_policyholder_id = policyholder_id
@@ -388,7 +441,11 @@ def resolve_import_record(
     else:
         # Fire/Property and Motor rows still need their case/survey/vehicle/
         # quotation built — the same work the main upload path does once a
-        # policyholder is resolved, not just a policyholder link.
+        # policyholder is resolved, not just a policyholder link. For the two
+        # Policy types this can legitimately stay needs_review (ambiguous or no
+        # quotation found) — the frontend then shows the quotation picker instead
+        # of asking about the policyholder again, since matched_policyholder_id
+        # is now set.
         matched_case_id, status = _RESOLVE_FOR_POLICYHOLDER[record.import_type](db, record, policyholder_id)
         record.matched_case_id = matched_case_id
         record.match_status = status

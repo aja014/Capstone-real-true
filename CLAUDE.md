@@ -109,9 +109,17 @@ by hand) — this bit us once already (see reset script below).
 - `policyholders.py` — Policyholder + InsuranceCase CRUD
 - `fire_property.py` — Fire/Property survey/quotation/policy CRUD
 - `motor_car.py` — Motor/Car vehicle/quotation/policy CRUD
-- `import_policyholders.py` — bulk import for Customer Information
-- `import_fire_property.py` — bulk import for Fire/Property Surveys
-- `import_motor.py` — bulk import for Motor/Car Quotations
+- `import_policyholders.py` — bulk import for Customer Information; also
+  hosts the shared needs-review queue/resolve endpoint used by ALL importers
+- `import_fire_property.py` — bulk import for Fire/Property Surveys,
+  Quotations, and Policies (3 importers in one file, see "Folder-Based Bulk
+  Import" below)
+- `import_motor.py` — bulk import for Motor/Car Quotations and Policies (2
+  importers in one file)
+- `import_shared.py` — cross-cutting logic reused by the 2 Policy importers
+  only (quotation-matching heuristic, name/address splitting) — see below
+- `import_batch.py` — folder upload: column-header type detection +
+  dispatches each file to the importer above matching its confirmed type
 
 **Auth on CRUD/import endpoints: DONE.** `policyholders.py`, `fire_property.py`,
 `motor_car.py`, `import_policyholders.py`, `import_fire_property.py`, and
@@ -201,11 +209,13 @@ on the frontend needed updating.
   `errors: list[{source_row, error}]` for this reason.
 
 ## Needs-Review Resolution (`import_records.import_type`)
-All three importers share ONE `needs_review` queue and ONE resolve endpoint
+All importers share ONE `needs_review` queue and ONE resolve endpoint
 (`PATCH /import/policyholders/records/{id}/resolve`, historically named
 after the Policyholders importer but generic in practice). `ImportRecord`
-has an `import_type` column (`policyholder` | `fire_property` | `motor`,
-`models.ImportType`) set by whichever importer created the row — added
+has an `import_type` column (`models.ImportType`: `policyholder` |
+`fire_property` | `motor` | `fire_property_quotation` |
+`fire_property_policy` | `motor_policy`) set by whichever importer created
+the row — added
 specifically because the resolve endpoint used to ALWAYS create a bare
 `Policyholder` regardless of origin. **Fixed bug** (found via end-to-end
 browser testing of the newly-wired Fire/Property and Motor upload paths):
@@ -232,6 +242,105 @@ table was empty in dev at the time — `create_all()` doesn't ALTER existing
 tables, same caveat as everywhere else in this doc). If this is deployed
 anywhere with existing `import_records` rows, backfill `import_type`
 manually before relying on resolve for old needs_review rows.
+
+## Folder-Based Bulk Import (batch upload, all 6 document types)
+User can now select a whole FOLDER of mixed Excel/CSV files at once and the
+system figures out which importer each file belongs to by reading its
+COLUMN HEADERS (not filename), rather than uploading one file at a time
+with a manually-picked type. Covers all 6 real document types: Customer/
+Policyholder Info, Fire/Property Survey, Fire/Property Quotation, Fire/
+Property Policy, Motor Quotation, Motor Policy. The last 3 of those had
+**no bulk-import logic at all before this** (only one-at-a-time CRUD) —
+built from scratch this session.
+
+**⚠️ No real sample spreadsheets exist yet for Fire/Property Quotation,
+Fire/Property Policy, or Motor Policy** (confirmed with user). Their
+`*_COLUMN_MAP`s in `import_fire_property.py`/`import_motor.py` are
+reverse-engineered from `models.py` field names, same status as
+`MATCH_THRESHOLD`/`REVIEW_THRESHOLD` elsewhere — best guess now, must be
+corrected against a real company export once one is available, since both
+the column mapping AND the header-detection scoring below depend on
+guessing the right header text (e.g. "Policy No." vs "Policy Number").
+
+**Policy-to-quotation matching (the hard part)**: `FirePropertyPolicy.
+quotation_id` / `MotorPolicy.quotation_id` are REQUIRED FKs, but there's no
+shared ID between a policy row and a quotation row in the source data
+(only `insured_name_address`, a single combined field — no policy/
+quotation number that ties them together). `import_shared.
+find_best_unattached_quotation()` scores a policyholder's still-open
+quotations (no policy attached yet) by amount + date proximity to the
+policy row being imported (`amount_score*0.7 + date_score*0.3`,
+`CONFIDENT_THRESHOLD=75`, `AMBIGUITY_MARGIN=15` between top two
+candidates) — same "tune later with real data" status as every other
+threshold in this file. Zero or ambiguous candidates → the row lands in
+`needs_review` with `matched_policyholder_id` ALREADY set (unlike the other
+importers' needs_review rows) — this is what lets the frontend tell "still
+need a policyholder decision" apart from "policyholder known, still need a
+quotation pick" without a new status value.
+
+**Quotation-picker in Needs Review** (per user's explicit choice — not
+punted to `/docs`): for a stuck Policy row, `NeedsReviewModal.jsx` calls
+`GET /import/policyholders/records/{id}/quotation-candidates` and shows a
+dropdown of that policyholder's open quotations (amount/date/case) instead
+of the usual Link/Create-as-new policyholder controls. Confirming calls
+`PATCH .../resolve` with a NEW `matched_quotation_id` field (third
+resolution path in `resolve_import_record()`, checked before the
+policyholder-link/create-new paths) which directly creates the Policy from
+the chosen quotation — bypassing the amount/date heuristic entirely since a
+human already decided.
+
+**Policyholder-matching consistency fix during implementation**: the two
+Policy importers initially used a separate 3-signal (name/address/phone)
+matcher in `import_shared.py`, modeled on the Policyholder importer's own
+individual-collision-averse formula. Caught via testing that this was
+inconsistent — Fire/Property entities are predominantly businesses (same
+as Survey/Quotation, which use a lenient exact-name-matches formula), so a
+policyholder that already auto-matches via Survey needed EXTRA
+corroboration to match via Policy, purely because of which importer it
+came through. Fixed by having each Policy importer reuse ITS OWN line's
+existing `match_score()` (Fire/Property's exact-name short-circuit, or
+Motor's plain name fuzzy-ratio) on just the extracted name, dropping the
+separate 3-signal formula entirely (removed from `import_shared.py`).
+
+**Header-detection scoring** (`import_batch.py`'s `score_against_map()`):
+started as an F1 (precision+recall) score against each importer's column
+map, which badly UNDER-scored realistic files — a real customer-info
+export with only 2 populated columns scored 21/100 against a 17-column map
+purely from low recall, even though every header it had was an exact,
+unambiguous match. Switched to PRECISION-only (what fraction of the
+file's OWN headers belong to this type), with a single coincidentally-
+shared column (e.g. "Date", used by several types) dampened rather than
+trusted at full strength. `DETECT_CONFIDENT_SCORE=55`, `AMBIGUITY_MARGIN=
+12`. Fire/Property Policy and Motor Policy share almost all their columns
+(only a handful of line-specific ones differ, e.g. `sum_insured`/
+`construction` vs `coc_no`/`endorsement_no`) — a minimal policy file using
+only the shared columns is DELIBERATELY left undetected
+(`ambiguous: true`, `best_guess: null`) rather than silently guessed, and
+the UI forces a manual type pick for it. This is real, not just a testing
+edge case — expect genuinely minimal policy exports to need manual
+selection until enough distinguishing columns are typically present.
+
+**Testing gotcha worth remembering**: rapidfuzz's `token_sort_ratio`
+treats a shared prefix WORD as a guaranteed matching token — test entities
+that are all prefixed with the same marker word (e.g. every test policyholder
+named "ZZBATCH ...") can fuzzy-match EACH OTHER above `REVIEW_THRESHOLD`
+purely from that one shared token, even when otherwise completely
+unrelated (e.g. "ZZBATCH Motor Owner" vs "ZZBATCH Client One" scored
+70.27 — just over the line). Cost real debugging time before being traced
+to test data, not app logic. Real customer names won't share an artificial
+common prefix like this, so it's a testing convention to avoid, not a
+product bug: give unrelated test entities in the same run genuinely
+distinct name roots (this session settled on different NATO-alphabet words
+— Alpha/Bravo/Charlie/... — as prefixes instead of a shared marker).
+
+Verified via a 33-check automated regression (header detection for all 6
+types + 1 deliberately-ambiguous file, folder upload end-to-end, zero/one/
+many-candidate policy matching, the quotation-picker resolve path, and
+re-verification of all 3 pre-existing importers' resolve flows for
+regressions) plus a live browser pass (drag a real folder of 6 files
+through the new UI, confirm/override detected types, Import All, verify
+data in the Policy/Quotation tabs, and resolve a stuck policy row through
+the quotation picker) — all green, no console errors.
 
 ## Known Remaining Issues (not yet fixed)
 None currently tracked here — see "Duplicate usernames in `users`" below
@@ -295,16 +404,26 @@ to create `test4` again now returns 400, no server error.
   - **Survey Report tab**: DONE — fetches `GET /fire-property/surveys`.
   - **Claims tab**: still mock `claimsData` — correctly blocked, no claims
     backend exists (see Study Objectives 1.3/scope notes above).
-  - `components/UploadFileModal.jsx`: DONE for Policyholders only — it was
-    completely unwired before this session (just faked an "Uploaded!"
-    state locally, never called the backend). Now it actually
-    `POST`s to `/import/policyholders/upload` as multipart form data,
-    shows the real `ImportSummary` (matched/new/needs-review/failed
-    counts) or the backend error, and calls an `onUploadSuccess` prop on
-    success (wired to `refreshClientData`). It is NOT wired to the
-    Fire/Property (`/import/fire-property/surveys/upload`) or Motor
-    (`/import/motor/quotations/upload`) importers yet — do that when
-    connecting the Policy/Quotation/Survey Report tabs.
+  - `components/UploadFileModal.jsx`: DONE, two modes. **Single file**
+    (original): drag-drop + an importer-select dropdown covering only the
+    original 3 types (Policyholders/Fire-Property Surveys/Motor
+    Quotations) — deliberately NOT extended to the 3 new Policy/Quotation
+    types, still useful for one-off corrections. **Folder** (new): pick a
+    folder (`<input type="file" webkitdirectory multiple>`, set
+    imperatively via a ref since React has no first-class prop for it) →
+    `POST /import/batch/detect` → per-file results table with an
+    editable/overridable type dropdown (forced blank + amber-highlighted
+    when detection is ambiguous or low-confidence) → "Import All" →
+    `POST /import/batch/upload` (files + import_types as matched-order
+    form fields) → per-file summary. See "Folder-Based Bulk Import" above
+    for the detection/matching design.
+  - `components/NeedsReviewModal.jsx`: extended with a quotation-picker
+    branch (see "Folder-Based Bulk Import" above) — rows for the 2 Policy
+    import types, once their policyholder is already resolved, show a
+    quotation `<select>` (fetched from `GET .../quotation-candidates`) +
+    Confirm instead of the usual Link/Create-as-new controls. Everything
+    else (policyholder-centric rows, `raw_data` rendering, delete) is
+    unchanged and still generic across all 6 import types.
 - `pages/overview.jsx`, `pages/proposal.jsx`, `pages/distribution.jsx` —
   all mock dashboard/chart data, would need new backend aggregation
   endpoints (none exist yet) before connecting.
@@ -361,6 +480,11 @@ to create `test4` again now returns 400, no server error.
    the needs_review phone-weighting issue (see Bulk Import Matching Logic
    above) and the needs-review resolve data-loss bug (see Needs-Review
    Resolution above).
-5. GIS/flood-risk integration (Objective 2.1) — not started.
-6. Predictive risk model (Objective 1.2 core) — not started, blocked on
+5. ~~Folder-based bulk import covering all 6 document types (incl. new
+   Fire/Property Quotation, Fire/Property Policy, Motor Policy importers)~~
+   — DONE, see "Folder-Based Bulk Import" above. Follow-up once real data
+   arrives: correct the 3 new `*_COLUMN_MAP`s and retune the detection/
+   matching thresholds against real company exports (currently best-guess).
+6. GIS/flood-risk integration (Objective 2.1) — not started.
+7. Predictive risk model (Objective 1.2 core) — not started, blocked on
    having enough real data flowing through the system first.

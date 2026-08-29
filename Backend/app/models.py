@@ -40,8 +40,11 @@ class ImportType(str, enum.Enum):
     creating a bare Policyholder.
     """
     policyholder = "policyholder"
-    fire_property = "fire_property"
-    motor = "motor"
+    fire_property = "fire_property"                    # survey
+    motor = "motor"                                     # motor quotation
+    fire_property_quotation = "fire_property_quotation"
+    fire_property_policy = "fire_property_policy"
+    motor_policy = "motor_policy"
 
 
 # ------------------------------------------------------------
