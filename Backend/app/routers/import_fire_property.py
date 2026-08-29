@@ -5,11 +5,13 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.security import get_current_user
 from app import models, schemas
 
 router = APIRouter(
     prefix="/import/fire-property",
-    tags=["Bulk Import — Fire & Property"]
+    tags=["Bulk Import — Fire & Property"],
+    dependencies=[Depends(get_current_user)],
 )
 
 # ------------------------------------------------------------
@@ -115,6 +117,16 @@ def match_score(cn, cp, en, ep) -> float:
     because the locations differ. Location-based duplicate detection happens
     separately, at the survey level (see the duplicate-survey check below).
     """
+    if cn and en and cn == en:
+        # A character-for-character identical name is confident enough to
+        # auto-match on its own. Without this: the weighted score below maxes
+        # out at 80 (name_score*0.8) whenever there's no phone number to
+        # corroborate with — which is common, survey data often has a blank
+        # tel_fax_no — and 80 can NEVER clear MATCH_THRESHOLD (90). That
+        # made even an exact name match permanently unable to auto-match
+        # without phone data, so every repeat survey from the same client
+        # landed in needs_review instead of being recognized automatically.
+        return 100
     name_score = fuzz.token_sort_ratio(cn, en)
     phone_match = 100 if cp and cp == ep else 0
     return (name_score * 0.8) + (phone_match * 0.2)
@@ -178,6 +190,7 @@ def upload_surveys(file: UploadFile = File(...), db: Session = Depends(get_db)):
                 # Ambiguous — pause the whole row, don't touch cases/surveys
                 record = models.ImportRecord(
                     source_file=file.filename, source_row=source_row,
+                    import_type=models.ImportType.fire_property,
                     match_status=models.MatchStatus.needs_review,
                     raw_data=raw_data,
                 )
@@ -268,6 +281,7 @@ def upload_surveys(file: UploadFile = File(...), db: Session = Depends(get_db)):
 
             record = models.ImportRecord(
                 source_file=file.filename, source_row=source_row,
+                import_type=models.ImportType.fire_property,
                 match_status=status,
                 matched_policyholder_id=policyholder_id,
                 matched_case_id=matched_case_id,
@@ -303,3 +317,57 @@ def upload_surveys(file: UploadFile = File(...), db: Session = Depends(get_db)):
         import_record_ids=import_record_ids,
         errors=errors,
     )
+
+
+# ------------------------------------------------------------
+# Needs-review resolution — called from import_policyholders.resolve_import_record
+# once it knows the policyholder for a fire_property-origin row. Runs the same
+# survey-duplicate check and case/survey creation the main upload path above
+# uses, so resolving a review row doesn't just link a policyholder while
+# silently dropping the survey data.
+# ------------------------------------------------------------
+
+def new_policyholder_fields(record: models.ImportRecord) -> dict:
+    fields = row_to_survey_fields(record.raw_data or {})
+    return {"last_name": (fields.get("name_of_insured") or "").strip() or None}
+
+
+def resolve_for_policyholder(db: Session, record: models.ImportRecord, policyholder_id: int):
+    fields = row_to_survey_fields(record.raw_data or {})
+    candidate_addr = (fields.get("location_of_risk") or "").lower()
+
+    existing_surveys = (
+        db.query(models.FirePropertySurvey)
+        .join(models.InsuranceCase)
+        .filter(
+            models.InsuranceCase.policyholder_id == policyholder_id,
+            models.InsuranceCase.line_type == models.LineType.fire_property,
+        )
+        .all()
+    )
+
+    best_dup_score, best_dup_case_id = 0, None
+    for survey in existing_surveys:
+        existing_loc = (survey.location_of_risk or "").lower()
+        score = fuzz.token_sort_ratio(candidate_addr, existing_loc) if candidate_addr and existing_loc else 0
+        if score > best_dup_score:
+            best_dup_score, best_dup_case_id = score, survey.insurance_case_id
+
+    if best_dup_score >= SURVEY_DUPLICATE_THRESHOLD:
+        return best_dup_case_id, models.MatchStatus.matched
+
+    new_case = models.InsuranceCase(policyholder_id=policyholder_id, line_type=models.LineType.fire_property)
+    db.add(new_case)
+    db.flush()
+    db.refresh(new_case)
+
+    survey_fields = {k: v for k, v in fields.items() if k != "name_of_insured"}
+    new_survey = models.FirePropertySurvey(
+        insurance_case_id=new_case.id,
+        name_of_insured=fields.get("name_of_insured"),
+        **survey_fields,
+    )
+    db.add(new_survey)
+    db.flush()
+
+    return new_case.id, models.MatchStatus.unmatched

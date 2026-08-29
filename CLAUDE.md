@@ -113,11 +113,18 @@ by hand) — this bit us once already (see reset script below).
 - `import_fire_property.py` — bulk import for Fire/Property Surveys
 - `import_motor.py` — bulk import for Motor/Car Quotations
 
-**⚠️ CURRENT GAP: none of the CRUD/import endpoints require authentication
-yet.** `auth.py`'s `get_current_user` dependency already exists and is
-proven working (used by `users.py`) — the remaining work is just adding
-`Depends(get_current_user)` to the other routers' endpoints. This is the
-next major task.
+**Auth on CRUD/import endpoints: DONE.** `policyholders.py`, `fire_property.py`,
+`motor_car.py`, `import_policyholders.py`, `import_fire_property.py`, and
+`import_motor.py` all now require a valid JWT via
+`dependencies=[Depends(get_current_user)]` at the `APIRouter(...)` level
+(router-wide, rather than per-endpoint like `users.py` does it — same
+effect, less repetition). Verified: unauthenticated `GET /policyholders`
+returns 401, `/login` still works unauthenticated, `/docs` loads. All
+frontend callers (`policy.jsx`, `UploadFileModal.jsx`, `NeedsReviewModal.jsx`)
+already sent `Authorization: Bearer <token>` before this change, so nothing
+on the frontend needed updating.
+`Backend/app/routers/upload.py` exists but is empty and not imported in
+`main.py` — dead file, left alone.
 
 ## Bulk Import Matching Logic (all 3 importers share this pattern)
 - Fuzzy matching via `rapidfuzz.fuzz.token_sort_ratio` on name (+ phone as
@@ -143,6 +150,47 @@ next major task.
   This silently broke duplicate-vehicle detection once (Motor/Car matching
   is EXACT string match, most vulnerable to this). Always use
   `clean_cell_value()` instead of raw `str(value)` when parsing Excel rows.
+- **FIXED**: Fire/Property's `match_score()` is `name_score*0.8 +
+  phone_match*0.2`. When a survey row has no phone number (common — surveys
+  often have a blank `tel_fax_no`), phone_match is always 0, capping the
+  score at 80 no matter how exact the name match is — inside the
+  needs_review band (70–89), never reaching the 90 matched threshold. Found
+  via end-to-end testing: an IDENTICAL policyholder name with no phone data
+  never auto-matched, so every repeat survey from the same client routed to
+  needs_review instead of being recognized automatically — and the
+  survey-level duplicate check further down never even got a chance to run.
+  Fixed with an explicit short-circuit in `match_score()`: a
+  character-for-character identical normalized name (`cn == en`, both
+  non-empty) returns 100 and matches on its own, regardless of phone data.
+  Deliberately NOT a reweight of the 0.8/0.2 split — that would have also
+  loosened near-matches; the short-circuit only affects the exact-match
+  case, leaving fuzzy-match behavior with a wrong/missing phone unchanged.
+  Re-verified end-to-end after the fix: the same 3-row test file now gives
+  1 matched (true duplicate correctly auto-matched, no new survey/case
+  created), 2 new (one per distinct property), 0 needs_review.
+  The plain Policyholder importer's `match_score()` had the same structural
+  bug, in a WORSE form — see below, also fixed.
+
+- **FIXED**: Policyholder importer's `match_score()` is
+  `name*0.6 + addr*0.25 + phone*0.15`. Same shape as the Fire/Property bug
+  above, but a more dangerous failure mode: with an exact name match and no
+  address/phone data, the score is only 60 — BELOW `REVIEW_THRESHOLD` (70),
+  not just below `MATCH_THRESHOLD`. That means it was scored "confidently
+  new" and silently created a duplicate `Policyholder` with no human review
+  at all — worse than Fire/Property's version, which at least parked
+  unresolved rows in needs_review instead of duplicating them outright.
+  Fixed with a similar but more conservative short-circuit than
+  Fire/Property's: exact name alone is NOT enough to auto-match (unlike
+  company names, individual person names collide more plausibly — two
+  different "Juan Dela Cruz" is a real risk). Instead: exact name +
+  (exact address OR exact phone) → matched (100); exact name with NO
+  corroborating signal at all → floored at exactly `REVIEW_THRESHOLD`
+  instead of falling to "new", so it's always at minimum flagged for a
+  human, never silently duplicated. Verified end-to-end with a 4-row test
+  file: exact-name+exact-address (no phone) row 2 now matches instead of
+  landing at 85/needs_review; exact-name-only (no address/phone) row 4 now
+  goes to needs_review instead of silently creating policyholder #3 — only
+  2 policyholders exist after the upload, not 3.
 - Each row is processed atomically: intermediate creates use `db.flush()`
   (not `db.commit()`) to get IDs without finalizing, with ONE `db.commit()`
   at the very end of a successful row. Any exception → `db.rollback()`,
@@ -152,12 +200,62 @@ next major task.
 - `ImportSummary` response includes `failed: int` and
   `errors: list[{source_row, error}]` for this reason.
 
+## Needs-Review Resolution (`import_records.import_type`)
+All three importers share ONE `needs_review` queue and ONE resolve endpoint
+(`PATCH /import/policyholders/records/{id}/resolve`, historically named
+after the Policyholders importer but generic in practice). `ImportRecord`
+has an `import_type` column (`policyholder` | `fire_property` | `motor`,
+`models.ImportType`) set by whichever importer created the row — added
+specifically because the resolve endpoint used to ALWAYS create a bare
+`Policyholder` regardless of origin. **Fixed bug** (found via end-to-end
+browser testing of the newly-wired Fire/Property and Motor upload paths):
+resolving a Fire/Property or Motor needs_review row was silently creating
+an empty `Policyholder` (`first_name`/`last_name` both NULL) and NEVER
+creating the associated `InsuranceCase`/`FirePropertySurvey`/`Vehicle`/
+`MotorQuotation` — the row's actual survey/vehicle data was discarded with
+no error. Now `resolve_import_record()` in `import_policyholders.py`
+branches on `record.import_type`:
+- `policyholder` → unchanged original behavior.
+- `fire_property` / `motor` → after resolving the policyholder (link or
+  create-new, using each importer's own field mapping via
+  `new_policyholder_fields()`), calls that importer's
+  `resolve_for_policyholder(db, record, policyholder_id)` — defined in
+  `import_fire_property.py` / `import_motor.py` — which re-runs the SAME
+  duplicate-check + case/survey/vehicle/quotation creation the main upload
+  path uses, so a manually-resolved row ends up identical to what auto-
+  matching would have produced.
+`import_policyholders.py` imports `import_fire_property` and `import_motor`
+for this (safe — neither of those two imports anything from
+`import_policyholders`, no circular import).
+`import_records.import_type` was added via a manual `ALTER TABLE` (the
+table was empty in dev at the time — `create_all()` doesn't ALTER existing
+tables, same caveat as everywhere else in this doc). If this is deployed
+anywhere with existing `import_records` rows, backfill `import_type`
+manually before relying on resolve for old needs_review rows.
+
 ## Known Remaining Issues (not yet fixed)
-- **No authentication on any endpoint except users.py** — next task.
-- Duplicate username found in `users` table ("test4" appears twice) —
-  unique constraint likely didn't apply because the table pre-dated the
-  constraint in the model (create_all doesn't ALTER existing tables). Low
-  priority, not yet fixed.
+None currently tracked here — see "Duplicate usernames in `users`" below
+for the last one, which is fixed.
+
+## Duplicate usernames in `users` — FIXED
+The `username` column had `unique=True` in the model but the LIVE table had
+no such constraint (`create_all()` doesn't ALTER existing tables — same
+caveat as everywhere else in this doc), so two duplicate pairs had already
+snuck in: `test4` (ids 16 & 17) and, found while fixing that — MySQL's
+`utf8mb4_0900_ai_ci` collation is case-insensitive, so `james` (id 3) and
+`James` (id 4) were ALSO colliding as duplicates and blocked the fix until
+resolved too. Per user decision: kept the older row in both cases (id 16
+`test4`, id 3 `james`), deleted the newer duplicate (id 17, id 4). Then
+added the missing constraint live: `ALTER TABLE users ADD UNIQUE INDEX
+ix_users_username_unique (username)` — 16 users remain (was 18).
+`users.py`'s `create_user` already pre-checks `get_user_by_username()`
+before insert (and that check is case-insensitive too, same collation), so
+this shouldn't recur in the normal flow — the new constraint is a
+defense-in-depth safety net for a race between that check and the commit.
+Wrapped the `db.commit()` in `try/except IntegrityError` so that race
+returns the same clean `400 "User already exists"` instead of a raw 500.
+Verified via the real `/users` endpoint (not just direct SQL): attempting
+to create `test4` again now returns 400, no server error.
 
 ## Frontend Status
 - `pages/login.jsx` — fully wired to `POST /login`, tested working
@@ -188,11 +286,15 @@ next major task.
     "Delete + archive pattern" above) → `refreshClientData()`. Deleting a
     client with existing insurance cases will fail with a 409 — this is
     backend-enforced, not just a frontend check.
-  - Other 4 tabs (Policy, Quotation, Claims, Survey Report) are STILL MOCK
-    DATA — Policy/Quotation/Survey Report have real backend endpoints
-    available to connect next (fire_property + motor_car routers), but
-    Claims has no backend at all (blocked, no claims data per project
-    scope).
+  - **Policy tab**: DONE — fetches `GET /fire-property/policies` +
+    `GET /motor/policies` (both, merged) with the same auth-header pattern
+    as Client Information.
+  - **Quotation tab**: DONE — fetches quotations AND policies from both
+    lines (fire_property + motor_car) so it can resolve each quotation's
+    "Converted Policy No." via a quotation_id → policy_no map.
+  - **Survey Report tab**: DONE — fetches `GET /fire-property/surveys`.
+  - **Claims tab**: still mock `claimsData` — correctly blocked, no claims
+    backend exists (see Study Objectives 1.3/scope notes above).
   - `components/UploadFileModal.jsx`: DONE for Policyholders only — it was
     completely unwired before this session (just faked an "Uploaded!"
     state locally, never called the backend). Now it actually
@@ -247,12 +349,18 @@ next major task.
    UI), built the Needs Review modal + resolve flow, and added delete +
    archive-table endpoints for both policyholders and import records. See
    "Frontend Status" and "Delete + archive pattern" above.
-2. Add authentication (`Depends(get_current_user)`) to all CRUD and bulk
-   import endpoints that don't have it yet.
-3. Continue connecting remaining frontend tabs (Policy, Quotation, Survey
-   Report) to their real backend endpoints, and wire `UploadModal` to the
-   Fire/Property and Motor bulk import endpoints too (currently
-   Policyholders-only).
-4. GIS/flood-risk integration (Objective 2.1) — not started.
-5. Predictive risk model (Objective 1.2 core) — not started, blocked on
+2. ~~Add authentication to all CRUD and bulk import endpoints~~ — DONE, see
+   Backend Structure above.
+3. ~~Connect Policy/Quotation/Survey Report tabs to real backend endpoints~~
+   — DONE, see Frontend Status above.
+4. ~~Wire `UploadModal` to the Fire/Property and Motor importers~~ — DONE.
+   `UploadModal` now has an importer-select dropdown (Policyholders /
+   Fire & Property Surveys / Motor Quotations), defaulting per the active
+   tab via `IMPORT_TARGET_BY_TYPE` in `policy.jsx`. End-to-end tested in a
+   real browser, which surfaced two backend bugs — both FIXED this session:
+   the needs_review phone-weighting issue (see Bulk Import Matching Logic
+   above) and the needs-review resolve data-loss bug (see Needs-Review
+   Resolution above).
+5. GIS/flood-risk integration (Objective 2.1) — not started.
+6. Predictive risk model (Objective 1.2 core) — not started, blocked on
    having enough real data flowing through the system first.

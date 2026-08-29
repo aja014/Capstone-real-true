@@ -1,62 +1,42 @@
 import { useState, useEffect, useCallback } from "react";
-import { ChevronDown, Search, Upload, FileText, Trash2 } from "lucide-react";
+import { ChevronDown, Search, Upload, Trash2 } from "lucide-react";
 import axios from "axios";
 import Sidebar from "../components/sidebar";
 import UploadModal from "../components/UploadFileModal";
 import NeedsReviewModal from "../components/NeedsReviewModal";
 import { FullCalendarPicker } from "../components/DatePicker";
-import ImageForSurveyTable from "../img/Background_Cars.jpg"
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
 // ── Stat Cards
 const statCards = [
-  { label: "Total Policies", value: "731" },
-  { label: "Total Quotation", value: "934" },
+  { label: "Total Policies", value: null }, // filled in dynamically at render time
+  { label: "Total Quotation", value: null },
   { label: "Total Claims", value: "421" },
-  { label: "Total Client Information", value: null }, // filled in dynamically at render time
-  { label: "Total Survey Report", value: "1011" },
+  { label: "Total Client Information", value: null },
+  { label: "Total Survey Report", value: null },
 ];
 
 const TYPE_OPTIONS = ["Policy", "Quotation", "Claims", "Client Information", "Survey Report"];
 const PAGE_SIZE = 8;
 
-// ── Datasets (enough for 2+ pages each) 
-const policyData = [
-  { policy: "POL-1001", client: "Juan Dela Cruz", line: "Motor Car", issued: "01/15/2026", expiry: "01/15/2027", premium: "₱2,500", sum: "₱850,000", status: "New" },
-  { policy: "POL-1002", client: "Maria Santos", line: "Motor Car", issued: "02/01/2026", expiry: "01/15/2027", premium: "₱1,500", sum: "₱480,000", status: "Renewed" },
-  { policy: "POL-1003", client: "Emily Fernandez", line: "Fire & Property", issued: "01/15/2026", expiry: "01/15/2027", premium: "₱2,500", sum: "₱850,000", status: "New" },
-  { policy: "POL-1004", client: "Dennis Reyes", line: "Motor Car", issued: "02/01/2026", expiry: "01/15/2027", premium: "₱1,500", sum: "₱480,000", status: "New" },
-  { policy: "POL-1005", client: "Lina Mercado", line: "Fire & Property", issued: "01/15/2026", expiry: "01/15/2027", premium: "₱2,500", sum: "₱850,000", status: "Renewed" },
-  { policy: "POL-1006", client: "Roberto Gomez", line: "Fire & Property", issued: "02/01/2026", expiry: "01/15/2027", premium: "₱1,500", sum: "₱480,000", status: "Renewed" },
-  { policy: "POL-1007", client: "Antonio Reyes", line: "Fire & Property", issued: "01/15/2026", expiry: "01/15/2027", premium: "₱2,500", sum: "₱850,000", status: "New" },
-  { policy: "POL-1008", client: "Manuel Chua", line: "Motor Car", issued: "02/01/2026", expiry: "01/15/2027", premium: "₱1,500", sum: "₱480,000", status: "Renewed" },
-  { policy: "POL-1009", client: "Teresa Villanueva", line: "Fire & Property", issued: "02/01/2026", expiry: "01/15/2027", premium: "₱6,500", sum: "₱580,000", status: "New" },
-  { policy: "POL-1010", client: "Sofia Ramirez", line: "Motor Car", issued: "01/20/2026", expiry: "01/20/2027", premium: "₱3,200", sum: "₱720,000", status: "Renewed" },
-  { policy: "POL-1011", client: "Ricardo Santiago", line: "Fire & Property", issued: "02/05/2026", expiry: "02/05/2027", premium: "₱4,000", sum: "₱950,000", status: "New" },
-  { policy: "POL-1012", client: "Carmen Flores", line: "Motor Car", issued: "01/25/2026", expiry: "01/25/2027", premium: "₱2,800", sum: "₱660,000", status: "New" },
-  { policy: "POL-1013", client: "Miguel Torres", line: "Fire & Property", issued: "02/10/2026", expiry: "02/10/2027", premium: "₱3,500", sum: "₱880,000", status: "Renewed" },
-  { policy: "POL-1014", client: "Elena Cruz", line: "Motor Car", issued: "01/30/2026", expiry: "01/30/2027", premium: "₱1,800", sum: "₱510,000", status: "New" },
-  { policy: "POL-1015", client: "Jose Rizal", line: "Fire & Property", issued: "02/15/2026", expiry: "02/15/2027", premium: "₱5,000", sum: "₱1,100,000", status: "Renewed" },
-  { policy: "POL-1016", client: "Leonor Rivera", line: "Motor Car", issued: "01/12/2026", expiry: "01/12/2027", premium: "₱2,200", sum: "₱590,000", status: "New" },
-];
+// ── Helpers for backend data → display strings ─────────────────────────────
+function formatDate(value) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (isNaN(d)) return "—";
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const yyyy = d.getUTCFullYear();
+  return `${mm}/${dd}/${yyyy}`;
+}
 
-const quotationData = [
-  { quote: "Q-2026-001", date: "01/05/2026", client: "Ricardo Santiago", line: "Motor Car", premium: "₱21,500", sum: "₱980,000", expiry: "02/04/2026", converted: "POL-1012" },
-  { quote: "Q-2026-002", date: "01/12/2026", client: "Sofia Ramirez", line: "Fire & Property", premium: "₱55,000", sum: "₱6,500,000", expiry: "02/11/2026", converted: "POL-1013" },
-  { quote: "Q-2026-003", date: "01/20/2026", client: "Miguel Torres", line: "Motor Car", premium: "₱18,200", sum: "₱750,000", expiry: "02/19/2026", converted: "—" },
-  { quote: "Q-2026-004", date: "02/01/2026", client: "Carmen Flores", line: "Motor Car", premium: "₱72,500", sum: "₱9,000,000", expiry: "03/03/2026", converted: "POL-1014" },
-  { quote: "Q-2026-005", date: "02/10/2026", client: "Jose Rizal", line: "Fire & Property", premium: "₱25,800", sum: "₱1,350,000", expiry: "03/12/2026", converted: "—" },
-  { quote: "Q-2026-006", date: "02/18/2026", client: "Elena Cruz", line: "Fire & Property", premium: "₱58,000", sum: "₱4,500,000", expiry: "03/20/2026", converted: "POL-1015" },
-  { quote: "Q-2026-007", date: "02/25/2026", client: "Andres Bonifacio", line: "Motor Car", premium: "₱16,500", sum: "₱620,000", expiry: "03/27/2026", converted: "—" },
-  { quote: "Q-2026-008", date: "03/02/2026", client: "Leonor Rivera", line: "Fire & Property", premium: "₱48,500", sum: "₱5,200,000", expiry: "04/01/2026", converted: "POL-1016" },
-  { quote: "Q-2026-009", date: "03/10/2026", client: "Gregorio Del Pilar", line: "Motor Car", premium: "₱22,900", sum: "₱7,800,000", expiry: "04/09/2026", converted: "—" },
-  { quote: "Q-2026-010", date: "03/15/2026", client: "Melchora Aquino", line: "Fire & Property", premium: "₱31,000", sum: "₱2,100,000", expiry: "04/14/2026", converted: "POL-1017" },
-  { quote: "Q-2026-011", date: "03/18/2026", client: "Diego Santos", line: "Motor Car", premium: "₱19,400", sum: "₱840,000", expiry: "04/17/2026", converted: "—" },
-  { quote: "Q-2026-012", date: "03/22/2026", client: "Ana Reyes", line: "Fire & Property", premium: "₱44,000", sum: "₱3,600,000", expiry: "04/21/2026", converted: "POL-1018" },
-  { quote: "Q-2026-013", date: "03/25/2026", client: "Pedro Gomez", line: "Motor Car", premium: "₱17,800", sum: "₱700,000", expiry: "04/24/2026", converted: "—" },
-  { quote: "Q-2026-014", date: "03/28/2026", client: "Luisa Mercado", line: "Fire & Property", premium: "₱62,000", sum: "₱5,800,000", expiry: "04/27/2026", converted: "—" },
-];
+function formatCurrency(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  const n = Number(value);
+  if (isNaN(n)) return "—";
+  return `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
 
 const claimsData = [
   { claim: "CLM-3001", policy: "POL-1012", client: "Ricardo Santiago", loss: "02/15/2026", reported: "02/16/2026", line: "Motor Car", type: "Collision", reserve: "₱65,000", paid: "₱65,000", status: "Paid", fraud: "No" },
@@ -71,21 +51,6 @@ const claimsData = [
   { claim: "CLM-3010", policy: "POL-1010", client: "Sofia Ramirez", loss: "03/20/2026", reported: "03/21/2026", line: "Motor Car", type: "Accident", reserve: "₱38,000", paid: "₱38,000", status: "Paid", fraud: "No" },
   { claim: "CLM-3011", policy: "POL-1011", client: "Ricardo Santiago", loss: "03/22/2026", reported: "03/23/2026", line: "Fire & Property", type: "Vandalism", reserve: "₱410,000", paid: "₱0", status: "Investigating", fraud: "Yes" },
   { claim: "CLM-3012", policy: "POL-1005", client: "Lina Mercado", loss: "03/25/2026", reported: "03/26/2026", line: "Fire & Property", type: "Fire", reserve: "₱1,550,000", paid: "₱0", status: "Approved", fraud: "No" },
-];
-
-const surveyData = [
-  { id: "SURV-001", policy: "POL-1001", client: "Juan Dela Cruz", date: "01/10/2026", propType: "Motor Vehicle", location: "123 Rizal St., Malolos City", grade: "Low", findings: "Vehicle in good c...", reco: "Regular mainte...", photo: ImageForSurveyTable },
-  { id: "SURV-002", policy: "POL-1002", client: "Maria Santos", date: "01/25/2026", propType: "Motor Vehicle", location: "45 Mabini St., Baliuag", grade: "Moderate", findings: "Minor scratches...", reco: "Secure accessori...", photo: ImageForSurveyTable },
-  { id: "SURV-003", policy: "POL-1003", client: "Roberto Gomez", date: "01/05/2026", propType: "Commercial Building", location: "78 Purok 3, Malolos City", grade: "Moderate", findings: "Electrical wiring nee...", reco: "Update electrical s...", photo: ImageForSurveyTable },
-  { id: "SURV-004", policy: "POL-1004", client: "Antonio Reyes", date: "02/28/2026", propType: "Commercial Truck", location: "56 Burgos St., Santa Maria", grade: "High", findings: "Heavy wear on tires...", reco: "Replace tires, insta...", photo: ImageForSurveyTable },
-  { id: "SURV-005", policy: "POL-1007", client: "Dennis Reyes", date: "02/10/2026", propType: "Motor Vehicle", location: "89 Rizal Ave., Malolos City", grade: "Low", findings: "Well-maintaine...", reco: "No major recomme...", photo: ImageForSurveyTable },
-  { id: "SURV-006", policy: "POL-1008", client: "Gregorio Fernandez", date: "01/15/2026", propType: "Residential Property", location: "34 M.H. Del Pilar St., San Jose...", grade: "Low", findings: "Concrete structure, f...", reco: "Annual fire drill practi...", photo: ImageForSurveyTable },
-  { id: "SURV-007", policy: "POL-1010", client: "Manuel Chua", date: "02/20/2026", propType: "Motor Vehicle", location: "67 Purok 2, Plaridel", grade: "High", findings: "Multiple units with ...", reco: "Schedule regular m...", photo: ImageForSurveyTable },
-  { id: "SURV-008", policy: "POL-1012", client: "Ricardo Santiago", date: "03/01/2026", propType: "Motor Vehicle", location: "22 F. Torres St., Meycauayan", grade: "Low", findings: "Brand new vehicle...", reco: "No recomme...", photo: ImageForSurveyTable },
-  { id: "SURV-009", policy: "POL-1014", client: "Carmen Flores", date: "03/05/2026", propType: "Warehouse", location: "12 Purok 5, Marilao", grade: "High", findings: "Flammable materials...", reco: "Implement proper sto...", photo: ImageForSurveyTable },
-  { id: "SURV-010", policy: "POL-1005", client: "Lina Mercado", date: "03/08/2026", propType: "Residential Property", location: "45 Purok 3, San Jose del Monte", grade: "Low", findings: "Well-kept property...", reco: "No changes needed...", photo: ImageForSurveyTable },
-  { id: "SURV-011", policy: "POL-1006", client: "Roberto Gomez", date: "03/12/2026", propType: "Commercial Building", location: "78 Purok 1, Malolos City", grade: "Moderate", findings: "Minor facade issues...", reco: "Repaint exterior...", photo: ImageForSurveyTable },
-  { id: "SURV-012", policy: "POL-1015", client: "Elena Cruz", date: "03/15/2026", propType: "Motor Vehicle", location: "56 Burgos St., Santa Maria", grade: "Low", findings: "Good overall cond...", reco: "Routine check...", photo: ImageForSurveyTable },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -112,9 +77,12 @@ function Dropdown({ label, options, value, onChange }) {
   );
 }
 
-function RiskBadge({ grade }) {
-  const colors = { Low: "text-green-600 bg-green-50", Moderate: "text-yellow-700 bg-yellow-50", High: "text-red-600 bg-red-50" };
-  return <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${colors[grade] || ""}`}>{grade}</span>;
+function RiskClassBadge({ riskClass }) {
+  const labels = { a: "Class A (Concrete)", b: "Class B (Concrete & Wood)" };
+  const colors = { a: "text-green-600 bg-green-50", b: "text-yellow-700 bg-yellow-50" };
+  const key = (riskClass || "").toLowerCase();
+  if (!labels[key]) return <span className="text-gray-400">—</span>;
+  return <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap ${colors[key]}`}>{labels[key]}</span>;
 }
 
 // ── Table renderers (receive sliced `rows`) ───────────────────────────────────
@@ -141,7 +109,7 @@ function QuotationTable({ rows }) {
   return (
     <table className="w-full text-xs text-center">
       <thead><tr className="border-b border-gray-100">
-        {["Quote Number", "Quote Date", "Client Name", "Policy Line", "Premium", "Sum Insured", "Expiry Date", "Converted Policy No."].map(h =>
+        {["Quote Number", "Quote Date", "Client Name", "Policy Line", "Premium", "Sum Insured", "Period Cover", "Converted Policy No."].map(h =>
           <th key={h} className="py-3 px-3 text-gray-700 font-bold whitespace-nowrap">{h}</th>)}
       </tr></thead>
       <tbody>{rows.map((r, i) => (
@@ -149,7 +117,7 @@ function QuotationTable({ rows }) {
           <td className="py-3 px-3">{r.quote}</td><td className="py-3 px-3">{r.date}</td>
           <td className="py-3 px-3">{r.client}</td><td className="py-3 px-3">{r.line}</td>
           <td className="py-3 px-3">{r.premium}</td><td className="py-3 px-3">{r.sum}</td>
-          <td className="py-3 px-3">{r.expiry}</td>
+          <td className="py-3 px-3">{r.period}</td>
           <td className="py-3 px-3 font-medium">{r.converted}</td>
         </tr>
       ))}</tbody>
@@ -214,30 +182,20 @@ function SurveyTable({ rows }) {
   return (
     <table className="w-full text-xs text-center">
       <thead><tr className="border-b border-gray-100">
-        {["Survey ID", "Policy Number", "Client Name", "Survey Date", "Property Type", "Location", "Risk Grade", "Findings Summary", "Recommendations", "Photo"].map(h =>
+        {["Survey ID", "Client Name", "Survey Date", "Location of Risk", "Risk Class", "Zone", "Max. Amount Subject", "Loss Record", "Flood Risk"].map(h =>
           <th key={h} className="py-3 px-2 text-gray-700 font-bold whitespace-nowrap">{h}</th>)}
       </tr></thead>
       <tbody>{rows.map((r, i) => (
         <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 transition">
-          <td className="py-3 px-2">{r.id}</td><td className="py-3 px-2">{r.policy}</td>
+          <td className="py-3 px-2">{r.id}</td>
           <td className="py-3 px-2">{r.client}</td><td className="py-3 px-2">{r.date}</td>
-          <td className="py-3 px-2">{r.propType}</td>
-          <td className="py-3 px-2 text-left max-w-[120px] text-gray-600">{r.location}</td>
-          <td className="py-3 px-2"><RiskBadge grade={r.grade} /></td>
-          <td className="py-3 px-2 text-left max-w-[100px]">{r.findings}</td>
-          <td className="py-3 px-2 text-left max-w-[100px]">{r.reco}</td>
-          <td className="py-3 px-2">
-            {r.photo && (
-              <a
-                href={r.photo}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex justify-center"
-              >
-                <FileText className="w-4 h-4 text-gray-500 hover:text-yellow-500 cursor-pointer" />
-              </a>
-            )}
-          </td>        </tr>
+          <td className="py-3 px-2 text-left max-w-[160px] text-gray-600">{r.location}</td>
+          <td className="py-3 px-2"><RiskClassBadge riskClass={r.riskClass} /></td>
+          <td className="py-3 px-2">{r.zone}</td>
+          <td className="py-3 px-2">{r.maxAmount}</td>
+          <td className="py-3 px-2 text-left max-w-[160px] text-gray-600">{r.lossRecord}</td>
+          <td className="py-3 px-2">{r.floodRisk}</td>
+        </tr>
       ))}</tbody>
     </table>
   );
@@ -252,6 +210,17 @@ const DATE_FIELD_MAP = {
   "Claims": "loss",
   "Survey Report": "date",
   "Client Information": null, // no date field — month filter doesn't apply
+};
+
+// Which bulk importer the Upload button should default to for the active tab.
+// The user can still switch it inside the modal — Policy/Quotation mix data
+// from both lines, so there's no single correct guess for those.
+const IMPORT_TARGET_BY_TYPE = {
+  "Client Information": "policyholders",
+  "Survey Report": "fire-property",
+  "Policy": "motor",
+  "Quotation": "motor",
+  "Claims": "policyholders",
 };
 
 function parseMonthLabel(label) {
@@ -276,9 +245,7 @@ export default function PolicyHolderInformation() {
   const [uploadOpen, setUploadOpen] = useState(false);
 
   const [fromDate, setFromDate] = useState(null);
-  // const [month, setMonth] = useState("March 2026");
   const [year, setYear] = useState(2026);
-  const handleMonthChange = (m) => { setMonth(m); setPage(1); };
 
   const [clientRecords, setClientRecords] = useState([]);
   const [clientLoading, setClientLoading] = useState(true);
@@ -308,6 +275,122 @@ export default function PolicyHolderInformation() {
     }
   }, []);
 
+  const [policyRecords, setPolicyRecords] = useState([]);
+  const [policyLoading, setPolicyLoading] = useState(true);
+  const [policyError, setPolicyError] = useState(null);
+
+  const fetchPolicies = useCallback(async () => {
+    setPolicyLoading(true);
+    setPolicyError(null);
+    try {
+      const token = localStorage.getItem("token");
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const [fpRes, motorRes] = await Promise.all([
+        axios.get(`${API_BASE_URL}/fire-property/policies`, { headers }),
+        axios.get(`${API_BASE_URL}/motor/policies`, { headers }),
+      ]);
+      const toRow = (p, line) => ({
+        policy: p.policy_no || "—",
+        client: p.insured_name_address || "—",
+        line,
+        issued: formatDate(p.issue_date),
+        expiry: formatDate(p.period_to),
+        premium: formatCurrency(p.total_amount_due),
+        sum: line === "Fire & Property" ? formatCurrency(p.sum_insured) : "—",
+        status: p.renewing_policy_no ? "Renewed" : "New",
+      });
+      setPolicyRecords([
+        ...fpRes.data.map((p) => toRow(p, "Fire & Property")),
+        ...motorRes.data.map((p) => toRow(p, "Motor Car")),
+      ]);
+    } catch (err) {
+      setPolicyError("Failed to load policies.");
+    } finally {
+      setPolicyLoading(false);
+    }
+  }, []);
+
+  const [quotationRecords, setQuotationRecords] = useState([]);
+  const [quotationLoading, setQuotationLoading] = useState(true);
+  const [quotationError, setQuotationError] = useState(null);
+
+  const fetchQuotations = useCallback(async () => {
+    setQuotationLoading(true);
+    setQuotationError(null);
+    try {
+      const token = localStorage.getItem("token");
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const [fpQRes, motorQRes, fpPRes, motorPRes] = await Promise.all([
+        axios.get(`${API_BASE_URL}/fire-property/quotations`, { headers }),
+        axios.get(`${API_BASE_URL}/motor/quotations`, { headers }),
+        axios.get(`${API_BASE_URL}/fire-property/policies`, { headers }),
+        axios.get(`${API_BASE_URL}/motor/policies`, { headers }),
+      ]);
+      const fpPolicyByQuotation = new Map(fpPRes.data.map((p) => [p.quotation_id, p.policy_no || "—"]));
+      const motorPolicyByQuotation = new Map(motorPRes.data.map((p) => [p.quotation_id, p.policy_no || "—"]));
+
+      const fp = fpQRes.data.map((q) => ({
+        quote: `FP-Q-${q.id}`,
+        date: formatDate(q.quotation_date),
+        client: q.insured_name || "—",
+        line: "Fire & Property",
+        premium: formatCurrency(q.total_premium),
+        sum: formatCurrency(q.total_sum_insured),
+        period: q.period_cover || "—",
+        converted: fpPolicyByQuotation.get(q.id) || "—",
+      }));
+      const motor = motorQRes.data.map((q) => ({
+        quote: `MC-Q-${q.id}`,
+        date: formatDate(q.quotation_date),
+        client: q.insured_name || "—",
+        line: "Motor Car",
+        premium: formatCurrency(q.total_amount_due),
+        sum: "—",
+        period: "—",
+        converted: motorPolicyByQuotation.get(q.id) || "—",
+      }));
+      setQuotationRecords([...fp, ...motor]);
+    } catch (err) {
+      setQuotationError("Failed to load quotations.");
+    } finally {
+      setQuotationLoading(false);
+    }
+  }, []);
+
+  const [surveyRecords, setSurveyRecords] = useState([]);
+  const [surveyLoading, setSurveyLoading] = useState(true);
+  const [surveyError, setSurveyError] = useState(null);
+
+  const fetchSurveys = useCallback(async () => {
+    setSurveyLoading(true);
+    setSurveyError(null);
+    try {
+      const token = localStorage.getItem("token");
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const response = await axios.get(`${API_BASE_URL}/fire-property/surveys`, { headers });
+      const transformed = response.data.map((s) => ({
+        id: `SURV-${s.id}`,
+        client: s.name_of_insured || "—",
+        date: formatDate(s.created_at),
+        location: s.location_of_risk || "—",
+        riskClass: s.risk_class || null,
+        zone: s.zone || "—",
+        maxAmount: formatCurrency(s.maximum_amount_subject),
+        lossRecord: s.loss_record || "—",
+        floodRisk:
+          s.flood_risk_category ||
+          (s.flood_risk_flag === null || s.flood_risk_flag === undefined
+            ? "—"
+            : s.flood_risk_flag ? "Flood-Prone" : "Not Flood-Prone"),
+      }));
+      setSurveyRecords(transformed);
+    } catch (err) {
+      setSurveyError("Failed to load survey reports.");
+    } finally {
+      setSurveyLoading(false);
+    }
+  }, []);
+
   const [needsReviewOpen, setNeedsReviewOpen] = useState(false);
   const [needsReviewRecords, setNeedsReviewRecords] = useState([]);
   const [needsReviewLoading, setNeedsReviewLoading] = useState(true);
@@ -332,6 +415,17 @@ export default function PolicyHolderInformation() {
     fetchNeedsReview();
   }, [fetchClients, fetchNeedsReview]);
 
+  // A bulk import can touch policyholders, cases, surveys, vehicles, and
+  // quotations depending on which importer ran — refresh everything rather
+  // than guessing which tabs are affected.
+  const refreshAllData = useCallback(() => {
+    fetchClients();
+    fetchNeedsReview();
+    fetchPolicies();
+    fetchQuotations();
+    fetchSurveys();
+  }, [fetchClients, fetchNeedsReview, fetchPolicies, fetchQuotations, fetchSurveys]);
+
   const deletePolicyholder = useCallback(async (row) => {
     if (!window.confirm(`Delete client "${row.client}"? This moves the record to the deleted archive.`)) return;
     try {
@@ -348,21 +442,42 @@ export default function PolicyHolderInformation() {
   useEffect(() => {
     fetchClients();
     fetchNeedsReview();
-  }, [fetchClients, fetchNeedsReview]);
+    fetchPolicies();
+    fetchQuotations();
+    fetchSurveys();
+  }, [fetchClients, fetchNeedsReview, fetchPolicies, fetchQuotations, fetchSurveys]);
 
   const DATA_MAP = {
-    "Policy": policyData,
-    "Quotation": quotationData,
+    "Policy": policyRecords,
+    "Quotation": quotationRecords,
     "Claims": claimsData,
     "Client Information": clientRecords,
-    "Survey Report": surveyData,
+    "Survey Report": surveyRecords,
   };
 
-  const displayStatCards = statCards.map((c) =>
-    c.label === "Total Client Information"
-      ? { ...c, value: clientLoading ? "…" : String(clientRecords.length) }
-      : c
-  );
+  const LOADING_MAP = {
+    "Policy": policyLoading,
+    "Quotation": quotationLoading,
+    "Claims": false,
+    "Client Information": clientLoading,
+    "Survey Report": surveyLoading,
+  };
+
+  const ERROR_MAP = {
+    "Policy": policyError,
+    "Quotation": quotationError,
+    "Claims": null,
+    "Client Information": clientError,
+    "Survey Report": surveyError,
+  };
+
+  const displayStatCards = statCards.map((c) => {
+    if (c.label === "Total Client Information") return { ...c, value: clientLoading ? "…" : String(clientRecords.length) };
+    if (c.label === "Total Policies") return { ...c, value: policyLoading ? "…" : String(policyRecords.length) };
+    if (c.label === "Total Quotation") return { ...c, value: quotationLoading ? "…" : String(quotationRecords.length) };
+    if (c.label === "Total Survey Report") return { ...c, value: surveyLoading ? "…" : String(surveyRecords.length) };
+    return c;
+  });
 
   const handleTypeChange = (t) => { setType(t); setPage(1); setSearch(""); };
   const handleSearch = (v) => { setSearch(v); setPage(1); };
@@ -469,10 +584,10 @@ export default function PolicyHolderInformation() {
 
           {/* Dynamic Table */}
           <div className="overflow-x-auto flex-1">
-            {type === "Client Information" && clientLoading
-              ? <p className="text-center py-8 text-gray-400 text-xs">Loading client information...</p>
-              : type === "Client Information" && clientError
-              ? <p className="text-center py-8 text-red-400 text-xs">{clientError}</p>
+            {LOADING_MAP[type]
+              ? <p className="text-center py-8 text-gray-400 text-xs">Loading {type.toLowerCase()}...</p>
+              : ERROR_MAP[type]
+              ? <p className="text-center py-8 text-red-400 text-xs">{ERROR_MAP[type]}</p>
               : pageRows.length === 0
               ? <p className="text-center py-8 text-gray-400 text-xs">No records found.</p>
               : <>
@@ -494,7 +609,13 @@ export default function PolicyHolderInformation() {
         </div>
       </div>
 
-      <UploadModal isOpen={uploadOpen} onClose={() => setUploadOpen(false)} onUploadSuccess={refreshClientData} />
+      <UploadModal
+        key={IMPORT_TARGET_BY_TYPE[type] || "policyholders"}
+        isOpen={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        onUploadSuccess={refreshAllData}
+        defaultTarget={IMPORT_TARGET_BY_TYPE[type] || "policyholders"}
+      />
       <NeedsReviewModal
         isOpen={needsReviewOpen}
         onClose={() => setNeedsReviewOpen(false)}

@@ -5,11 +5,13 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.security import get_current_user
 from app import models, schemas
 
 router = APIRouter(
     prefix="/import/motor",
-    tags=["Bulk Import — Motor & Car"]
+    tags=["Bulk Import — Motor & Car"],
+    dependencies=[Depends(get_current_user)],
 )
 
 MATCH_THRESHOLD = 90     # policyholder name-match confidence
@@ -210,6 +212,7 @@ def upload_motor_quotations(file: UploadFile = File(...), db: Session = Depends(
                 elif best_score >= REVIEW_THRESHOLD:
                     record = models.ImportRecord(
                         source_file=file.filename, source_row=source_row,
+                        import_type=models.ImportType.motor,
                         match_status=models.MatchStatus.needs_review,
                         raw_data=raw_data,
                     )
@@ -276,6 +279,7 @@ def upload_motor_quotations(file: UploadFile = File(...), db: Session = Depends(
 
             record = models.ImportRecord(
                 source_file=file.filename, source_row=source_row,
+                import_type=models.ImportType.motor,
                 match_status=status,
                 matched_policyholder_id=matched_policyholder_id,
                 matched_case_id=matched_case_id,
@@ -311,3 +315,101 @@ def upload_motor_quotations(file: UploadFile = File(...), db: Session = Depends(
         import_record_ids=import_record_ids,
         errors=errors,
     )
+
+
+# ------------------------------------------------------------
+# Needs-review resolution — called from import_policyholders.resolve_import_record
+# once it knows the policyholder for a motor-origin row. Runs the same
+# vehicle/quotation creation the main upload path above uses, so resolving a
+# review row doesn't just link a policyholder while silently dropping the
+# vehicle/quotation data. Re-checks for an existing vehicle in case one was
+# created by a separate upload after this row was queued for review.
+# ------------------------------------------------------------
+
+def new_policyholder_fields(record: models.ImportRecord) -> dict:
+    fields = row_to_fields(record.raw_data or {})
+    return {"last_name": (fields.get("insured_name") or "").strip() or None}
+
+
+def resolve_for_policyholder(db: Session, record: models.ImportRecord, policyholder_id: int):
+    fields = row_to_fields(record.raw_data or {})
+    plate_no = fields.get("plate_no", "")
+    engine_no = fields.get("motor_engine_no", "")
+    chassis_no = fields.get("serial_chassis_no", "")
+
+    existing_vehicle = find_existing_vehicle(db, plate_no, engine_no, chassis_no)
+
+    if existing_vehicle:
+        case = existing_vehicle.insurance_case
+        existing_quotations = db.query(models.MotorQuotation).filter(
+            models.MotorQuotation.vehicle_id == existing_vehicle.id
+        ).all()
+
+        def _amount_equal(a, b):
+            try:
+                return a is not None and b is not None and float(a) == float(b)
+            except (TypeError, ValueError):
+                return False
+
+        is_duplicate = any(
+            q.quotation_date == fields.get("quotation_date")
+            and _amount_equal(q.total_amount_due, fields.get("total_amount_due"))
+            for q in existing_quotations
+        )
+        if is_duplicate:
+            return case.id, models.MatchStatus.matched
+
+        new_quotation = models.MotorQuotation(
+            insurance_case_id=case.id,
+            vehicle_id=existing_vehicle.id,
+            quotation_date=fields.get("quotation_date") or None,
+            insured_name=fields.get("insured_name"),
+            address=fields.get("address"),
+            unit=fields.get("unit"),
+            classification=fields.get("classification"),
+            color=fields.get("color"),
+            deductible=fields.get("deductible") or None,
+            plate_no=plate_no or None,
+            total_amount_due=fields.get("total_amount_due") or None,
+        )
+        db.add(new_quotation)
+        db.flush()
+        return case.id, models.MatchStatus.unmatched
+
+    new_case = models.InsuranceCase(policyholder_id=policyholder_id, line_type=models.LineType.motor_car)
+    db.add(new_case)
+    db.flush()
+    db.refresh(new_case)
+
+    new_vehicle = models.Vehicle(
+        insurance_case_id=new_case.id,
+        model=fields.get("model"),
+        make=fields.get("make"),
+        body_type=fields.get("body_type"),
+        color=fields.get("color"),
+        plate_no=plate_no or None,
+        motor_engine_no=engine_no or None,
+        serial_chassis_no=chassis_no or None,
+        authorized_capacity=fields.get("authorized_capacity"),
+    )
+    db.add(new_vehicle)
+    db.flush()
+    db.refresh(new_vehicle)
+
+    new_quotation = models.MotorQuotation(
+        insurance_case_id=new_case.id,
+        vehicle_id=new_vehicle.id,
+        quotation_date=fields.get("quotation_date") or None,
+        insured_name=fields.get("insured_name"),
+        address=fields.get("address"),
+        unit=fields.get("unit"),
+        classification=fields.get("classification"),
+        color=fields.get("color"),
+        deductible=fields.get("deductible") or None,
+        plate_no=plate_no or None,
+        total_amount_due=fields.get("total_amount_due") or None,
+    )
+    db.add(new_quotation)
+    db.flush()
+
+    return new_case.id, models.MatchStatus.unmatched

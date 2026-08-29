@@ -294,10 +294,17 @@ class MatchStatus(str, Enum):
     needs_review = "needs_review"
 
 
+class ImportType(str, Enum):
+    policyholder = "policyholder"
+    fire_property = "fire_property"
+    motor = "motor"
+
+
 class ImportRecordOut(BaseModel):
     id: int
     source_file: str
     source_row: Optional[int] = None
+    import_type: ImportType
     match_status: MatchStatus
     matched_case_id: Optional[int] = None
     matched_policyholder_id: Optional[int] = None

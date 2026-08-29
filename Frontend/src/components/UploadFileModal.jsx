@@ -4,14 +4,26 @@ import axios from "axios";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
-export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
+const IMPORT_TARGETS = [
+  { value: "policyholders", label: "Policyholders", endpoint: "/import/policyholders/upload" },
+  { value: "fire-property", label: "Fire & Property Surveys", endpoint: "/import/fire-property/surveys/upload" },
+  { value: "motor", label: "Motor Quotations", endpoint: "/import/motor/quotations/upload" },
+];
+
+// `key`-remounted by the parent whenever its default target changes, so
+// `target` only needs a plain initial value — no effect required to keep it
+// in sync with `defaultTarget` across re-opens.
+export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultTarget = "policyholders" }) {
   const [uploadedFile, setUploadedFile] = useState(null);
   const [dragging, setDragging] = useState(false);
   const [status, setStatus] = useState("idle"); // idle | uploading | done | error
   const [summary, setSummary] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
+  const [target, setTarget] = useState(defaultTarget);
 
   if (!isOpen) return null;
+
+  const activeTarget = IMPORT_TARGETS.find((t) => t.value === target) || IMPORT_TARGETS[0];
 
   const uploadFile = async (file) => {
     setUploadedFile(file);
@@ -25,7 +37,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
     try {
       const token = localStorage.getItem("token");
       const response = await axios.post(
-        `${API_BASE_URL}/import/policyholders/upload`,
+        `${API_BASE_URL}${activeTarget.endpoint}`,
         formData,
         { headers: token ? { Authorization: `Bearer ${token}` } : {} }
       );
@@ -109,6 +121,17 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
                 {dragging ? "Drop to upload" : "Drag files here to upload"}
               </p>
               <p className="mt-1 text-xs text-gray-500">or click anywhere to browse</p>
+
+              <select
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                className="mt-4 text-xs bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-gray-700"
+              >
+                {IMPORT_TARGETS.map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
             </>
           )}
 

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.security import hash_password
 from app.services.user_service import get_user_by_username
@@ -38,7 +39,14 @@ def create_user( user: schemas.UserCreate, db: Session = Depends(get_db), curren
     )
 
     db.add(db_user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # The username unique constraint is the source of truth; the
+        # get_user_by_username check above can still race with a concurrent
+        # request, so fall back to the same clean error instead of a raw 500.
+        db.rollback()
+        raise HTTPException(status_code=400, detail="User already exists")
     db.refresh(db_user)
 
     return {

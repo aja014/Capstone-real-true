@@ -5,11 +5,14 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.security import get_current_user
 from app import models, schemas
+from app.routers import import_fire_property, import_motor
 
 router = APIRouter(
     prefix="/import/policyholders",
-    tags=["Bulk Import — Policyholders"]
+    tags=["Bulk Import — Policyholders"],
+    dependencies=[Depends(get_current_user)],
 )
 
 # ------------------------------------------------------------
@@ -111,6 +114,23 @@ def match_score(candidate_name: str, candidate_addr: str, candidate_phone: str,
     merged differently (e.g. "Dela Cruz" vs "Delacruz") — address and an
     exact phone match are used as corroborating evidence to catch those cases.
     """
+    if candidate_name and existing_name and candidate_name == existing_name:
+        addr_exact = candidate_addr and existing_addr and candidate_addr == existing_addr
+        phone_exact = candidate_phone and candidate_phone == existing_phone
+        if addr_exact or phone_exact:
+            # Exact name plus at least one corroborating signal — confident match.
+            return 100
+        # Exact name with NO corroborating data at all. The weighted formula
+        # below caps at 60 in this case (name_score*0.6, addr/phone both 0),
+        # which is BELOW REVIEW_THRESHOLD (70) — so an exact name match with
+        # blank address/phone was being scored as "confidently new" and
+        # SILENTLY CREATING A DUPLICATE POLICYHOLDER, no human review at all
+        # (worse than merely missing an auto-match: it actively duplicated
+        # the same repeat customer on every upload with no address/phone on
+        # file). Floor it at REVIEW_THRESHOLD instead so it's at minimum
+        # flagged for a human to confirm, never silently duplicated.
+        return REVIEW_THRESHOLD
+
     name_score = fuzz.token_sort_ratio(candidate_name, existing_name)
     addr_score = fuzz.token_sort_ratio(candidate_addr, existing_addr) if candidate_addr and existing_addr else 0
     phone_match = 100 if candidate_phone and candidate_phone == existing_phone else 0
@@ -124,10 +144,16 @@ def upload_policyholders(file: UploadFile = File(...), db: Session = Depends(get
         raise HTTPException(status_code=400, detail="Only .xlsx, .xls, or .csv files are supported")
 
     try:
+        # dtype=str stops pandas from inferring a numeric column type at all —
+        # without it, a single blank cell in an otherwise-numeric column (e.g.
+        # phone number) upcasts the WHOLE column to float64, which silently
+        # drops leading zeros ("09171234567" -> 9171234567.0) with no way to
+        # recover the lost digit afterward. clean_cell_value() below still
+        # strips a stray trailing ".0" as a second line of defense.
         if file.filename.lower().endswith(".csv"):
-            df = pd.read_csv(file.file)
+            df = pd.read_csv(file.file, dtype=str)
         else:
-            df = pd.read_excel(file.file)
+            df = pd.read_excel(file.file, dtype=str)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not read file: {e}")
 
@@ -224,6 +250,7 @@ def upload_policyholders(file: UploadFile = File(...), db: Session = Depends(get
             import_record = models.ImportRecord(
                 source_file=file.filename,
                 source_row=source_row,
+                import_type=models.ImportType.policyholder,
                 match_status=status,
                 matched_policyholder_id=matched_policyholder_id,
                 raw_data=raw_data,
@@ -291,6 +318,22 @@ def list_deleted_import_records(db: Session = Depends(get_db)):
     return db.query(models.DeletedImportRecord).order_by(models.DeletedImportRecord.deleted_at.desc()).all()
 
 
+# Per-import-type "create a new policyholder from this row's raw_data" field
+# mapping, and the post-policyholder completion step that actually builds the
+# case/survey/vehicle/quotation the original importer would have created.
+# Without branching on import_type here, every needs-review row — regardless
+# of which importer produced it — was reduced to a bare Policyholder insert,
+# silently discarding survey/vehicle data for Fire/Property and Motor rows.
+_NEW_POLICYHOLDER_FIELDS = {
+    models.ImportType.fire_property: import_fire_property.new_policyholder_fields,
+    models.ImportType.motor: import_motor.new_policyholder_fields,
+}
+_RESOLVE_FOR_POLICYHOLDER = {
+    models.ImportType.fire_property: import_fire_property.resolve_for_policyholder,
+    models.ImportType.motor: import_motor.resolve_for_policyholder,
+}
+
+
 @router.patch("/records/{record_id}/resolve", response_model=schemas.ImportRecordOut)
 def resolve_import_record(
     record_id: int,
@@ -310,34 +353,45 @@ def resolve_import_record(
         ).first()
         if not ph:
             raise HTTPException(status_code=404, detail="Policyholder not found")
-
-        record.matched_policyholder_id = ph.id
-        record.match_status = models.MatchStatus.matched
+        policyholder_id = ph.id
 
     elif resolution.create_new:
-        # raw_data holds the ORIGINAL Excel headers (e.g. "Last Name"), so we
-        # re-apply the same header mapping used during upload to get real field names.
-        fields = {}
-        for header, value in (record.raw_data or {}).items():
-            mapped = COLUMN_MAP.get(normalize_header(header))
-            if mapped:
-                cleaned = clean_cell_value(value)
-                if cleaned is not None:
-                    fields[mapped] = cleaned
+        if record.import_type == models.ImportType.policyholder:
+            # raw_data holds the ORIGINAL Excel headers (e.g. "Last Name"), so
+            # re-apply the same header mapping used during upload.
+            fields = {}
+            for header, value in (record.raw_data or {}).items():
+                mapped = COLUMN_MAP.get(normalize_header(header))
+                if mapped:
+                    cleaned = clean_cell_value(value)
+                    if cleaned is not None:
+                        fields[mapped] = cleaned
+        else:
+            fields = _NEW_POLICYHOLDER_FIELDS[record.import_type](record)
 
         new_ph = models.Policyholder(**fields)
         db.add(new_ph)
-        db.commit()
+        db.flush()
         db.refresh(new_ph)
-
-        record.matched_policyholder_id = new_ph.id
-        record.match_status = models.MatchStatus.unmatched
+        policyholder_id = new_ph.id
 
     else:
         raise HTTPException(
             status_code=400,
             detail="Provide either matched_policyholder_id or create_new=true"
         )
+
+    record.matched_policyholder_id = policyholder_id
+
+    if record.import_type == models.ImportType.policyholder:
+        record.match_status = models.MatchStatus.matched if resolution.matched_policyholder_id else models.MatchStatus.unmatched
+    else:
+        # Fire/Property and Motor rows still need their case/survey/vehicle/
+        # quotation built — the same work the main upload path does once a
+        # policyholder is resolved, not just a policyholder link.
+        matched_case_id, status = _RESOLVE_FOR_POLICYHOLDER[record.import_type](db, record, policyholder_id)
+        record.matched_case_id = matched_case_id
+        record.match_status = status
 
     db.commit()
     db.refresh(record)

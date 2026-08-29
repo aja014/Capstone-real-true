@@ -31,6 +31,19 @@ class MatchStatus(str, enum.Enum):
     needs_review = "needs_review"
 
 
+class ImportType(str, enum.Enum):
+    """
+    Which bulk importer produced an ImportRecord. Needed because all three
+    importers share the same needs-review queue and resolve endpoint — the
+    resolver has to know this to reconstruct the right kind of record
+    (Policyholder vs. Survey vs. Vehicle/Quotation) instead of only ever
+    creating a bare Policyholder.
+    """
+    policyholder = "policyholder"
+    fire_property = "fire_property"
+    motor = "motor"
+
+
 # ------------------------------------------------------------
 # CORE
 # ------------------------------------------------------------
@@ -105,6 +118,7 @@ class ImportRecord(Base):
     id = Column(Integer, primary_key=True, index=True)
     source_file = Column(String(255), nullable=False)
     source_row = Column(Integer)
+    import_type = Column(Enum(ImportType), nullable=False, default=ImportType.policyholder)
     match_status = Column(Enum(MatchStatus), nullable=False, default=MatchStatus.needs_review)
     matched_case_id = Column(Integer, ForeignKey("insurance_cases.id"), nullable=True)
     # Set when the policyholder is recognized but no existing case matches
