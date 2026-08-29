@@ -170,6 +170,24 @@ def detect_batch(files: list[UploadFile] = File(...)):
     return schemas.BatchDetectResult(files=results)
 
 
+# Files must be processed in dependency order regardless of what order the
+# browser handed them in (its folder picker lists files alphabetically, which
+# has no relation to what each document type depends on). A Policy needs its
+# Quotation to already exist; a Quotation is best matched against a case a
+# Survey already created. Without this, e.g. "fire_property_policy.xlsx"
+# sorts before "fire_property_quotation.xlsx" alphabetically and the policy
+# row finds no quotation to attach to yet, even though one is in the same
+# folder -- found via real end-to-end testing, not a hypothetical.
+PROCESSING_PRIORITY = {
+    models.ImportType.policyholder.value: 0,
+    models.ImportType.fire_property.value: 1,
+    models.ImportType.motor.value: 1,
+    models.ImportType.fire_property_quotation.value: 2,
+    models.ImportType.fire_property_policy.value: 3,
+    models.ImportType.motor_policy.value: 3,
+}
+
+
 @router.post("/upload", response_model=schemas.BatchImportSummary)
 def upload_batch(
     files: list[UploadFile] = File(...),
@@ -178,7 +196,8 @@ def upload_batch(
 ):
     """
     `files` and `import_types` must be appended in matching order by the client --
-    import_types[i] is the confirmed type for files[i].
+    import_types[i] is the confirmed type for files[i]. Actual processing order
+    follows PROCESSING_PRIORITY, not this input order -- see comment above.
     """
     if len(files) != len(import_types):
         raise HTTPException(
@@ -191,18 +210,25 @@ def upload_batch(
         if t not in fn_by_key:
             raise HTTPException(status_code=400, detail=f"Unknown import type: {t}")
 
-    results = []
-    for f, type_str in zip(files, import_types):
+    # Sort by dependency priority (stable -- ties keep their original relative
+    # order), process in that order, then hand results back in the ORIGINAL
+    # order so the response lines up with what the user confirmed in the UI.
+    indexed = list(enumerate(zip(files, import_types)))
+    indexed.sort(key=lambda item: PROCESSING_PRIORITY.get(item[1][1], 99))
+
+    results_by_index = {}
+    for original_index, (f, type_str) in indexed:
         upload_fn = fn_by_key[type_str]
         try:
             # Direct function call, not an HTTP request -- file/db are passed as real
             # arguments, which simply overrides each function's Depends(...)/File(...)
             # defaults rather than going through FastAPI's request-handling machinery.
             summary = upload_fn(file=f, db=db)
-            results.append(schemas.BatchFileResult(filename=f.filename, import_type=type_str, summary=summary))
+            results_by_index[original_index] = schemas.BatchFileResult(filename=f.filename, import_type=type_str, summary=summary)
         except HTTPException as e:
-            results.append(schemas.BatchFileResult(filename=f.filename, import_type=type_str, error=str(e.detail)))
+            results_by_index[original_index] = schemas.BatchFileResult(filename=f.filename, import_type=type_str, error=str(e.detail))
         except Exception as e:
-            results.append(schemas.BatchFileResult(filename=f.filename, import_type=type_str, error=str(e)))
+            results_by_index[original_index] = schemas.BatchFileResult(filename=f.filename, import_type=type_str, error=str(e))
 
+    results = [results_by_index[i] for i in range(len(files))]
     return schemas.BatchImportSummary(files=results)
