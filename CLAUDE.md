@@ -65,10 +65,16 @@ vehicles, motor_quotations, motor_policies, risk_predictions.
   doesn't ALTER existing tables — adding a column to `policyholders` would
   need a manual migration, adding a new table doesn't.
 
-Schema was deliberately TRIMMED from the original design:
+Every field in this schema traces back to the REAL company paper documents
+(surveys, quotations, policies) — the user extracted the fields directly
+from that paperwork, then had a Claude session clean/trim the extracted
+set down to what's actually useful for predictive risk. The schema below
+is that trimmed result, not a cut-down version of some other pre-existing
+design:
 - Dropped paperwork-only identity fields (proof_provided, beneficiaries_names,
   gsis_umid, other_identity_evidence, source_of_income_funds,
-  application_number, place_of_birth) — no prediction value.
+  application_number, place_of_birth) — present on the real paperwork, but
+  no prediction value, so left out of the schema.
 - Consolidated checklist-style fields into JSON columns:
   `occupancy_breakdown`, `boundaries`, `protection_facilities` (surveys),
   `conditions` (fire property quotations) — reduces column clutter, doesn't
@@ -253,14 +259,19 @@ Property Policy, Motor Quotation, Motor Policy. The last 3 of those had
 **no bulk-import logic at all before this** (only one-at-a-time CRUD) —
 built from scratch this session.
 
-**⚠️ No real sample spreadsheets exist yet for Fire/Property Quotation,
-Fire/Property Policy, or Motor Policy** (confirmed with user). Their
-`*_COLUMN_MAP`s in `import_fire_property.py`/`import_motor.py` are
-reverse-engineered from `models.py` field names, same status as
-`MATCH_THRESHOLD`/`REVIEW_THRESHOLD` elsewhere — best guess now, must be
-corrected against a real company export once one is available, since both
-the column mapping AND the header-detection scoring below depend on
-guessing the right header text (e.g. "Policy No." vs "Policy Number").
+**⚠️ Header WORDING (not the fields themselves) is unconfirmed for
+Fire/Property Quotation, Fire/Property Policy, and Motor Policy.** The
+`models.py` fields these 3 importers map to are NOT a guess — they trace
+back to the real company paper documents (user extracted the fields from
+the actual paperwork, had them cleaned/trimmed down to what predictive
+risk needs, and the schema is that trimmed result — same origin as every
+other table in this schema). What's genuinely unconfirmed is only the
+exact HEADER TEXT a real spreadsheet export would use for each field
+(e.g. "Policy No." vs "Policy Number" vs "Policy #") — the `*_COLUMN_MAP`s
+in `import_fire_property.py`/`import_motor.py` guess plausible header
+wording for the right fields, but that exact wording needs confirming
+against a real export once one is available, since both the column
+mapping AND the header-detection scoring below match on exact text.
 
 **Policy-to-quotation matching (the hard part)**: `FirePropertyPolicy.
 quotation_id` / `MotorPolicy.quotation_id` are REQUIRED FKs, but there's no
