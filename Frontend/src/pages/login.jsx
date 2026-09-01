@@ -28,6 +28,7 @@ export default function MaagapLogin() {
 
       localStorage.setItem("role", role);
       localStorage.setItem("token", token);
+      localStorage.setItem("username", username);
 
       if (role === "manager") {
         navigate("/overview");

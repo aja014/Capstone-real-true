@@ -17,7 +17,7 @@ export default function ProfileModal({
 
   const displayRole = userRole === "manager" ? "Manager" : "Admin & Finance";
 
-  const accountName = userRole === "manager" ? "Juan Dela Cruz" : "Mario Lopez";
+  const accountName = localStorage.getItem("username") || "—";
 
   const [openAccountModal, setOpenAccountModal] = useState(false);
 
@@ -153,21 +153,10 @@ export default function ProfileModal({
                 style={{
                   fontSize: 13,
                   color: "#888",
-                  marginBottom: 8,
-                }}
-              >
-                {displayRole}
-              </p>
-
-              {/* Email */}
-              <p
-                style={{
-                  fontSize: 12.5,
-                  color: "#555",
                   marginBottom: 28,
                 }}
               >
-                youremail@example.com
+                {displayRole}
               </p>
 
               {userRole === "manager" && (

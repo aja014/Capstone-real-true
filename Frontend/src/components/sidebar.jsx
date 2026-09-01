@@ -50,7 +50,7 @@ const navItems = [
     icon: Users,
     label: "Policy Holder Information",
     path: "/policy",
-    allowedRoles: ["manager", "user"],
+    allowedRoles: ["manager", "admin"],
   },
 ];
 

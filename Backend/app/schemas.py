@@ -354,6 +354,26 @@ class DeletedImportRecordOut(BaseModel):
         from_attributes = True
 
 
+class DeletedFirePropertyPolicyOut(BaseModel):
+    id: int
+    original_id: int
+    data: dict[str, Any]
+    deleted_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DeletedMotorPolicyOut(BaseModel):
+    id: int
+    original_id: int
+    data: dict[str, Any]
+    deleted_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class ResolveImportRecord(BaseModel):
     # Provide ONE of these three:
     matched_policyholder_id: Optional[int] = None  # link this row to an existing policyholder

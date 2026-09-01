@@ -126,3 +126,31 @@ def get_policy(policy_id: int, db: Session = Depends(get_db)):
     if not db_policy:
         raise HTTPException(status_code=404, detail="Policy not found")
     return db_policy
+
+
+@router.delete("/fire-property/policies/{policy_id}", response_model=schemas.DeletedFirePropertyPolicyOut)
+def delete_policy(policy_id: int, db: Session = Depends(get_db)):
+    db_policy = db.query(models.FirePropertyPolicy).filter(
+        models.FirePropertyPolicy.id == policy_id
+    ).first()
+    if not db_policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+
+    # No claims/renewals implemented yet, so nothing downstream depends on a
+    # policy — unlike policyholders, no blocking condition is needed here.
+    snapshot = schemas.FirePropertyPolicyOut.model_validate(db_policy).model_dump(mode="json")
+    archived = models.DeletedFirePropertyPolicy(original_id=db_policy.id, data=snapshot)
+    db.add(archived)
+
+    db.delete(db_policy)
+    db.commit()
+    db.refresh(archived)
+
+    return archived
+
+
+@router.get("/deleted-fire-property-policies", response_model=list[schemas.DeletedFirePropertyPolicyOut])
+def list_deleted_fire_property_policies(db: Session = Depends(get_db)):
+    return db.query(models.DeletedFirePropertyPolicy).order_by(
+        models.DeletedFirePropertyPolicy.deleted_at.desc()
+    ).all()

@@ -16,6 +16,10 @@ function formatAmount(amount) {
   return `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function clientLabel(p) {
+  return [p.last_name, p.first_name].filter(Boolean).join(", ") || `Client #${p.id}`;
+}
+
 export default function NeedsReviewModal({ isOpen, onClose, records, loading, policyholders, onResolved }) {
   const [selectedMatch, setSelectedMatch] = useState({}); // recordId -> policyholder id (string)
   const [selectedQuotation, setSelectedQuotation] = useState({}); // recordId -> quotation id (string)
@@ -176,7 +180,7 @@ export default function NeedsReviewModal({ isOpen, onClose, records, loading, po
                       >
                         <option value="">Link to existing client...</option>
                         {policyholders.map((p) => (
-                          <option key={p.id} value={p.id}>{p.client} (#{p.id})</option>
+                          <option key={p.id} value={p.id}>{clientLabel(p)} (#{p.id})</option>
                         ))}
                       </select>
                       <button

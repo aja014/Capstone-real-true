@@ -165,6 +165,26 @@ class DeletedImportRecord(Base):
     deleted_by = Column(String(255), nullable=True)
 
 
+class DeletedFirePropertyPolicy(Base):
+    __tablename__ = "deleted_fire_property_policies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    original_id = Column(Integer, nullable=False)
+    data = Column(JSON, nullable=False)
+    deleted_at = Column(DateTime, server_default=func.now())
+    deleted_by = Column(String(255), nullable=True)
+
+
+class DeletedMotorPolicy(Base):
+    __tablename__ = "deleted_motor_policies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    original_id = Column(Integer, nullable=False)
+    data = Column(JSON, nullable=False)
+    deleted_at = Column(DateTime, server_default=func.now())
+    deleted_by = Column(String(255), nullable=True)
+
+
 # ------------------------------------------------------------
 # FIRE / PROPERTY
 # ------------------------------------------------------------
