@@ -52,6 +52,34 @@ def get_survey(survey_id: int, db: Session = Depends(get_db)):
     return db_survey
 
 
+@router.delete("/fire-property/surveys/{survey_id}", response_model=schemas.DeletedFirePropertySurveyOut)
+def delete_survey(survey_id: int, db: Session = Depends(get_db)):
+    db_survey = db.query(models.FirePropertySurvey).filter(
+        models.FirePropertySurvey.id == survey_id
+    ).first()
+    if not db_survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+
+    # Unconditional — nothing in the schema has a FK pointing at a survey
+    # (unlike Vehicle/Quotation, which have real dependents), same as Policy.
+    snapshot = schemas.FirePropertySurveyOut.model_validate(db_survey).model_dump(mode="json")
+    archived = models.DeletedFirePropertySurvey(original_id=db_survey.id, data=snapshot)
+    db.add(archived)
+
+    db.delete(db_survey)
+    db.commit()
+    db.refresh(archived)
+
+    return archived
+
+
+@router.get("/deleted-fire-property-surveys", response_model=list[schemas.DeletedFirePropertySurveyOut])
+def list_deleted_fire_property_surveys(db: Session = Depends(get_db)):
+    return db.query(models.DeletedFirePropertySurvey).order_by(
+        models.DeletedFirePropertySurvey.deleted_at.desc()
+    ).all()
+
+
 # ------------------------------------------------------------
 # QUOTATIONS
 # ------------------------------------------------------------
@@ -90,6 +118,45 @@ def get_quotation(quotation_id: int, db: Session = Depends(get_db)):
 def get_quotations_for_case(case_id: int, db: Session = Depends(get_db)):
     return db.query(models.FirePropertyQuotation).filter(
         models.FirePropertyQuotation.insurance_case_id == case_id
+    ).all()
+
+
+@router.delete("/fire-property/quotations/{quotation_id}", response_model=schemas.DeletedFirePropertyQuotationOut)
+def delete_quotation(quotation_id: int, db: Session = Depends(get_db)):
+    db_quotation = db.query(models.FirePropertyQuotation).filter(
+        models.FirePropertyQuotation.id == quotation_id
+    ).first()
+    if not db_quotation:
+        raise HTTPException(status_code=404, detail="Quotation not found")
+
+    # fire_property_policies.quotation_id is a required FK — deleting a
+    # quotation out from under an existing policy would orphan it. Block
+    # rather than cascade, same as Vehicle blocking on motor_quotations.
+    policy = db.query(models.FirePropertyPolicy).filter(
+        models.FirePropertyPolicy.quotation_id == quotation_id
+    ).first()
+    if policy:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete: this quotation has a policy on file. "
+                   "Remove or reassign it first.",
+        )
+
+    snapshot = schemas.FirePropertyQuotationOut.model_validate(db_quotation).model_dump(mode="json")
+    archived = models.DeletedFirePropertyQuotation(original_id=db_quotation.id, data=snapshot)
+    db.add(archived)
+
+    db.delete(db_quotation)
+    db.commit()
+    db.refresh(archived)
+
+    return archived
+
+
+@router.get("/deleted-fire-property-quotations", response_model=list[schemas.DeletedFirePropertyQuotationOut])
+def list_deleted_fire_property_quotations(db: Session = Depends(get_db)):
+    return db.query(models.DeletedFirePropertyQuotation).order_by(
+        models.DeletedFirePropertyQuotation.deleted_at.desc()
     ).all()
 
 

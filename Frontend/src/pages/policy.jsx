@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { ChevronDown, Search, Upload, Trash2 } from "lucide-react";
+import { ChevronDown, Search, Upload, Trash2, X } from "lucide-react";
 import axios from "axios";
 import Sidebar from "../components/sidebar";
 import UploadModal from "../components/UploadFileModal";
@@ -20,11 +20,12 @@ const statCards = [
 ];
 
 const TYPE_OPTIONS = ["Policy", "Quotation", "Claims", "Client Information", "Survey Report", "Vehicle Information"];
-const LINE_OPTIONS = ["All Lines", "Fire & Property", "Motor Car"];
-// Policy has no merged/"All Lines" view (that's the reason it was split into
-// two column sets in the first place) — this dedicated dropdown only
-// appears on the Policy tab, mirroring the Quotation tab's own line filter.
-const POLICY_LINE_OPTIONS = ["Fire & Property", "Motor Car"];
+// Neither Policy nor Quotation has a merged/"All Lines" view — both got the
+// same full-column treatment, and Fire/Property vs Motor/Car have genuinely
+// incompatible column sets (e.g. Location of Risk/Conditions vs Plate No./
+// Vehicle ID), so there's no shared table to fall back to. Shared by both
+// tabs' secondary "Insurance Line" dropdown.
+const LINE_ONLY_OPTIONS = ["Fire & Property", "Motor Car"];
 const PAGE_SIZE = 8;
 
 // ── Helpers for backend data → display strings ─────────────────────────────
@@ -113,36 +114,43 @@ function Dropdown({ label, options, value, onChange }) {
   );
 }
 
-function RiskClassBadge({ riskClass }) {
-  const labels = { a: "Class A (Concrete)", b: "Class B (Concrete & Wood)" };
-  const colors = { a: "text-green-600 bg-green-50", b: "text-yellow-700 bg-yellow-50" };
-  const key = (riskClass || "").toLowerCase();
-  if (!labels[key]) return <span className="text-gray-400">—</span>;
-  return <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap ${colors[key]}`}>{labels[key]}</span>;
+// ── Table renderers (receive sliced `rows`) ───────────────────────────────────
+
+// Used for any JSON-field column (Quotation's Conditions; Survey Report's
+// Occupancy Breakdown/Boundaries/Protection Facilities) — shows a "View"
+// button when there's data, — when there isn't, instead of dumping raw
+// unformatted JSON into the cell. One shared implementation, not one per field.
+function JsonViewButton({ value, title, onView }) {
+  const isEmpty = value === null || value === undefined ||
+    (typeof value === "object" && Object.keys(value).length === 0);
+  if (isEmpty) return <span className="text-gray-400">—</span>;
+  return (
+    <button type="button" onClick={() => onView(title, value)}
+      className="text-blue-500 hover:underline font-medium">
+      View
+    </button>
+  );
 }
 
-// ── Table renderers (receive sliced `rows`) ───────────────────────────────────
-function QuotationTable({ rows }) {
+function JsonModal({ title, value, onClose }) {
+  if (value === null || value === undefined) return null;
   return (
-    <table className="w-full text-xs text-center">
-      <thead><tr className="border-b border-gray-100">
-        {["Quote Number", "Policyholder ID", "Quotation ID", "Quote Date", "Client Name", "Policy Line", "Premium", "Sum Insured", "Period Cover", "Converted Policy No."].map(h =>
-          <th key={h} className="py-3 px-3 text-gray-700 font-bold whitespace-nowrap">{h}</th>)}
-      </tr></thead>
-      <tbody>{rows.map((r, i) => (
-        <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 transition">
-          <td className="py-3 px-3">{r.quote}</td>
-          <td className="py-3 px-3 text-gray-500">{r.policyholderId}</td>
-          <td className="py-3 px-3 text-gray-500">{r.quotationId}</td>
-          <td className="py-3 px-3">{r.date}</td>
-          <td className="py-3 px-3">{r.client}</td>
-          <td className="py-3 px-3">{r.line}</td>
-          <td className="py-3 px-3">{r.premium}</td><td className="py-3 px-3">{r.sum}</td>
-          <td className="py-3 px-3">{r.period}</td>
-          <td className="py-3 px-3 font-medium">{r.converted}</td>
-        </tr>
-      ))}</tbody>
-    </table>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-[1px]"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="bg-white rounded-2xl shadow-xl w-[520px] max-h-[70vh] flex flex-col p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-bold text-gray-800">{title || "Details"}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <pre className="overflow-auto text-xs bg-gray-50 rounded-xl p-4 flex-1 whitespace-pre-wrap break-words text-gray-700">
+          {JSON.stringify(value, null, 2)}
+        </pre>
+      </div>
+    </div>
   );
 }
 
@@ -283,7 +291,98 @@ const MOTOR_POLICY_COLUMNS = [
   { id: "deductible", dataKey: "deductible", header: "Deductible", type: "currency", width: "min-w-[130px]" },
 ];
 
-function GenericPolicyTable({ columns, rows, onDelete }) {
+// Both quotation tables expose every real field from FirePropertyQuotationOut
+// / MotorQuotationOut (Backend/app/schemas.py), plus one synthesized field:
+// "Client Name" resolves the real policyholder via insurance_case_id →
+// policyholder — same case→policyholder join Policy/Vehicle already use —
+// while "Insured Name" stays the raw literal field straight off the
+// quotation record, unchanged (same relationship as Policy's Client Name
+// vs Insured Name & Address).
+const FIRE_QUOTATION_COLUMNS = [
+  { id: "id", dataKey: "id", header: "Quotation ID", width: "min-w-[100px]" },
+  { id: "insurance_case_id", dataKey: "insurance_case_id", header: "Case ID", width: "min-w-[90px]" },
+  { id: "client_name", dataKey: "client_name", header: "Client Name", width: "min-w-[200px]", align: "text-left" },
+  { id: "insured_name", dataKey: "insured_name", header: "Insured Name", width: "min-w-[200px]", align: "text-left" },
+  { id: "converted_policy_no", dataKey: "converted_policy_no", header: "Converted Policy No.", width: "min-w-[160px]" },
+  { id: "quotation_date", dataKey: "quotation_date", header: "Quotation Date", type: "date", width: "min-w-[120px]" },
+  { id: "location_of_risk", dataKey: "location_of_risk", header: "Location of Risk", width: "min-w-[220px]", align: "text-left" },
+  { id: "period_cover", dataKey: "period_cover", header: "Period Cover", width: "min-w-[130px]" },
+  { id: "property_sums_insured", dataKey: "property_sums_insured", header: "Property Sums Insured", type: "currency", width: "min-w-[170px]" },
+  { id: "total_sum_insured", dataKey: "total_sum_insured", header: "Total Sum Insured", type: "currency", width: "min-w-[160px]" },
+  { id: "basis_of_evaluation", dataKey: "basis_of_evaluation", header: "Basis of Evaluation", width: "min-w-[170px]" },
+  { id: "deductibles", dataKey: "deductibles", header: "Deductibles", width: "min-w-[150px]" },
+  { id: "subjective", dataKey: "subjective", header: "Subjective", width: "min-w-[200px]", align: "text-left" },
+  { id: "occupancy", dataKey: "occupancy", header: "Occupancy", width: "min-w-[130px]" },
+  { id: "mortgagee", dataKey: "mortgagee", header: "Mortgagee", width: "min-w-[170px]" },
+  { id: "perils_covered", dataKey: "perils_covered", header: "Perils Covered", width: "min-w-[200px]", align: "text-left" },
+  { id: "line_of_insurance", dataKey: "line_of_insurance", header: "Line of Insurance", width: "min-w-[150px]" },
+  { id: "total_premium", dataKey: "total_premium", header: "Total Premium", type: "currency", width: "min-w-[150px]" },
+  { id: "conditions", dataKey: "conditions", header: "Conditions", type: "json", width: "min-w-[100px]" },
+];
+
+const MOTOR_QUOTATION_COLUMNS = [
+  { id: "id", dataKey: "id", header: "Quotation ID", width: "min-w-[100px]" },
+  { id: "insurance_case_id", dataKey: "insurance_case_id", header: "Case ID", width: "min-w-[90px]" },
+  { id: "vehicle_id", dataKey: "vehicle_id", header: "Vehicle ID", width: "min-w-[100px]" },
+  { id: "client_name", dataKey: "client_name", header: "Client Name", width: "min-w-[200px]", align: "text-left" },
+  { id: "quotation_date", dataKey: "quotation_date", header: "Quotation Date", type: "date", width: "min-w-[120px]" },
+  { id: "insured_name", dataKey: "insured_name", header: "Insured Name", width: "min-w-[200px]", align: "text-left" },
+  { id: "converted_policy_no", dataKey: "converted_policy_no", header: "Converted Policy No.", width: "min-w-[160px]" },
+  { id: "address", dataKey: "address", header: "Address", width: "min-w-[220px]", align: "text-left" },
+  { id: "unit", dataKey: "unit", header: "Unit", width: "min-w-[130px]" },
+  { id: "classification", dataKey: "classification", header: "Classification", width: "min-w-[150px]" },
+  { id: "color", dataKey: "color", header: "Color", width: "min-w-[100px]" },
+  { id: "deductible", dataKey: "deductible", header: "Deductible", type: "currency", width: "min-w-[130px]" },
+  { id: "plate_no", dataKey: "plate_no", header: "Plate No.", width: "min-w-[120px]" },
+  { id: "total_amount_due", dataKey: "total_amount_due", header: "Total Amount Due", type: "currency", width: "min-w-[150px]" },
+];
+
+// Survey Report exposes every real field from FirePropertySurveyOut
+// (Backend/app/schemas.py), plus two synthesized fields: "Client Name"
+// resolves the real policyholder via the same case→policyholder join
+// every other tab uses, while "Name of Insured" stays the raw literal
+// field — same relationship as Policy's Client Name vs Insured Name &
+// Address. "Quotation ID(s)" (placed right after the Survey ID/Case ID
+// columns) groups by insurance_case_id — correct here (unlike Vehicle
+// Information's vehicle_id grouping) since a survey has no more specific
+// sub-entity to key by, just the shared case. Latitude/
+// Longitude/Flood Risk Flag/Flood Risk Category are real columns that
+// happen to be null for every row until GIS (Objective 2.1) is built —
+// they render as — via the same formatOrDash path as any other empty field.
+const SURVEY_COLUMNS = [
+  { id: "id", dataKey: "id", header: "Survey ID", width: "min-w-[90px]" },
+  { id: "insurance_case_id", dataKey: "insurance_case_id", header: "Case ID", width: "min-w-[90px]" },
+  { id: "quotation_ids", dataKey: "quotation_ids", header: "Quotation ID(s)", width: "min-w-[140px]" },
+  { id: "client_name", dataKey: "client_name", header: "Client Name", width: "min-w-[200px]", align: "text-left" },
+  { id: "name_of_insured", dataKey: "name_of_insured", header: "Name of Insured", width: "min-w-[200px]", align: "text-left" },
+  { id: "contact_person", dataKey: "contact_person", header: "Contact Person", width: "min-w-[160px]", align: "text-left" },
+  { id: "owner_business_description", dataKey: "owner_business_description", header: "Owner Business Description", width: "min-w-[240px]", align: "text-left" },
+  { id: "location_of_risk", dataKey: "location_of_risk", header: "Location of Risk", width: "min-w-[220px]", align: "text-left" },
+  { id: "district_block_no", dataKey: "district_block_no", header: "District/Block No.", width: "min-w-[150px]" },
+  { id: "tel_fax_no", dataKey: "tel_fax_no", header: "Tel/Fax No.", width: "min-w-[130px]" },
+  { id: "current_block_accumulation", dataKey: "current_block_accumulation", header: "Current Block Accumulation", width: "min-w-[190px]" },
+  { id: "zone", dataKey: "zone", header: "Zone", width: "min-w-[90px]" },
+  { id: "ti", dataKey: "ti", header: "T.I.", width: "min-w-[90px]" },
+  { id: "risk_class", dataKey: "risk_class", header: "Risk Class", width: "min-w-[100px]" },
+  { id: "maximum_amount_subject", dataKey: "maximum_amount_subject", header: "Maximum Amount Subject", type: "currency", width: "min-w-[170px]" },
+  { id: "loss_record", dataKey: "loss_record", header: "Loss Record", width: "min-w-[200px]", align: "text-left" },
+  { id: "description", dataKey: "description", header: "Description", width: "min-w-[200px]", align: "text-left" },
+  { id: "occupancy_breakdown", dataKey: "occupancy_breakdown", header: "Occupancy Breakdown", type: "json", width: "min-w-[120px]" },
+  { id: "boundaries", dataKey: "boundaries", header: "Boundaries", type: "json", width: "min-w-[100px]" },
+  { id: "protection_facilities", dataKey: "protection_facilities", header: "Protection Facilities", type: "json", width: "min-w-[120px]" },
+  { id: "latitude", dataKey: "latitude", header: "Latitude", width: "min-w-[100px]" },
+  { id: "longitude", dataKey: "longitude", header: "Longitude", width: "min-w-[100px]" },
+  { id: "flood_risk_flag", dataKey: "flood_risk_flag", header: "Flood Risk Flag", width: "min-w-[130px]" },
+  { id: "flood_risk_category", dataKey: "flood_risk_category", header: "Flood Risk Category", width: "min-w-[150px]" },
+];
+
+// Shared by the Policy tab's two column sets, the Quotation tab's two
+// column sets, AND Survey Report — same "every real field + Actions" shape
+// in all five cases. col.type === "json" (Quotation's Conditions; Survey
+// Report's Occupancy Breakdown/Boundaries/Protection Facilities) renders a
+// JsonViewButton instead of formatCell, via the onViewJson(title, value)
+// callback.
+function GenericPolicyTable({ columns, rows, onDelete, onViewJson, deleteLabel = "Delete" }) {
   return (
     <table className="min-w-max text-xs text-center">
       <thead><tr className="border-b border-gray-100">
@@ -295,13 +394,15 @@ function GenericPolicyTable({ columns, rows, onDelete }) {
         <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 transition">
           {columns.map(col => (
             <td key={col.id} className={`py-3 px-3 whitespace-nowrap ${col.width} ${col.align || ""}`}>
-              {formatCell(r[col.dataKey], col.type)}
+              {col.type === "json"
+                ? <JsonViewButton value={r[col.dataKey]} title={col.header} onView={onViewJson} />
+                : formatCell(r[col.dataKey], col.type)}
             </td>
           ))}
           <td className="py-3 px-3 whitespace-nowrap">
             <button
               type="button"
-              title="Delete policy"
+              title={deleteLabel}
               onClick={() => onDelete?.(r)}
               className="text-gray-400 hover:text-red-500 transition"
             >
@@ -314,37 +415,11 @@ function GenericPolicyTable({ columns, rows, onDelete }) {
   );
 }
 
-function SurveyTable({ rows }) {
+function VehicleTable({ rows, onDelete }) {
   return (
     <table className="w-full text-xs text-center">
       <thead><tr className="border-b border-gray-100">
-        {["Survey ID", "Policyholder ID", "Quotation ID(s)", "Client Name", "Survey Date", "Location of Risk", "Risk Class", "Zone", "Max. Amount Subject", "Loss Record", "Flood Risk"].map(h =>
-          <th key={h} className="py-3 px-2 text-gray-700 font-bold whitespace-nowrap">{h}</th>)}
-      </tr></thead>
-      <tbody>{rows.map((r, i) => (
-        <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 transition">
-          <td className="py-3 px-2">{r.id}</td>
-          <td className="py-3 px-2 text-gray-500">{r.policyholderId}</td>
-          <td className="py-3 px-2 text-gray-500">{r.quotationIds}</td>
-          <td className="py-3 px-2">{r.client}</td>
-          <td className="py-3 px-2">{r.date}</td>
-          <td className="py-3 px-2 text-left max-w-[160px] text-gray-600">{r.location}</td>
-          <td className="py-3 px-2"><RiskClassBadge riskClass={r.riskClass} /></td>
-          <td className="py-3 px-2">{r.zone}</td>
-          <td className="py-3 px-2">{r.maxAmount}</td>
-          <td className="py-3 px-2 text-left max-w-[160px] text-gray-600">{r.lossRecord}</td>
-          <td className="py-3 px-2">{r.floodRisk}</td>
-        </tr>
-      ))}</tbody>
-    </table>
-  );
-}
-
-function VehicleTable({ rows }) {
-  return (
-    <table className="w-full text-xs text-center">
-      <thead><tr className="border-b border-gray-100">
-        {["Vehicle ID", "Policyholder ID", "Quotation ID(s)", "Client Name", "Make", "Model", "Body Type", "Color", "Plate No.", "Engine No.", "Chassis No.", "Authorized Capacity"].map(h =>
+        {["Vehicle ID", "Policyholder ID", "Quotation ID(s)", "Client Name", "Make", "Model", "Body Type", "Color", "Plate No.", "Engine No.", "Chassis No.", "Authorized Capacity", "Actions"].map(h =>
           <th key={h} className="py-3 px-2 text-gray-700 font-bold whitespace-nowrap">{h}</th>)}
       </tr></thead>
       <tbody>{rows.map((r, i) => (
@@ -361,6 +436,16 @@ function VehicleTable({ rows }) {
           <td className="py-3 px-2">{r.engineNo}</td>
           <td className="py-3 px-2">{r.chassisNo}</td>
           <td className="py-3 px-2">{r.authorizedCapacity}</td>
+          <td className="py-3 px-2">
+            <button
+              type="button"
+              title="Delete vehicle"
+              onClick={() => onDelete?.(r)}
+              className="text-gray-400 hover:text-red-500 transition"
+            >
+              <Trash2 className="w-3.5 h-3.5 mx-auto" />
+            </button>
+          </td>
         </tr>
       ))}</tbody>
     </table>
@@ -378,9 +463,14 @@ function VehicleTable({ rows }) {
 // filter logic below handle both without reformatting Policy's data.
 const DATE_FIELD_MAP = {
   "Policy": "issue_date",
-  "Quotation": "date",
+  "Quotation": "quotation_date",
   "Claims": "loss",
-  "Survey Report": "date",
+  // Same caveat as Vehicle Information below (created_at is an import
+  // timestamp, not a real business date — the survey has no dedicated
+  // date field) — but the filter already worked against it before this
+  // tab's columns were raw-ified, so it's kept pointed at the raw field
+  // rather than silently dropped.
+  "Survey Report": "created_at",
   "Client Information": null, // no date field — month filter doesn't apply
   "Vehicle Information": null, // created_at is an import timestamp, not a business date
 };
@@ -398,33 +488,24 @@ const IMPORT_TARGET_BY_TYPE = {
   "Vehicle Information": "motor",
 };
 
-function parseMonthLabel(label) {
-  const MONTHS = ["January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"];
-  const [monthName, year] = label.split(" ");
-  return { month: MONTHS.indexOf(monthName) + 1, year: parseInt(year) };
-}
-
-// Check if a date string "MM/DD/YYYY" matches the selected month/year
-function dateMatchesMonth(dateStr, monthLabel) {
-  if (!dateStr || !monthLabel) return true;
-  const { month, year } = parseMonthLabel(monthLabel);
-  const [mm, , yyyy] = dateStr.split("/").map(Number);
-  return mm === month && yyyy === year;
-}
-
 export default function PolicyHolderInformation() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [type, setType] = useState("Policy");
-  const [lineFilter, setLineFilter] = useState("All Lines");
+  // Which of the two Quotation line views is showing — no "All Lines"
+  // merge (see LINE_ONLY_OPTIONS above), defaults to Fire & Property,
+  // matching Policy's own default.
+  const [lineFilter, setLineFilter] = useState("Fire & Property");
   // Which of the two Policy line views is showing — defaults to Fire &
   // Property, matching the original tab ordering before the split.
   const [policyLine, setPolicyLine] = useState("Fire & Property");
   const [uploadOpen, setUploadOpen] = useState(false);
+  // Shared JSON-field viewer — Quotation's Conditions, Survey Report's
+  // Occupancy Breakdown/Boundaries/Protection Facilities. null means closed.
+  const [jsonModal, setJsonModal] = useState(null); // { title, value } | null
+  const openJsonModal = useCallback((title, value) => setJsonModal({ title, value }), []);
 
   const [fromDate, setFromDate] = useState(null);
-  const [year, setYear] = useState(2026);
 
   const [clientRecords, setClientRecords] = useState([]);
   const [clientLoading, setClientLoading] = useState(true);
@@ -530,42 +611,41 @@ export default function PolicyHolderInformation() {
     try {
       const token = localStorage.getItem("token");
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      const [fpQRes, motorQRes, fpPRes, motorPRes, casesRes] = await Promise.all([
+      const [fpQRes, motorQRes, fpPRes, motorPRes, casesRes, phRes] = await Promise.all([
         axios.get(`${API_BASE_URL}/fire-property/quotations`, { headers }),
         axios.get(`${API_BASE_URL}/motor/quotations`, { headers }),
         axios.get(`${API_BASE_URL}/fire-property/policies`, { headers }),
         axios.get(`${API_BASE_URL}/motor/policies`, { headers }),
         axios.get(`${API_BASE_URL}/insurance-cases`, { headers }),
+        axios.get(`${API_BASE_URL}/policyholders`, { headers }),
       ]);
-      const fpPolicyByQuotation = new Map(fpPRes.data.map((p) => [p.quotation_id, p.policy_no || "—"]));
-      const motorPolicyByQuotation = new Map(motorPRes.data.map((p) => [p.quotation_id, p.policy_no || "—"]));
+      // Same case → policyholder join Policy/Vehicle already use. Client
+      // Name here is the RESOLVED policyholder, deliberately independent
+      // of insured_name (the raw literal field) — same relationship as
+      // Policy's Client Name vs Insured Name & Address.
       const policyholderByCase = new Map(casesRes.data.map((c) => [c.id, c.policyholder_id]));
+      const nameByPolicyholder = new Map(
+        phRes.data.map((p) => [p.id, [p.first_name, p.middle_name, p.last_name].filter(Boolean).join(" ")])
+      );
+      const resolveClientName = (caseId) => nameByPolicyholder.get(policyholderByCase.get(caseId)) || null;
+      // null (not "—") when absent — formatOrDash renders it, same as every
+      // other empty field, instead of a special "no policy yet" string.
+      const fpPolicyByQuotation = new Map(fpPRes.data.map((p) => [p.quotation_id, p.policy_no || null]));
+      const motorPolicyByQuotation = new Map(motorPRes.data.map((p) => [p.quotation_id, p.policy_no || null]));
 
+      // Raw API fields are spread as-is so they line up 1:1 with
+      // FIRE_QUOTATION_COLUMNS/MOTOR_QUOTATION_COLUMNS's dataKeys below.
       const fp = fpQRes.data.map((q) => ({
-        quote: `FP-Q-${q.id}`,
-        date: formatDate(q.quotation_date),
-        client: q.insured_name || "—",
-        caseId: q.insurance_case_id ?? "—",
-        policyholderId: policyholderByCase.get(q.insurance_case_id) ?? "—",
-        quotationId: q.id,
+        ...q,
         line: "Fire & Property",
-        premium: formatCurrency(q.total_premium),
-        sum: formatCurrency(q.total_sum_insured),
-        period: q.period_cover || "—",
-        converted: fpPolicyByQuotation.get(q.id) || "—",
+        client_name: resolveClientName(q.insurance_case_id),
+        converted_policy_no: fpPolicyByQuotation.get(q.id) ?? null,
       }));
       const motor = motorQRes.data.map((q) => ({
-        quote: `MC-Q-${q.id}`,
-        date: formatDate(q.quotation_date),
-        client: q.insured_name || "—",
-        caseId: q.insurance_case_id ?? "—",
-        policyholderId: policyholderByCase.get(q.insurance_case_id) ?? "—",
-        quotationId: q.id,
+        ...q,
         line: "Motor Car",
-        premium: formatCurrency(q.total_amount_due),
-        sum: "—",
-        period: "—",
-        converted: motorPolicyByQuotation.get(q.id) || "—",
+        client_name: resolveClientName(q.insurance_case_id),
+        converted_policy_no: motorPolicyByQuotation.get(q.id) ?? null,
       }));
       setQuotationRecords([...fp, ...motor]);
     } catch (err) {
@@ -574,6 +654,34 @@ export default function PolicyHolderInformation() {
       setQuotationLoading(false);
     }
   }, []);
+
+  const deleteFirePropertyQuotation = useCallback(async (row) => {
+    if (!window.confirm(`Delete quotation #${row.id}? This moves the record to the deleted archive.`)) return;
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(`${API_BASE_URL}/fire-property/quotations/${row.id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      fetchQuotations();
+    } catch (err) {
+      // A 409 here means the quotation already has a policy on file —
+      // surface the backend's specific reason, same as Vehicle's delete.
+      alert(err.response?.data?.detail || "Failed to delete this quotation.");
+    }
+  }, [fetchQuotations]);
+
+  const deleteMotorQuotation = useCallback(async (row) => {
+    if (!window.confirm(`Delete quotation #${row.id}? This moves the record to the deleted archive.`)) return;
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(`${API_BASE_URL}/motor/quotations/${row.id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      fetchQuotations();
+    } catch (err) {
+      alert(err.response?.data?.detail || "Failed to delete this quotation.");
+    }
+  }, [fetchQuotations]);
 
   const [surveyRecords, setSurveyRecords] = useState([]);
   const [surveyLoading, setSurveyLoading] = useState(true);
@@ -585,38 +693,33 @@ export default function PolicyHolderInformation() {
     try {
       const token = localStorage.getItem("token");
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      const [surveyRes, casesRes, fpQRes] = await Promise.all([
+      const [surveyRes, casesRes, fpQRes, phRes] = await Promise.all([
         axios.get(`${API_BASE_URL}/fire-property/surveys`, { headers }),
         axios.get(`${API_BASE_URL}/insurance-cases`, { headers }),
         axios.get(`${API_BASE_URL}/fire-property/quotations`, { headers }),
+        axios.get(`${API_BASE_URL}/policyholders`, { headers }),
       ]);
       const policyholderByCase = new Map(casesRes.data.map((c) => [c.id, c.policyholder_id]));
+      const nameByPolicyholder = new Map(
+        phRes.data.map((p) => [p.id, [p.first_name, p.middle_name, p.last_name].filter(Boolean).join(" ")])
+      );
       // A survey has no direct FK to a quotation — both link to the same
       // insurance case instead, and one case can have multiple quotations
-      // (re-quotes reuse the case), so group rather than map 1:1.
+      // (re-quotes reuse the case), so group rather than map 1:1. Grouping
+      // by case IS correct here (unlike Vehicle Information's vehicle_id
+      // grouping) — a survey has no more specific sub-entity to key by.
       const quotationsByCase = new Map();
       for (const q of fpQRes.data) {
         const list = quotationsByCase.get(q.insurance_case_id) || [];
-        list.push(`FP-Q-${q.id}`);
+        list.push(q.id);
         quotationsByCase.set(q.insurance_case_id, list);
       }
+      // Raw API fields are spread as-is so they line up 1:1 with
+      // SURVEY_COLUMNS's dataKeys above.
       const transformed = surveyRes.data.map((s) => ({
-        id: `SURV-${s.id}`,
-        client: s.name_of_insured || "—",
-        caseId: s.insurance_case_id ?? "—",
-        policyholderId: policyholderByCase.get(s.insurance_case_id) ?? "—",
-        quotationIds: (quotationsByCase.get(s.insurance_case_id) || []).join(", ") || "—",
-        date: formatDate(s.created_at),
-        location: s.location_of_risk || "—",
-        riskClass: s.risk_class || null,
-        zone: s.zone || "—",
-        maxAmount: formatCurrency(s.maximum_amount_subject),
-        lossRecord: s.loss_record || "—",
-        floodRisk:
-          s.flood_risk_category ||
-          (s.flood_risk_flag === null || s.flood_risk_flag === undefined
-            ? "—"
-            : s.flood_risk_flag ? "Flood-Prone" : "Not Flood-Prone"),
+        ...s,
+        client_name: nameByPolicyholder.get(policyholderByCase.get(s.insurance_case_id)) || null,
+        quotation_ids: (quotationsByCase.get(s.insurance_case_id) || []).join(", ") || null,
       }));
       setSurveyRecords(transformed);
     } catch (err) {
@@ -646,22 +749,24 @@ export default function PolicyHolderInformation() {
       const nameByPolicyholder = new Map(
         phRes.data.map((p) => [p.id, [p.first_name, p.middle_name, p.last_name].filter(Boolean).join(" ")])
       );
-      // A vehicle has no direct FK to a quotation — both link to the same
-      // insurance case instead, and one case can have multiple quotations
-      // (re-quotes reuse the case), so group rather than map 1:1.
-      const quotationsByCase = new Map();
+      // Unlike Survey (no quotation FK at all — grouped by case there),
+      // MotorQuotation has a direct vehicle_id FK. A vehicle can still get
+      // re-quoted more than once, so group rather than map 1:1, but key by
+      // vehicle_id specifically — grouping by case would wrongly attach a
+      // sibling vehicle's quotation to this one just for sharing a case.
+      const quotationsByVehicle = new Map();
       for (const q of motorQRes.data) {
-        const list = quotationsByCase.get(q.insurance_case_id) || [];
-        list.push(`MC-Q-${q.id}`);
-        quotationsByCase.set(q.insurance_case_id, list);
+        const list = quotationsByVehicle.get(q.vehicle_id) || [];
+        list.push(q.id);
+        quotationsByVehicle.set(q.vehicle_id, list);
       }
       const transformed = vehicleRes.data.map((v) => {
         const policyholderId = policyholderByCase.get(v.insurance_case_id);
         return {
-          id: `VEH-${v.id}`,
+          id: v.id,
           caseId: v.insurance_case_id ?? "—",
           policyholderId: policyholderId ?? "—",
-          quotationIds: (quotationsByCase.get(v.insurance_case_id) || []).join(", ") || "—",
+          quotationIds: (quotationsByVehicle.get(v.id) || []).join(", ") || "—",
           client: nameByPolicyholder.get(policyholderId) || "—",
           make: v.make || "—",
           model: v.model || "—",
@@ -757,6 +862,36 @@ export default function PolicyHolderInformation() {
     }
   }, [fetchMotorPolicies]);
 
+  const deleteSurvey = useCallback(async (row) => {
+    if (!window.confirm(`Delete survey #${row.id}? This moves the record to the deleted archive.`)) return;
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(`${API_BASE_URL}/fire-property/surveys/${row.id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      fetchSurveys();
+    } catch (err) {
+      // Unconditional delete — nothing references a survey — so this is
+      // only ever a genuine failure, not an expected 409 like Vehicle/Quotation.
+      alert(err.response?.data?.detail || "Failed to delete this survey.");
+    }
+  }, [fetchSurveys]);
+
+  const deleteVehicle = useCallback(async (row) => {
+    if (!window.confirm(`Delete vehicle "${row.plateNo !== "—" ? row.plateNo : row.id}"? This moves the record to the deleted archive.`)) return;
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(`${API_BASE_URL}/motor/vehicles/${row.id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      fetchVehicles();
+    } catch (err) {
+      // A 409 here means the vehicle still has motor_quotations pointing at
+      // it — surface the backend's specific reason rather than a generic message.
+      alert(err.response?.data?.detail || "Failed to delete this vehicle.");
+    }
+  }, [fetchVehicles]);
+
   useEffect(() => {
     fetchClients();
     fetchNeedsReview();
@@ -775,6 +910,12 @@ export default function PolicyHolderInformation() {
   const policyError = isMotorLine ? motorPolicyError : firePolicyError;
   const policyColumns = isMotorLine ? MOTOR_POLICY_COLUMNS : FIRE_POLICY_COLUMNS;
   const deletePolicyForLine = isMotorLine ? deleteMotorPolicy : deleteFirePropertyPolicy;
+
+  // Same idea for Quotation — lineFilter picks which of the two full
+  // column sets/delete endpoints is currently showing.
+  const isMotorQuotationLine = lineFilter === "Motor Car";
+  const quotationColumns = isMotorQuotationLine ? MOTOR_QUOTATION_COLUMNS : FIRE_QUOTATION_COLUMNS;
+  const deleteQuotationForLine = isMotorQuotationLine ? deleteMotorQuotation : deleteFirePropertyQuotation;
 
   const DATA_MAP = {
     "Policy": policyRecords,
@@ -816,7 +957,7 @@ export default function PolicyHolderInformation() {
     return c;
   });
 
-  const handleTypeChange = (t) => { setType(t); setPage(1); setSearch(""); setLineFilter("All Lines"); setPolicyLine("Fire & Property"); setFromDate(null); };
+  const handleTypeChange = (t) => { setType(t); setPage(1); setSearch(""); setLineFilter("Fire & Property"); setPolicyLine("Fire & Property"); setFromDate(null); };
   const handleSearch = (v) => { setSearch(v); setPage(1); };
 
   // Insurance-line filter only makes sense where rows mix both lines.
@@ -853,8 +994,7 @@ export default function PolicyHolderInformation() {
         parts.year === selectedYear;
     }
 
-    const matchLine =
-      !showLineFilter || lineFilter === "All Lines" || row.line === lineFilter;
+    const matchLine = !showLineFilter || row.line === lineFilter;
 
     return matchSearch && matchDate && matchLine;
   });
@@ -915,7 +1055,7 @@ export default function PolicyHolderInformation() {
             {showLineFilter && (
               <Dropdown
                 label="Insurance Line"
-                options={LINE_OPTIONS}
+                options={LINE_ONLY_OPTIONS}
                 value={lineFilter}
                 onChange={(v) => { setLineFilter(v); setPage(1); }}
               />
@@ -924,7 +1064,7 @@ export default function PolicyHolderInformation() {
             {showPolicyLineFilter && (
               <Dropdown
                 label="Insurance Line"
-                options={POLICY_LINE_OPTIONS}
+                options={LINE_ONLY_OPTIONS}
                 value={policyLine}
                 onChange={(v) => { setPolicyLine(v); setPage(1); }}
               />
@@ -966,11 +1106,27 @@ export default function PolicyHolderInformation() {
                 {type === "Policy" && (
                   <GenericPolicyTable columns={policyColumns} rows={pageRows} onDelete={deletePolicyForLine} />
                 )}
-                {type === "Quotation" && <QuotationTable rows={pageRows} />}
+                {type === "Quotation" && (
+                  <GenericPolicyTable
+                    columns={quotationColumns}
+                    rows={pageRows}
+                    onDelete={deleteQuotationForLine}
+                    onViewJson={openJsonModal}
+                    deleteLabel="Delete quotation"
+                  />
+                )}
                 {type === "Claims" && <ClaimsTable rows={pageRows} />}
                 {type === "Client Information" && <ClientTable rows={pageRows} onDelete={deletePolicyholder} />}
-                {type === "Survey Report" && <SurveyTable rows={pageRows} />}
-                {type === "Vehicle Information" && <VehicleTable rows={pageRows} />}
+                {type === "Survey Report" && (
+                  <GenericPolicyTable
+                    columns={SURVEY_COLUMNS}
+                    rows={pageRows}
+                    onDelete={deleteSurvey}
+                    onViewJson={openJsonModal}
+                    deleteLabel="Delete survey"
+                  />
+                )}
+                {type === "Vehicle Information" && <VehicleTable rows={pageRows} onDelete={deleteVehicle} />}
               </>
             }
           </div>
@@ -998,6 +1154,11 @@ export default function PolicyHolderInformation() {
         loading={needsReviewLoading}
         policyholders={clientRecords}
         onResolved={refreshClientData}
+      />
+      <JsonModal
+        title={jsonModal?.title}
+        value={jsonModal?.value ?? null}
+        onClose={() => setJsonModal(null)}
       />
     </div>
   );

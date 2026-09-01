@@ -354,8 +354,15 @@ data in the Policy/Quotation tabs, and resolve a stuck policy row through
 the quotation picker) — all green, no console errors.
 
 ## Known Remaining Issues (not yet fixed)
-None currently tracked here — see "Duplicate usernames in `users`" below
-for the last one, which is fixed.
+- No delete endpoint exists yet for `insurance_cases` (quotations got one
+  in a later session — see Frontend Status's Delete buttons bullet; the
+  original gap was surfaced when a leftover test quotation, `FP-Q-3`, had
+  to be removed via raw SQL instead of through the API).
+- Claims tab remains fully mock/blocked — no claims backend exists yet
+  (see Study Objective 1.3 above; not new, just reconfirmed this session).
+
+See "Duplicate usernames in `users`" below for the last previously-tracked
+issue, which is fixed.
 
 ## Duplicate usernames in `users` — FIXED
 The `username` column had `unique=True` in the model but the LIVE table had
@@ -380,9 +387,10 @@ to create `test4` again now returns 400, no server error.
 ## Frontend Status
 - `pages/login.jsx` — fully wired to `POST /login`, tested working
   end-to-end (JWT token + role stored in localStorage on success).
-- `pages/policy.jsx` — Policyholder Information page, 5 tabs (Policy,
-  Quotation, Claims, Client Information, Survey Report) via a type
-  dropdown + shared table/search/pagination toolbar.
+- `pages/policy.jsx` — Policyholder Information page, 6 tabs (Policy,
+  Quotation, Claims, Client Information, Survey Report, Vehicle
+  Information) via a type dropdown + shared table/search/pagination
+  toolbar.
   - "Client Information" tab: DONE — fetches `GET /policyholders`
     (axios, `API_BASE_URL = "http://127.0.0.1:8000"`, sends
     `Authorization: Bearer <token>` from `localStorage` when present) via a
@@ -390,9 +398,19 @@ to create `test4` again now returns 400, no server error.
     component (not module scope) so it can include live `clientRecords`
     state. Stat card shows `clientRecords.length` (real count), not a
     hardcoded number. Mock `clientData` array is gone.
-  - `ClientTable`'s "Age" column was removed (backend has no age/birthdate
-    field) — do not re-add it. It now also has a trash-icon delete column
-    (see below).
+  - `ClientTable` now shows all 18 real `PolicyholderOut` fields (Last/
+    First/Middle Name as separate columns, Sex, Nationality, Marital
+    Status, Spouse Name, Present + Permanent Address, Residence Phone,
+    Mobile Number, Email Address, Zip Code, Occupation, Employer, TIN,
+    SSS No.) plus an Actions column — up from the original 6-column view.
+    Table scrolls horizontally (`overflow-x-auto` + `whitespace-nowrap` +
+    `min-w-max`) rather than truncating; nulls render as `—` via
+    `formatOrDash`. The "Age" column was removed (backend has no age/
+    birthdate field) — do not re-add it. `clientDisplayName()`
+    (`last_name, first_name`, falling back to `Client #{id}`) is the one
+    display-label helper shared by `ClientTable`'s delete-confirm text and
+    `NeedsReviewModal`'s "link to existing client" dropdown — fixed this
+    session after the dropdown broke on a since-removed merged name field.
   - **Needs Review UI**: `components/NeedsReviewModal.jsx` (new) — lists
     rows from `GET /import/policyholders/needs-review`, lets staff either
     link a row to an existing client (dropdown populated from
@@ -401,18 +419,130 @@ to create `test4` again now returns 400, no server error.
     red count badge. `policy.jsx` holds `needsReviewRecords` state and a
     shared `refreshClientData()` (refetches both clients and needs-review)
     called after upload success, resolve, and delete.
-  - **Delete buttons**: both `ClientTable` rows and `NeedsReviewModal` rows
-    have a trash icon → `window.confirm()` → `DELETE` call → archive (see
-    "Delete + archive pattern" above) → `refreshClientData()`. Deleting a
-    client with existing insurance cases will fail with a 409 — this is
-    backend-enforced, not just a frontend check.
-  - **Policy tab**: DONE — fetches `GET /fire-property/policies` +
-    `GET /motor/policies` (both, merged) with the same auth-header pattern
-    as Client Information.
-  - **Quotation tab**: DONE — fetches quotations AND policies from both
-    lines (fire_property + motor_car) so it can resolve each quotation's
-    "Converted Policy No." via a quotation_id → policy_no map.
-  - **Survey Report tab**: DONE — fetches `GET /fire-property/surveys`.
+  - **Delete buttons**: `ClientTable`, `NeedsReviewModal`,
+    `GenericPolicyTable` (used across all 5 column sets in the Policy,
+    Quotation, and Survey Report tabs), and `VehicleTable` rows all have a
+    trash icon → `window.confirm()` → `DELETE` call → archive → refetch.
+    Deleting a client with existing insurance cases still fails with a 409
+    (backend-enforced). The same archive-first pattern (snapshot to a
+    `deleted_*` table, then delete the live row — see "Delete + archive
+    pattern" above) was extended across sessions to `fire_property_policies`
+    and `motor_policies` (both unconditional — nothing depends on a
+    policy), `vehicles` (blocking: 409 if the vehicle still has
+    `motor_quotations` referencing it), `fire_property_quotations` /
+    `motor_quotations` (blocking: 409 — "Cannot delete: this quotation has
+    a policy on file. Remove or reassign it first." — if a policy already
+    references the quotation via its required `quotation_id` FK, same
+    shape as the Vehicle case), and — most recently —
+    `fire_property_surveys` (unconditional again: nothing in the schema
+    has a FK pointing at a survey, same shape as Policy). New model
+    classes `DeletedFirePropertyPolicy` / `DeletedMotorPolicy` /
+    `DeletedVehicle` / `DeletedFirePropertyQuotation` /
+    `DeletedMotorQuotation` / `DeletedFirePropertySurvey` and matching
+    `GET /deleted-fire-property-policies` / `/deleted-motor-policies` /
+    `/deleted-vehicles` / `/deleted-fire-property-quotations` /
+    `/deleted-motor-quotations` / `/deleted-fire-property-surveys`
+    endpoints, same router-wide auth convention as everywhere else — every
+    new delete/archive endpoint across these sessions, survey ones
+    included, was individually hit with no Authorization header and
+    confirmed to return 401, not just assumed from the router-level
+    dependency. There is still no delete endpoint for `insurance_cases`
+    (see Known Remaining Issues).
+  - **Policy tab**: DONE, reworked this session after a few iterations.
+    ONE "Policy" entry in the main type dropdown (not split into two tabs)
+    with a dedicated secondary "Insurance Line" dropdown (Fire & Property /
+    Motor Car, defaulting to Fire & Property) shown only on this tab,
+    sharing `LINE_ONLY_OPTIONS` with the Quotation tab's own line filter —
+    both dropped a merged "All Lines" view for the same reason (see
+    Quotation tab below). Each line keeps its own full ~20-22 column set
+    (`FIRE_POLICY_COLUMNS` / `MOTOR_POLICY_COLUMNS`, rendered via a shared
+    `GenericPolicyTable`),
+    covering every real field on `FirePropertyPolicyOut` /
+    `MotorPolicyOut`. Both column sets add one synthesized "Client Name"
+    column that resolves the real policyholder via
+    `quotation_id → insurance_case → policyholder` — the same join
+    Vehicle Information uses — kept deliberately separate from the raw
+    "Insured Name & Address" literal field already on the policy record;
+    the two usually agree but a mismatch is a real data signal, not
+    something to reconcile away (verified with a deliberate mismatch
+    test). Date filter runs on `issue_date` via a new `extractDateParts()`
+    helper that handles both raw ISO date strings (Policy, Client
+    Information) and the pre-formatted "MM/DD/YYYY" strings other tabs
+    use, so one filter works against both shapes. `handleTypeChange` now
+    resets `fromDate` on every tab switch (previously didn't — fixed
+    bug).
+  - **Quotation tab**: DONE, given the same full-column treatment as
+    Policy this session. Dropped its old "All Lines" merged view (same
+    reason Policy never had one): Fire/Property and Motor/Car have
+    genuinely incompatible column sets (e.g. Location of Risk/Conditions
+    vs Plate No./Vehicle ID), so the old `LINE_OPTIONS` (which included
+    "All Lines") was replaced by `LINE_ONLY_OPTIONS`, now shared with the
+    Policy tab's own line dropdown. Two full column sets
+    (`FIRE_QUOTATION_COLUMNS` / `MOTOR_QUOTATION_COLUMNS`) cover every
+    real field on `FirePropertyQuotationOut` / `MotorQuotationOut`,
+    rendered through the same `GenericPolicyTable` Policy uses. Same
+    synthesized "Client Name" (resolved via `insurance_case_id →
+    policyholder`) vs raw "Insured Name" relationship as Policy's Client
+    Name vs Insured Name & Address — verified independent with a
+    deliberate mismatch (Client Name "Dennis Reyes" vs Insured Name
+    "Dennis Reyes Trading" on one real row). "Converted Policy No."
+    (resolves `quotation_id → policy_no` from `fire_property_policies` /
+    `motor_policies`, `—` if no policy exists yet) was dropped when
+    `fetchQuotations` was first simplified, then restored as its own
+    column near Insured Name once flagged — verified against real data
+    (Fire quotation #2 → `FP-2026-0102`, Motor quotation #2 →
+    `MC-2026-0202`, both matching the Policy tab exactly). Fire/Property's
+    "Conditions" column (the `conditions` JSON field) renders a "View"
+    button (`—` if null/empty) that opens a `ConditionsModal` showing
+    pretty-printed JSON — `GenericPolicyTable` gained a `col.type ===
+    "json"` case + `onViewJson` prop for this rather than a separate table
+    component. `DATE_FIELD_MAP["Quotation"]` now points at the raw
+    `quotation_date` field (was a pre-formatted `date` string). The old
+    merged `QuotationTable` component was deleted as dead code.
+  - **Survey Report tab**: DONE, given the same full-column treatment as
+    Policy/Quotation. `SURVEY_COLUMNS` covers every real field on
+    `FirePropertySurveyOut`, rendered through the same shared
+    `GenericPolicyTable` (now used by 5 different column sets across 3
+    tabs, not just Policy/Quotation). Same "Client Name" (resolved via
+    `insurance_case_id → policyholder`) vs raw "Name of Insured"
+    relationship as the other tabs — verified independent with a
+    deliberate mismatch test. "Quotation ID(s)" groups by
+    `insurance_case_id` (correct here, unlike Vehicle Information's
+    `vehicle_id` grouping — a survey has no more specific sub-entity to
+    key by than the shared case) and sits as the 3rd column, right after
+    Survey ID/Case ID — originally placed near the end of `SURVEY_COLUMNS`
+    with the other real fields, moved up front per explicit follow-up
+    request, confirmed visually in a live logged-in browser pass (column
+    header order read directly from the DOM, not assumed from source).
+    Dropped the
+    `SURV-`/`FP-Q-` display prefixes on Survey ID and Quotation ID(s) —
+    same fix as Vehicle Information's `VEH-`/`MC-Q-` prefixes, raw numbers
+    now match across every tab. Occupancy Breakdown / Boundaries /
+    Protection Facilities (all JSON fields) each get a "View" button
+    (`—` if null/empty) — the JSON-modal machinery built for Quotation's
+    Conditions field was generalized rather than rebuilt 3 more times:
+    `ConditionsModal` → `JsonModal` (now takes a `title`), `JsonViewButton`
+    passes the column header through as that title, and a single
+    `jsonModal`/`openJsonModal` pair on the page replaces the old
+    Quotation-only `conditionsModalValue` state — both tabs' JSON columns
+    share one modal instance. Latitude/Longitude/Flood Risk Flag/Flood
+    Risk Category are real columns, just null on every row until GIS
+    (Objective 2.1) exists — render as `—` like any other empty field, no
+    special casing. `DATE_FIELD_MAP["Survey Report"]` now points at the
+    raw `created_at` field (the old synthetic pre-formatted `date` field
+    is gone) — same "not really a business date" caveat noted for Vehicle
+    Information, but kept working since the filter already worked before
+    this tab's columns were raw-ified and nobody asked to remove it. Old
+    `SurveyTable` and `RiskClassBadge` components deleted as dead code —
+    Risk Class now renders as a plain value via `formatCell` like every
+    other column, not a colored badge.
+  - **Vehicle Information tab**: DONE — fetches `GET /motor/vehicles`,
+    gained a delete/Actions column this session (same blocking archive
+    pattern as the Policy tab's vehicle case above). Also fixed: the
+    "Quotation ID(s)" column was grouping by `insurance_case_id`, which
+    could show a quotation belonging to a sibling vehicle on the same
+    case — now correctly grouped by `vehicle_id`, the direct FK
+    `MotorQuotation` actually has.
   - **Claims tab**: still mock `claimsData` — correctly blocked, no claims
     backend exists (see Study Objectives 1.3/scope notes above).
   - `components/UploadFileModal.jsx`: DONE, two modes. **Single file**
@@ -473,29 +603,9 @@ to create `test4` again now returns 400, no server error.
   toggle `SET SQL_SAFE_UPDATES = 0` for one query.
 
 ## Immediate Next Steps (in order)
-1. ~~Finish wiring `policy.jsx`'s Client Information tab~~ — DONE. Also
-   picked up along the way: wired `UploadModal` to the real
-   `/import/policyholders/upload` endpoint (was previously a fake local-only
-   UI), built the Needs Review modal + resolve flow, and added delete +
-   archive-table endpoints for both policyholders and import records. See
-   "Frontend Status" and "Delete + archive pattern" above.
-2. ~~Add authentication to all CRUD and bulk import endpoints~~ — DONE, see
-   Backend Structure above.
-3. ~~Connect Policy/Quotation/Survey Report tabs to real backend endpoints~~
-   — DONE, see Frontend Status above.
-4. ~~Wire `UploadModal` to the Fire/Property and Motor importers~~ — DONE.
-   `UploadModal` now has an importer-select dropdown (Policyholders /
-   Fire & Property Surveys / Motor Quotations), defaulting per the active
-   tab via `IMPORT_TARGET_BY_TYPE` in `policy.jsx`. End-to-end tested in a
-   real browser, which surfaced two backend bugs — both FIXED this session:
-   the needs_review phone-weighting issue (see Bulk Import Matching Logic
-   above) and the needs-review resolve data-loss bug (see Needs-Review
-   Resolution above).
-5. ~~Folder-based bulk import covering all 6 document types (incl. new
-   Fire/Property Quotation, Fire/Property Policy, Motor Policy importers)~~
-   — DONE, see "Folder-Based Bulk Import" above. Follow-up once real data
-   arrives: correct the 3 new `*_COLUMN_MAP`s and retune the detection/
-   matching thresholds against real company exports (currently best-guess).
-6. GIS/flood-risk integration (Objective 2.1) — not started.
-7. Predictive risk model (Objective 1.2 core) — not started, blocked on
+1. GIS/flood-risk integration (Objective 2.1) — not started. All 6 data
+   tabs (Client Information/Policy/Vehicle Information/Quotation/Survey
+   Report, plus Claims correctly still blocked) now have the full-column
+   treatment, so this is the next real gap.
+2. Predictive risk model (Objective 1.2 core) — not started, blocked on
    having enough real data flowing through the system first.

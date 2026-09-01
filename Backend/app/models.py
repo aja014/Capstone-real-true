@@ -185,6 +185,46 @@ class DeletedMotorPolicy(Base):
     deleted_by = Column(String(255), nullable=True)
 
 
+class DeletedVehicle(Base):
+    __tablename__ = "deleted_vehicles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    original_id = Column(Integer, nullable=False)
+    data = Column(JSON, nullable=False)
+    deleted_at = Column(DateTime, server_default=func.now())
+    deleted_by = Column(String(255), nullable=True)
+
+
+class DeletedFirePropertyQuotation(Base):
+    __tablename__ = "deleted_fire_property_quotations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    original_id = Column(Integer, nullable=False)
+    data = Column(JSON, nullable=False)
+    deleted_at = Column(DateTime, server_default=func.now())
+    deleted_by = Column(String(255), nullable=True)
+
+
+class DeletedMotorQuotation(Base):
+    __tablename__ = "deleted_motor_quotations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    original_id = Column(Integer, nullable=False)
+    data = Column(JSON, nullable=False)
+    deleted_at = Column(DateTime, server_default=func.now())
+    deleted_by = Column(String(255), nullable=True)
+
+
+class DeletedFirePropertySurvey(Base):
+    __tablename__ = "deleted_fire_property_surveys"
+
+    id = Column(Integer, primary_key=True, index=True)
+    original_id = Column(Integer, nullable=False)
+    data = Column(JSON, nullable=False)
+    deleted_at = Column(DateTime, server_default=func.now())
+    deleted_by = Column(String(255), nullable=True)
+
+
 # ------------------------------------------------------------
 # FIRE / PROPERTY
 # ------------------------------------------------------------

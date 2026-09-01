@@ -52,6 +52,44 @@ def get_vehicle(vehicle_id: int, db: Session = Depends(get_db)):
     return db_vehicle
 
 
+@router.delete("/motor/vehicles/{vehicle_id}", response_model=schemas.DeletedVehicleOut)
+def delete_vehicle(vehicle_id: int, db: Session = Depends(get_db)):
+    db_vehicle = db.query(models.Vehicle).filter(
+        models.Vehicle.id == vehicle_id
+    ).first()
+    if not db_vehicle:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+
+    # Unlike policies (nothing depends on them yet), motor_quotations.vehicle_id
+    # is a required FK — deleting a vehicle out from under an existing
+    # quotation would orphan it. Block rather than cascade, same as
+    # policyholders blocking on insurance_cases.
+    quotation_count = db.query(models.MotorQuotation).filter(
+        models.MotorQuotation.vehicle_id == vehicle_id
+    ).count()
+    if quotation_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete: this vehicle has {quotation_count} motor quotation(s) on file. "
+                   "Remove or reassign those first.",
+        )
+
+    snapshot = schemas.VehicleOut.model_validate(db_vehicle).model_dump(mode="json")
+    archived = models.DeletedVehicle(original_id=db_vehicle.id, data=snapshot)
+    db.add(archived)
+
+    db.delete(db_vehicle)
+    db.commit()
+    db.refresh(archived)
+
+    return archived
+
+
+@router.get("/deleted-vehicles", response_model=list[schemas.DeletedVehicleOut])
+def list_deleted_vehicles(db: Session = Depends(get_db)):
+    return db.query(models.DeletedVehicle).order_by(models.DeletedVehicle.deleted_at.desc()).all()
+
+
 # ------------------------------------------------------------
 # QUOTATIONS
 # ------------------------------------------------------------
@@ -96,6 +134,44 @@ def get_quotation(quotation_id: int, db: Session = Depends(get_db)):
 def get_quotations_for_case(case_id: int, db: Session = Depends(get_db)):
     return db.query(models.MotorQuotation).filter(
         models.MotorQuotation.insurance_case_id == case_id
+    ).all()
+
+
+@router.delete("/motor/quotations/{quotation_id}", response_model=schemas.DeletedMotorQuotationOut)
+def delete_quotation(quotation_id: int, db: Session = Depends(get_db)):
+    db_quotation = db.query(models.MotorQuotation).filter(
+        models.MotorQuotation.id == quotation_id
+    ).first()
+    if not db_quotation:
+        raise HTTPException(status_code=404, detail="Quotation not found")
+
+    # motor_policies.quotation_id is a required FK — same blocking shape as
+    # Vehicle blocking on motor_quotations.
+    policy = db.query(models.MotorPolicy).filter(
+        models.MotorPolicy.quotation_id == quotation_id
+    ).first()
+    if policy:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete: this quotation has a policy on file. "
+                   "Remove or reassign it first.",
+        )
+
+    snapshot = schemas.MotorQuotationOut.model_validate(db_quotation).model_dump(mode="json")
+    archived = models.DeletedMotorQuotation(original_id=db_quotation.id, data=snapshot)
+    db.add(archived)
+
+    db.delete(db_quotation)
+    db.commit()
+    db.refresh(archived)
+
+    return archived
+
+
+@router.get("/deleted-motor-quotations", response_model=list[schemas.DeletedMotorQuotationOut])
+def list_deleted_motor_quotations(db: Session = Depends(get_db)):
+    return db.query(models.DeletedMotorQuotation).order_by(
+        models.DeletedMotorQuotation.deleted_at.desc()
     ).all()
 
 
