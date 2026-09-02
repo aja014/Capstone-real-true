@@ -568,7 +568,7 @@ to create `test4` again now returns 400, no server error.
 - `pages/overview.jsx`, `pages/proposal.jsx`, `pages/distribution.jsx` —
   all mock dashboard/chart data, would need new backend aggregation
   endpoints (none exist yet) before connecting.
-- `pages/renewnal.jsx` — blocked, no renewal data/backend yet.
+- `pages/renewal.jsx` — blocked, no renewal data/backend yet.
 - `components/FloodRiskModal.jsx` — blocked, GIS feature not built yet.
 
 ## Testing Conventions Established This Session

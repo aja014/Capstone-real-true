@@ -370,6 +370,10 @@ const SURVEY_COLUMNS = [
   { id: "occupancy_breakdown", dataKey: "occupancy_breakdown", header: "Occupancy Breakdown", type: "json", width: "min-w-[120px]" },
   { id: "boundaries", dataKey: "boundaries", header: "Boundaries", type: "json", width: "min-w-[100px]" },
   { id: "protection_facilities", dataKey: "protection_facilities", header: "Protection Facilities", type: "json", width: "min-w-[120px]" },
+  { id: "perils_assessment", dataKey: "perils_assessment", header: "Perils Assessment", type: "json", width: "min-w-[130px]" },
+  { id: "hazard_assessment", dataKey: "hazard_assessment", header: "Hazard Assessment", type: "json", width: "min-w-[130px]" },
+  { id: "overall_risk_assessment", dataKey: "overall_risk_assessment", header: "Overall Risk Assessment", width: "min-w-[160px]" },
+  { id: "surveyor_risk_acceptability", dataKey: "surveyor_risk_acceptability", header: "Surveyor Risk Acceptability", width: "min-w-[170px]" },
   { id: "latitude", dataKey: "latitude", header: "Latitude", width: "min-w-[100px]" },
   { id: "longitude", dataKey: "longitude", header: "Longitude", width: "min-w-[100px]" },
   { id: "flood_risk_flag", dataKey: "flood_risk_flag", header: "Flood Risk Flag", width: "min-w-[130px]" },
@@ -655,34 +659,6 @@ export default function PolicyHolderInformation() {
     }
   }, []);
 
-  const deleteFirePropertyQuotation = useCallback(async (row) => {
-    if (!window.confirm(`Delete quotation #${row.id}? This moves the record to the deleted archive.`)) return;
-    try {
-      const token = localStorage.getItem("token");
-      await axios.delete(`${API_BASE_URL}/fire-property/quotations/${row.id}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      fetchQuotations();
-    } catch (err) {
-      // A 409 here means the quotation already has a policy on file —
-      // surface the backend's specific reason, same as Vehicle's delete.
-      alert(err.response?.data?.detail || "Failed to delete this quotation.");
-    }
-  }, [fetchQuotations]);
-
-  const deleteMotorQuotation = useCallback(async (row) => {
-    if (!window.confirm(`Delete quotation #${row.id}? This moves the record to the deleted archive.`)) return;
-    try {
-      const token = localStorage.getItem("token");
-      await axios.delete(`${API_BASE_URL}/motor/quotations/${row.id}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      fetchQuotations();
-    } catch (err) {
-      alert(err.response?.data?.detail || "Failed to delete this quotation.");
-    }
-  }, [fetchQuotations]);
-
   const [surveyRecords, setSurveyRecords] = useState([]);
   const [surveyLoading, setSurveyLoading] = useState(true);
   const [surveyError, setSurveyError] = useState(null);
@@ -785,6 +761,44 @@ export default function PolicyHolderInformation() {
       setVehicleLoading(false);
     }
   }, []);
+
+  const deleteFirePropertyQuotation = useCallback(async (row) => {
+    if (!window.confirm(`Delete quotation #${row.id}? This moves the record to the deleted archive.`)) return;
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(`${API_BASE_URL}/fire-property/quotations/${row.id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      fetchQuotations();
+      // Vehicle Information's "Quotation ID(s)" grouping is computed from
+      // quotations at fetch time — without this it goes stale until a
+      // reload. Fire/Property quotations don't actually relate to
+      // vehicles, but fetching anyway keeps this symmetric with the
+      // Motor handler below rather than relying on that staying true.
+      fetchVehicles();
+    } catch (err) {
+      // A 409 here means the quotation already has a policy on file —
+      // surface the backend's specific reason, same as Vehicle's delete.
+      alert(err.response?.data?.detail || "Failed to delete this quotation.");
+    }
+  }, [fetchQuotations, fetchVehicles]);
+
+  const deleteMotorQuotation = useCallback(async (row) => {
+    if (!window.confirm(`Delete quotation #${row.id}? This moves the record to the deleted archive.`)) return;
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(`${API_BASE_URL}/motor/quotations/${row.id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      fetchQuotations();
+      // Motor quotations group under Vehicle Information's "Quotation
+      // ID(s)" column — refresh it too so a deleted quotation's ID
+      // doesn't linger there until a reload.
+      fetchVehicles();
+    } catch (err) {
+      alert(err.response?.data?.detail || "Failed to delete this quotation.");
+    }
+  }, [fetchQuotations, fetchVehicles]);
 
   const [needsReviewOpen, setNeedsReviewOpen] = useState(false);
   const [needsReviewRecords, setNeedsReviewRecords] = useState([]);

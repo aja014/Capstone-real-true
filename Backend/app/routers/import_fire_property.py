@@ -38,6 +38,40 @@ SURVEY_COLUMN_MAP = {
     "description": "description",
     "maximumamountsubject": "maximum_amount_subject",
     "lossrecord": "loss_record",
+
+    # Perils Assessment — 18 individual perils, header = the peril name
+    # itself. Not real model columns; assembled into perils_assessment
+    # JSON in row_to_survey_fields() below, ratings only (no remarks —
+    # those stay manual-entry-only via the create endpoint).
+    "fire": "peril__fire",
+    "earthquake": "peril__earthquake",
+    "typhoon": "peril__typhoon",
+    "flood": "peril__flood",
+    "landslidesubsidence": "peril__landslide_subsidence",
+    "smokeaircraftvehicleimpactexplosion": "peril__smoke_aircraft_vehicle_impact_explosion",
+    "rsmd": "peril__rsmd",
+    "burglaryrobbery": "peril__burglary_robbery",
+    "volcaniceruption": "peril__volcanic_eruption",
+    "tsunami": "peril__tsunami",
+    "terroristattack": "peril__terrorist_attack",
+    "spontaneouscombustion": "peril__spontaneous_combustion",
+    "machinerybreakdown": "peril__machinery_breakdown",
+    "generalliability": "peril__general_liability",
+    "money": "peril__money",
+    "fidelityguarantee": "peril__fidelity_guarantee",
+    "goodstransit": "peril__goods_transit",
+    "others": "peril__others",
+
+    # Hazard Assessment — 6 items, same placeholder pattern.
+    "maintenance": "hazard__maintenance",
+    "housekeeping": "hazard__housekeeping",
+    "storagearrangement": "hazard__storage_arrangement",
+    "safetysecurity": "hazard__safety_security",
+    "blockcondition": "hazard__block_condition",
+    "surroundingcommunity": "hazard__surrounding_community",
+
+    "overallriskassessment": "overall_risk_assessment",
+    "surveyorriskacceptability": "surveyor_risk_acceptability",
 }
 
 FIRE_QUOTATION_COLUMN_MAP = {
@@ -99,6 +133,22 @@ def clean_cell_value(value):
     return str(value).strip()
 
 
+def _validate_choice(value: str, choices: tuple, context: str, output_lower: bool = False) -> str:
+    """
+    Case-insensitive match against a fixed set of allowed values — same
+    approach as risk_class's explicit check below. output_lower=True gives
+    perils_assessment/hazard_assessment ratings ("low"), matching the JSON
+    shape shown in the task spec; output_lower=False (default) gives
+    overall_risk_assessment/surveyor_risk_acceptability the same
+    Title-Case canonical form the Pydantic validator on the manual
+    create endpoint already normalizes to (e.g. "Fair", "Key Consideration").
+    """
+    match = next((c for c in choices if c.lower() == value.strip().lower()), None)
+    if not match:
+        raise ValueError(f'{context} must be one of: {", ".join(choices)} (got "{value}")')
+    return match.lower() if output_lower else match
+
+
 def row_to_survey_fields(row: pd.Series) -> dict:
     fields = {}
     for col, value in row.items():
@@ -123,6 +173,44 @@ def row_to_survey_fields(row: pd.Series) -> dict:
                 f'risk_class must be "a" or "b", got "{fields["risk_class"]}"'
             )
         fields["risk_class"] = normalized
+
+    if "overall_risk_assessment" in fields:
+        fields["overall_risk_assessment"] = _validate_choice(
+            fields["overall_risk_assessment"], ("Poor", "Fair", "Good", "Others"), "overall_risk_assessment"
+        )
+    if "surveyor_risk_acceptability" in fields:
+        fields["surveyor_risk_acceptability"] = _validate_choice(
+            fields["surveyor_risk_acceptability"], ("Accept", "Decline", "Key Consideration"), "surveyor_risk_acceptability"
+        )
+
+    # Perils/Hazard Assessment ratings — RATINGS ONLY (see SURVEY_COLUMN_MAP
+    # above). Any peril__<key>/hazard__<key> placeholder present gets folded
+    # into the same {"rating": ..., "remarks": null} shape the manual create
+    # endpoint uses, remarks always null for imported rows. A dict that ends
+    # up empty (none of that section's columns had data in THIS row) is
+    # left out of fields entirely — never written as an empty {} — which
+    # also naturally covers "file doesn't have these columns at all".
+    perils_assessment = {}
+    hazard_assessment = {}
+    for key in list(fields.keys()):
+        if key.startswith("peril__"):
+            peril_key = key[len("peril__"):]
+            rating = _validate_choice(
+                fields.pop(key), ("Low", "Moderate", "High"),
+                f'perils_assessment["{peril_key}"] rating', output_lower=True,
+            )
+            perils_assessment[peril_key] = {"rating": rating, "remarks": None}
+        elif key.startswith("hazard__"):
+            hazard_key = key[len("hazard__"):]
+            rating = _validate_choice(
+                fields.pop(key), ("Good", "Fair", "Poor"),
+                f'hazard_assessment["{hazard_key}"] rating', output_lower=True,
+            )
+            hazard_assessment[hazard_key] = {"rating": rating, "remarks": None}
+    if perils_assessment:
+        fields["perils_assessment"] = perils_assessment
+    if hazard_assessment:
+        fields["hazard_assessment"] = hazard_assessment
 
     return fields
 

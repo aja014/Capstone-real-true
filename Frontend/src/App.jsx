@@ -4,7 +4,7 @@ import MaagapLogin from "./pages/login";
 import Overview from "./pages/overview";
 import QuotationsProposal from "./pages/proposal";
 import Claims from "./pages/claims";
-import RenewalRatioMonitoring from "./pages/renewnal";
+import RenewalRatioMonitoring from "./pages/renewal";
 import PolicyHolderInformation from "./pages/policy";
 import PolicyDistribution from "./pages/distribution";
 

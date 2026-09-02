@@ -105,6 +105,14 @@ class FirePropertySurveyCreate(BaseModel):
     protection_facilities: Optional[dict[str, Any]] = None  # checklist e.g. {"sprinklers": true, "fire_alarm": false}
     loss_record: Optional[str] = None
 
+    # 18 individual perils, each rated Low/Moderate/High with details/remarks —
+    # e.g. {"fire": {"rating": "Low", "remarks": "..."}, "earthquake": {...}, ...}
+    perils_assessment: Optional[dict[str, Any]] = None
+    # 6 items rated Good/Fair/Poor with details/remarks — same shape as above
+    hazard_assessment: Optional[dict[str, Any]] = None
+    overall_risk_assessment: Optional[str] = None  # Poor / Fair / Good / Others
+    surveyor_risk_acceptability: Optional[str] = None  # Accept / Decline / Key Consideration
+
     # GIS — usually filled in after a separate flood-check step, so optional here
     latitude: Optional[Decimal] = None
     longitude: Optional[Decimal] = None
@@ -120,6 +128,28 @@ class FirePropertySurveyCreate(BaseModel):
         if v not in ("a", "b"):
             raise ValueError('risk_class must be "a" (concrete) or "b" (concrete & wood/light materials)')
         return v
+
+    @field_validator("overall_risk_assessment")
+    @classmethod
+    def validate_overall_risk_assessment(cls, v):
+        if v is None or v == "":
+            return v
+        options = ("Poor", "Fair", "Good", "Others")
+        match = next((opt for opt in options if opt.lower() == v.strip().lower()), None)
+        if not match:
+            raise ValueError(f'overall_risk_assessment must be one of: {", ".join(options)}')
+        return match
+
+    @field_validator("surveyor_risk_acceptability")
+    @classmethod
+    def validate_surveyor_risk_acceptability(cls, v):
+        if v is None or v == "":
+            return v
+        options = ("Accept", "Decline", "Key Consideration")
+        match = next((opt for opt in options if opt.lower() == v.strip().lower()), None)
+        if not match:
+            raise ValueError(f'surveyor_risk_acceptability must be one of: {", ".join(options)}')
+        return match
 
 
 class FirePropertySurveyOut(FirePropertySurveyCreate):
@@ -463,3 +493,36 @@ class BatchFileResult(BaseModel):
 
 class BatchImportSummary(BaseModel):
     files: list[BatchFileResult]
+
+
+# ------------------------------------------------------------
+# POLICY DISTRIBUTION STATS (Objective-agnostic dashboard aggregation)
+# ------------------------------------------------------------
+
+class PolicyDistributionBarEntry(BaseModel):
+    label: str  # day-of-month ("1".."31") for MTD, month name ("January", ...) for YTD
+    fire_count: int
+    motor_count: int
+
+
+class PolicyDistributionPieSlice(BaseModel):
+    name: str  # "New Policy" | "Renewed Policy"
+    value: int
+
+
+class PolicyDistributionStats(BaseModel):
+    period: Literal["daily", "mtd", "ytd"]
+    date: date            # the reference date the request was made for
+    range_start: date
+    range_end: date
+
+    total_policies: int
+    fire_count: int
+    motor_count: int
+    total_amount_due: Decimal
+
+    # Empty for "daily" (no chart in that view) — always present with the
+    # same shape so the frontend doesn't need period-specific parsing.
+    bar_chart: list[PolicyDistributionBarEntry] = []
+    fire_pie: list[PolicyDistributionPieSlice] = []
+    motor_pie: list[PolicyDistributionPieSlice] = []

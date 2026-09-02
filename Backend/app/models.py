@@ -261,6 +261,16 @@ class FirePropertySurvey(Base):
 
     loss_record = Column(Text)  # e.g. "No known loss history since built in 2019"
 
+    # Added later — confirmed against the real paper Survey Report, missed
+    # during original schema design. 18 individual perils, each rated
+    # Low/Moderate/High with details/remarks (same JSON pattern as
+    # protection_facilities above).
+    perils_assessment = Column(JSON)
+    # 6 items rated Good/Fair/Poor with details/remarks — same pattern.
+    hazard_assessment = Column(JSON)
+    overall_risk_assessment = Column(String(50))  # Poor / Fair / Good / Others
+    surveyor_risk_acceptability = Column(String(50))  # Accept / Decline / Key Consideration
+
     # GIS — populated after QGIS/API lookup
     latitude = Column(DECIMAL(10, 7))
     longitude = Column(DECIMAL(10, 7))

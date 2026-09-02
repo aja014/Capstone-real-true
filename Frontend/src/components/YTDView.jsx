@@ -1,74 +1,113 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import axios from "axios";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { StatCard, PolicyTable, MiniPie, tableData } from "./PolicyDistributionShared";
+import {
+  StatCard, PolicyTable, MiniPie, fetchDistributionPolicies,
+  getPeriodRange, filterRowsByRange, formatCurrencyPH, formatHumanDate, todayISO,
+} from "./PolicyDistributionShared";
 import { MonthYearPicker } from "./DatePicker";
 
-const ytdBarData = [
-  { month: "January", fire: 130, motor: 150 },
-  { month: "February", fire: 100, motor: 160 },
-  { month: "March", fire: 87, motor: 92 },
-];
-const firePieData = [{ name: "New Policy", value: 58 }, { name: "Renewed Policy", value: 29 }];
-const motorPieData = [{ name: "New Policy", value: 21 }, { name: "Renewed Policy", value: 71 }];
-const PIE_COLORS = ["#a5b4fc", "#f87171"];
+const API_BASE_URL = "http://127.0.0.1:8000";
+const FIRE_COLORS = ["#a5b4fc", "#f87171"];
+const MOTOR_COLORS = ["#f87171", "#a5b4fc"];
 
-function parseIssued(dateStr) {
-  const [mm, , yyyy] = dateStr.split("/").map(Number);
-  return { month: mm, year: yyyy };
+function toISO(date) {
+  if (!date) return null;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+// A picked month that's already in the past resolves to its real last day
+// (the whole month happened, nothing to cap). A picked month that's the
+// CURRENT month must cap at today, not day 30/31 — otherwise this silently
+// reintroduces the future-dated-policy leak that ref-date capping was
+// built to prevent. A future month resolves to its last day same as a
+// past one — it has no partial/current state to worry about, it's just
+// entirely empty until it happens.
+function endOfMonthISO(date) {
+  const today = new Date();
+  const isCurrentMonth =
+    date.getFullYear() === today.getFullYear() && date.getMonth() === today.getMonth();
+  if (isCurrentMonth) return toISO(today);
+
+  const last = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+  return toISO(last);
 }
 
 export default function YTDView() {
   const [search, setSearch] = useState("");
-  const [month, setMonth] = useState(null);
+  const [month, setMonth] = useState(null); // null => defaults to today
+  const [stats, setStats] = useState(null);
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const selectedMonth = month ? month.getMonth() + 1 : null;
-  const selectedYear = month ? month.getFullYear() : null;
+  const refDate = month ? endOfMonthISO(month) : todayISO();
 
-  const filteredData = tableData.filter(r => {
-    if (!month) return true;
-    const { month: rowMonth, year: rowYear } = parseIssued(r.issued);
-    return rowMonth === selectedMonth && rowYear === selectedYear;
-  });
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = localStorage.getItem("token");
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const [statsRes, allRows] = await Promise.all([
+        axios.get(`${API_BASE_URL}/stats/policy-distribution`, { headers, params: { period: "ytd", date: refDate } }),
+        fetchDistributionPolicies(),
+      ]);
+      setStats(statsRes.data);
+      const { start, end } = getPeriodRange("ytd", refDate);
+      setRows(filterRowsByRange(allRows, start, end));
+    } catch {
+      setError("Failed to load Policy Distribution data.");
+    } finally {
+      setLoading(false);
+    }
+  }, [refDate]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const sub = `As of ${formatHumanDate(refDate)}`;
+  const barData = (stats?.bar_chart ?? []).map((b) => ({ month: b.label, fire: b.fire_count, motor: b.motor_count }));
+  const firePie = stats?.fire_pie ?? [];
+  const motorPie = stats?.motor_pie ?? [];
 
   return (
     <div className="flex flex-col gap-4">
+      {error && <p className="text-red-500 text-xs">{error}</p>}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard sub="As of 2026" value="719" label="Total Policies Made" />
-        <StatCard sub="As of 2026" value="317" label="Fire & Property Policies" />
-        <StatCard sub="As of 2026" value="402" label="Motor & Car Policies" />
-        <StatCard sub="As of 2026" value="₱2,413,123.12" label="Gross Premium Written" target="₱3,166,493.77" />
+        <StatCard sub={sub} value={loading ? "…" : String(stats?.total_policies ?? 0)} label="Total Policies Made" />
+        <StatCard sub={sub} value={loading ? "…" : String(stats?.fire_count ?? 0)} label="Fire & Property Policies" />
+        <StatCard sub={sub} value={loading ? "…" : String(stats?.motor_count ?? 0)} label="Motor & Car Policies" />
+        <StatCard sub={sub} value={loading ? "…" : formatCurrencyPH(stats?.total_amount_due, false)} label="Total Amount Due" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 bg-white rounded-2xl p-5 shadow-sm">
           <h2 className="font-bold text-black text-sm mb-1">
             Policy Type: Motor & Car vs. Fire & Property{" "}
-            <span className="text-gray-400 font-normal">(As of 2026)</span>
+            <span className="text-gray-400 font-normal">({sub})</span>
           </h2>
           <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={ytdBarData} barCategoryGap="35%">
+            <BarChart data={barData} barCategoryGap="35%">
               <CartesianGrid vertical={false} stroke="#f3f4f6" />
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} domain={[0, 300]}
+              <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false}
                 label={{ value: "count", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: "#9ca3af" } }} />
               <Tooltip contentStyle={{ borderRadius: 10, border: "none", fontSize: 12 }} />
-              <Bar dataKey="fire" name="Fire & Property" stackId="a" fill="#a5b4fc"
-                label={{ position: "center", fontSize: 11, fill: "#fff", fontWeight: 700 }} />
-              <Bar dataKey="motor" name="Motor & Car" stackId="a" fill="#f87171" radius={[4, 4, 0, 0]}
-                label={{ position: "center", fontSize: 11, fill: "#fff", fontWeight: 700 }} />
+              <Bar dataKey="fire" name="Fire & Property" stackId="a" fill="#a5b4fc" />
+              <Bar dataKey="motor" name="Motor & Car" stackId="a" fill="#f87171" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
         <div className="flex flex-col gap-3">
-          <MiniPie title="Fire & Property" data={firePieData} colors={PIE_COLORS} />
-          <MiniPie title="Motor & Car" data={motorPieData} colors={["#f87171", "#a5b4fc"]} />
+          <MiniPie title="Fire & Property" data={firePie} colors={FIRE_COLORS} sub={sub} />
+          <MiniPie title="Motor & Car" data={motorPie} colors={MOTOR_COLORS} sub={sub} />
         </div>
       </div>
 
       <PolicyTable
         search={search}
         setSearch={setSearch}
-        data={filteredData}
+        data={rows}
         extraFilters={
           <div className="flex items-center gap-2 ml-auto">
             {month && (
@@ -77,7 +116,7 @@ export default function YTDView() {
                 onClick={() => setMonth(null)}
                 className="flex items-center cursor-pointer gap-1.5 bg-violet-50 border border-violet-200 text-violet-600 text-xs font-semibold px-3 py-1.5 rounded-xl hover:bg-violet-50 hover:border-violet-200 hover:text-violet-500 transition"
               >
-                Show All Months
+                Reset to Today
               </button>
             )}
             <MonthYearPicker value={month} onChange={setMonth} />
@@ -87,9 +126,3 @@ export default function YTDView() {
     </div>
   );
 }
-
-// needed for the badge label
-const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December"
-];
