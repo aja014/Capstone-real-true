@@ -6,7 +6,7 @@ from app import models, schemas
 from passlib.context import CryptContext
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import HTTPException # for getting users
-from app.routers import auth, users, policyholders, fire_property, motor_car, import_policyholders, import_fire_property, import_motor, import_batch, stats
+from app.routers import auth, users, policyholders, fire_property, motor_car, import_policyholders, import_fire_property, import_motor, import_vehicle, import_batch, stats
 app = FastAPI()
 
 app.add_middleware(
@@ -38,5 +38,6 @@ app.include_router(motor_car.router)
 app.include_router(import_policyholders.router)
 app.include_router(import_fire_property.router)
 app.include_router(import_motor.router)
+app.include_router(import_vehicle.router)
 app.include_router(import_batch.router)
 app.include_router(stats.router)

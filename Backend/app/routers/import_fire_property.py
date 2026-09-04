@@ -262,8 +262,18 @@ def row_to_fire_policy_fields(row) -> dict:
     return fields
 
 
+def normalize_name(value: str) -> str:
+    """
+    Strips periods and collapses whitespace before lowercasing, so a combined
+    "First M. Last" string (as typed on the paper form) and a name rebuilt from
+    separate first/middle/last DB columns (no period on the middle initial)
+    compare as identical instead of landing just short of MATCH_THRESHOLD.
+    """
+    return re.sub(r"\s+", " ", (value or "").replace(".", "")).strip().lower()
+
+
 def full_name(last: str, first: str = "", middle: str = "") -> str:
-    return f"{first or ''} {middle or ''} {last or ''}".strip().lower()
+    return normalize_name(f"{first or ''} {middle or ''} {last or ''}")
 
 
 def normalize_phone(value: str) -> str:
@@ -388,7 +398,9 @@ def upload_surveys(file: UploadFile = File(...), db: Session = Depends(get_db)):
                 # Brand new policyholder (individual OR business name in last_name).
                 # flush() (not commit()) so a later failure in this same row
                 # can still roll this back cleanly instead of leaving it orphaned.
-                new_ph = models.Policyholder(last_name=fields.get("name_of_insured", "").strip() or None)
+                last_name = fields.get("name_of_insured", "").strip() or None
+                import_shared.require_name(None, last_name, "Name of Insured")
+                new_ph = models.Policyholder(last_name=last_name)
                 db.add(new_ph)
                 db.flush()
                 db.refresh(new_ph)
@@ -622,7 +634,9 @@ def upload_fire_property_quotations(file: UploadFile = File(...), db: Session = 
                 continue
 
             else:
-                new_ph = models.Policyholder(last_name=fields.get("insured_name", "").strip() or None)
+                last_name = fields.get("insured_name", "").strip() or None
+                import_shared.require_name(None, last_name, "Name of Insured")
+                new_ph = models.Policyholder(last_name=last_name)
                 db.add(new_ph)
                 db.flush()
                 db.refresh(new_ph)
@@ -755,7 +769,7 @@ def upload_fire_property_policies(file: UploadFile = File(...), db: Session = De
             raw_data = {str(k): clean_cell_value(v) for k, v in row.items()}
 
             raw_name, raw_addr = import_shared.split_insured_name_address(fields.get("insured_name_address"))
-            candidate_name = raw_name.lower()
+            candidate_name = full_name(raw_name)
             candidate_addr = raw_addr.lower()
 
             # Reuses this file's own match_score (same one Survey/Quotation use) on
@@ -789,8 +803,10 @@ def upload_fire_property_policies(file: UploadFile = File(...), db: Session = De
                 continue
 
             else:
+                last_name = raw_name.strip() or None
+                import_shared.require_name(None, last_name, "Insured Name & Address")
                 new_ph = models.Policyholder(
-                    last_name=raw_name.strip() or None,
+                    last_name=last_name,
                     present_address=raw_addr.strip() or None,
                 )
                 db.add(new_ph)

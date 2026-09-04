@@ -51,6 +51,10 @@ class PolicyholderCreate(BaseModel):
 
 class PolicyholderOut(PolicyholderCreate):
     id: int
+    last_name: Optional[str] = None  # unlike PolicyholderCreate's required field -- a bad
+                                      # pre-existing record must still be READABLE, not
+                                      # crash the whole list (see import_shared.require_name
+                                      # for the write-side guard against creating new ones)
     created_at: datetime
     updated_at: datetime
 
@@ -331,6 +335,7 @@ class ImportType(str, Enum):
     fire_property_quotation = "fire_property_quotation"
     fire_property_policy = "fire_property_policy"
     motor_policy = "motor_policy"
+    vehicle = "vehicle"
 
 
 class ImportRecordOut(BaseModel):

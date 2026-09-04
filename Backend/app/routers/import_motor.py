@@ -129,8 +129,18 @@ def row_to_motor_policy_fields(row) -> dict:
     return fields
 
 
+def normalize_name(value: str) -> str:
+    """
+    Strips periods and collapses whitespace before lowercasing, so a combined
+    "First M. Last" string and a name rebuilt from separate first/middle/last
+    DB columns (no period on the middle initial) compare as identical instead
+    of relying on raw fuzzy-ratio alone to clear MATCH_THRESHOLD.
+    """
+    return re.sub(r"\s+", " ", (value or "").replace(".", "")).strip().lower()
+
+
 def full_name(last: str, first: str = "", middle: str = "") -> str:
-    return f"{first or ''} {middle or ''} {last or ''}".strip().lower()
+    return normalize_name(f"{first or ''} {middle or ''} {last or ''}")
 
 
 def find_existing_vehicle(db: Session, plate_no: str, engine_no: str, chassis_no: str):
@@ -271,7 +281,9 @@ def upload_motor_quotations(file: UploadFile = File(...), db: Session = Depends(
                     continue
 
                 else:
-                    new_ph = models.Policyholder(last_name=fields.get("insured_name", "").strip() or None)
+                    last_name = fields.get("insured_name", "").strip() or None
+                    import_shared.require_name(None, last_name, "Insured Name")
+                    new_ph = models.Policyholder(last_name=last_name)
                     db.add(new_ph)
                     db.flush()
                     db.refresh(new_ph)
@@ -544,7 +556,7 @@ def upload_motor_policies(file: UploadFile = File(...), db: Session = Depends(ge
             raw_data = {str(k): clean_cell_value(v) for k, v in row.items()}
 
             raw_name, raw_addr = import_shared.split_insured_name_address(fields.get("insured_name_address"))
-            candidate_name = raw_name.lower()
+            candidate_name = full_name(raw_name)
             candidate_addr = raw_addr.lower()
 
             # Plain name fuzzy-match, same as upload_motor_quotations, so
@@ -583,8 +595,10 @@ def upload_motor_policies(file: UploadFile = File(...), db: Session = Depends(ge
                 continue
 
             else:
+                last_name = raw_name.strip() or None
+                import_shared.require_name(None, last_name, "Insured Name & Address")
                 new_ph = models.Policyholder(
-                    last_name=raw_name.strip() or None,
+                    last_name=last_name,
                     present_address=raw_addr.strip() or None,
                 )
                 db.add(new_ph)

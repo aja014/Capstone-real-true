@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.security import get_current_user
 from app import models, schemas
-from app.routers import import_fire_property, import_motor
+from app.routers import import_fire_property, import_motor, import_vehicle, import_shared
 
 router = APIRouter(
     prefix="/import/policyholders",
@@ -82,8 +82,21 @@ def row_to_policyholder_fields(row: pd.Series) -> dict:
     return fields
 
 
+def normalize_name(value: str) -> str:
+    """
+    Strips periods and collapses whitespace before lowercasing. Both sides of
+    this importer's own comparisons are already built from separate
+    first/middle/last columns, so this isn't fixing an active bug here — it's
+    the same hardening applied to import_fire_property.py/import_motor.py,
+    where a combined "First M. Last" string on one side of the comparison did
+    cause an active bug (a stray middle-initial period kept an exact-name
+    match from clearing MATCH_THRESHOLD).
+    """
+    return re.sub(r"\s+", " ", (value or "").replace(".", "")).strip().lower()
+
+
 def full_name(last: str, first: str, middle: str = "") -> str:
-    return f"{first or ''} {middle or ''} {last or ''}".strip().lower()
+    return normalize_name(f"{first or ''} {middle or ''} {last or ''}")
 
 
 def normalize_phone(value: str) -> str:
@@ -231,6 +244,7 @@ def upload_policyholders(file: UploadFile = File(...), db: Session = Depends(get
                 # real ID within the CURRENT transaction, without finalizing
                 # it — so if anything later in this row fails, rolling back
                 # undoes this too, instead of leaving an orphaned record.
+                import_shared.require_name(fields.get("first_name"), fields.get("last_name"), "Last Name/First Name")
                 new_ph = models.Policyholder(**fields)
                 db.add(new_ph)
                 db.flush()
@@ -330,6 +344,7 @@ _NEW_POLICYHOLDER_FIELDS = {
     models.ImportType.fire_property_quotation: import_fire_property.new_policyholder_fields_for_fire_quotation,
     models.ImportType.fire_property_policy: import_fire_property.new_policyholder_fields_for_fire_policy,
     models.ImportType.motor_policy: import_motor.new_policyholder_fields_for_motor_policy,
+    models.ImportType.vehicle: import_vehicle.new_policyholder_fields,
 }
 _RESOLVE_FOR_POLICYHOLDER = {
     models.ImportType.fire_property: import_fire_property.resolve_for_policyholder,
@@ -337,6 +352,7 @@ _RESOLVE_FOR_POLICYHOLDER = {
     models.ImportType.fire_property_quotation: import_fire_property.resolve_fire_quotation_for_policyholder,
     models.ImportType.fire_property_policy: import_fire_property.resolve_fire_policy_for_policyholder,
     models.ImportType.motor_policy: import_motor.resolve_motor_policy_for_policyholder,
+    models.ImportType.vehicle: import_vehicle.resolve_for_policyholder,
 }
 # The two Policy types only: once a policyholder is already resolved, staff can
 # explicitly pick which quotation a stuck row belongs to (see the quotation-candidates
@@ -421,6 +437,11 @@ def resolve_import_record(
                         fields[mapped] = cleaned
         else:
             fields = _NEW_POLICYHOLDER_FIELDS[record.import_type](record)
+
+        try:
+            import_shared.require_name(fields.get("first_name"), fields.get("last_name"), "Policyholder")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
         new_ph = models.Policyholder(**fields)
         db.add(new_ph)

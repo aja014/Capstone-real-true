@@ -489,7 +489,7 @@ const IMPORT_TARGET_BY_TYPE = {
   "Survey Report": "fire-property",
   "Quotation": "motor",
   "Claims": "policyholders",
-  "Vehicle Information": "motor",
+  "Vehicle Information": "vehicle",
 };
 
 export default function PolicyHolderInformation() {
@@ -1020,7 +1020,7 @@ export default function PolicyHolderInformation() {
   // Policy's importer default depends on which line sub-filter is active,
   // rather than a single static entry in IMPORT_TARGET_BY_TYPE.
   const uploadTarget = type === "Policy"
-    ? (isMotorLine ? "motor" : "fire-property")
+    ? (isMotorLine ? "motor_policy" : "fire_property_policy")
     : (IMPORT_TARGET_BY_TYPE[type] || "policyholders");
 
   return (
@@ -1167,7 +1167,7 @@ export default function PolicyHolderInformation() {
         records={needsReviewRecords}
         loading={needsReviewLoading}
         policyholders={clientRecords}
-        onResolved={refreshClientData}
+        onResolved={refreshAllData}
       />
       <JsonModal
         title={jsonModal?.title}

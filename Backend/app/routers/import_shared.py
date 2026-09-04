@@ -15,6 +15,19 @@ CONFIDENT_THRESHOLD = 75
 AMBIGUITY_MARGIN = 15
 
 
+def require_name(first_name, last_name, context: str) -> None:
+    """
+    A policyholder needs at least SOME name -- either part of a person's name, or a
+    business name in last_name (see PolicyholderCreate.first_name's Optional comment
+    in schemas.py). Without this check, a mis-mapped header (e.g. blank insured_name)
+    could silently create an unusable Policyholder with both fields None -- exactly
+    what happened before this existed: 4 real rows crashed GET /policyholders because
+    the read schema assumed last_name was never blank.
+    """
+    if not (first_name or "").strip() and not (last_name or "").strip():
+        raise ValueError(f"{context}: cannot create a policyholder with a completely blank name")
+
+
 def split_insured_name_address(value):
     """
     Policy source rows carry name+address combined in one field (insured_name_address

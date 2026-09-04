@@ -7,7 +7,11 @@ const API_BASE_URL = "http://127.0.0.1:8000";
 const IMPORT_TARGETS = [
   { value: "policyholders", label: "Policyholders", endpoint: "/import/policyholders/upload" },
   { value: "fire-property", label: "Fire & Property Surveys", endpoint: "/import/fire-property/surveys/upload" },
+  { value: "fire_property_quotation", label: "Fire & Property Quotations", endpoint: "/import/fire-property/quotations/upload" },
+  { value: "fire_property_policy", label: "Fire & Property Policies", endpoint: "/import/fire-property/policies/upload" },
   { value: "motor", label: "Motor Quotations", endpoint: "/import/motor/quotations/upload" },
+  { value: "motor_policy", label: "Motor Policies", endpoint: "/import/motor/policies/upload" },
+  { value: "vehicle", label: "Vehicle Information", endpoint: "/import/vehicles/upload" },
 ];
 
 // Mirrors Backend/app/routers/import_batch.py's IMPORT_TYPE_REGISTRY.
@@ -18,26 +22,55 @@ const BATCH_IMPORT_TYPES = [
   { value: "fire_property_policy", label: "Fire & Property Policy" },
   { value: "motor", label: "Motor Quotation" },
   { value: "motor_policy", label: "Motor Policy" },
+  { value: "vehicle", label: "Vehicle Information" },
 ];
+
+// IMPORT_TARGETS predates the backend's ImportType enum and kept its own
+// value spellings for 2 entries ("policyholders", "fire-property") -- this
+// bridges a detected/confirmed type (always one of BATCH_IMPORT_TYPES' enum
+// values, since single-file detection reuses the same /import/batch/detect
+// endpoint Folder mode calls) to the matching IMPORT_TARGETS entry.
+const DETECTED_TYPE_TO_IMPORT_TARGET = {
+  policyholder: "policyholders",
+  fire_property: "fire-property",
+  fire_property_quotation: "fire_property_quotation",
+  fire_property_policy: "fire_property_policy",
+  motor: "motor",
+  motor_policy: "motor_policy",
+  vehicle: "vehicle",
+};
+const IMPORT_TARGET_TO_DETECTED_TYPE = {
+  policyholders: "policyholder",
+  "fire-property": "fire_property",
+  fire_property_quotation: "fire_property_quotation",
+  fire_property_policy: "fire_property_policy",
+  motor: "motor",
+  motor_policy: "motor_policy",
+  vehicle: "vehicle",
+};
 
 function authHeaders() {
   const token = localStorage.getItem("token");
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-// `key`-remounted by the parent whenever its default target changes, so
-// `target` only needs a plain initial value — no effect required to keep it
-// in sync with `defaultTarget` across re-opens.
+// defaultTarget now only pre-fills the manual picker's dropdown when
+// single-file detection is ambiguous or the user rejects its guess (the tab
+// the modal was opened from is still a reasonable starting guess) -- it no
+// longer drives an upfront type selector, since single-file mode detects
+// the type from the file itself instead of asking first.
 export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultTarget = "policyholders" }) {
   const [mode, setMode] = useState("single"); // "single" | "folder"
 
   // ---- single-file mode state ----
   const [uploadedFile, setUploadedFile] = useState(null);
   const [dragging, setDragging] = useState(false);
-  const [status, setStatus] = useState("idle"); // idle | uploading | done | error
+  // idle | detecting | confirm | picking | uploading | done | error
+  const [status, setStatus] = useState("idle");
   const [summary, setSummary] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
-  const [target, setTarget] = useState(defaultTarget);
+  const [detection, setDetection] = useState(null); // the single DetectedFile result, or null
+  const [chosenType, setChosenType] = useState(""); // a BATCH_IMPORT_TYPES value
 
   // ---- folder mode state ----
   const dirInputRef = useRef(null);
@@ -55,20 +88,68 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
 
   if (!isOpen) return null;
 
-  const activeTarget = IMPORT_TARGETS.find((t) => t.value === target) || IMPORT_TARGETS[0];
-
   // ---- single-file handlers ----
-  const uploadFile = async (file) => {
+  // Runs the file's headers through the SAME detection endpoint Folder mode
+  // calls (import_batch.detect_headers via /import/batch/detect) -- just with
+  // one file in the list instead of many. Confident -> confirm step;
+  // ambiguous/no guess/unreadable -> fall back to manual picking, exactly
+  // like Folder mode's own per-file review row does.
+  const detectSingleFile = async (file) => {
     setUploadedFile(file);
+    setStatus("detecting");
+    setErrorMsg(null);
+    setSummary(null);
+    setDetection(null);
+
+    const formData = new FormData();
+    formData.append("files", file);
+
+    try {
+      const response = await axios.post(`${API_BASE_URL}/import/batch/detect`, formData, { headers: authHeaders() });
+      const result = response.data.files?.[0];
+      if (!result) {
+        setErrorMsg("Could not read this file. Check it's a valid Excel/CSV file.");
+        setStatus("error");
+        return;
+      }
+
+      setDetection(result);
+      if (result.error) {
+        setErrorMsg(result.error);
+        setStatus("error");
+      } else if (!result.ambiguous && result.best_guess) {
+        setChosenType(result.best_guess);
+        setStatus("confirm");
+      } else {
+        setChosenType(IMPORT_TARGET_TO_DETECTED_TYPE[defaultTarget] || "");
+        setStatus("picking");
+      }
+    } catch (err) {
+      setErrorMsg(err.response?.data?.detail || "Could not read this file. Check it's a valid Excel/CSV file.");
+      setStatus("error");
+    }
+  };
+
+  // Runs the actual import once a type is confirmed (via the auto-detected
+  // confirm step, or the manual picker) -- same upload behavior as before.
+  const proceedUpload = async (type) => {
+    const targetValue = DETECTED_TYPE_TO_IMPORT_TARGET[type] || type;
+    const resolvedTarget = IMPORT_TARGETS.find((t) => t.value === targetValue);
+    if (!resolvedTarget) {
+      setErrorMsg("Unknown import type.");
+      setStatus("error");
+      return;
+    }
+
     setStatus("uploading");
     setErrorMsg(null);
     setSummary(null);
 
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", uploadedFile);
 
     try {
-      const response = await axios.post(`${API_BASE_URL}${activeTarget.endpoint}`, formData, { headers: authHeaders() });
+      const response = await axios.post(`${API_BASE_URL}${resolvedTarget.endpoint}`, formData, { headers: authHeaders() });
       setSummary(response.data);
       setStatus("done");
       onUploadSuccess?.();
@@ -80,14 +161,14 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
 
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
-    if (file) uploadFile(file);
+    if (file) detectSingleFile(file);
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
     setDragging(false);
     const file = e.dataTransfer.files?.[0];
-    if (file) uploadFile(file);
+    if (file) detectSingleFile(file);
   };
 
   const reset = (e) => {
@@ -96,6 +177,8 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
     setStatus("idle");
     setSummary(null);
     setErrorMsg(null);
+    setDetection(null);
+    setChosenType("");
   };
 
   // ---- folder handlers ----
@@ -211,7 +294,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
               className="hidden"
               accept=".xlsx,.xls,.csv"
               onChange={handleFileChange}
-              disabled={status === "uploading"}
+              disabled={status === "uploading" || status === "detecting"}
             />
 
             {status === "idle" && (
@@ -226,17 +309,90 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
                   {dragging ? "Drop to upload" : "Drag files here to upload"}
                 </p>
                 <p className="mt-1 text-xs text-gray-500">or click anywhere to browse</p>
+              </>
+            )}
 
+            {status === "detecting" && (
+              <>
+                <Loader2 size={40} className="animate-spin text-black" />
+                <h2 className="mt-3 text-2xl font-bold text-black">Detecting file type...</h2>
+                <p className="mt-2 text-md text-gray-700 font-medium max-w-[500px] truncate">
+                  {uploadedFile?.name}
+                </p>
+              </>
+            )}
+
+            {status === "confirm" && (
+              <>
+                <CheckCircle size={40} className="text-[#FBBF24]" />
+                <h2 className="mt-3 text-xl font-bold text-black">
+                  Detected as: {BATCH_IMPORT_TYPES.find((t) => t.value === chosenType)?.label || chosenType}
+                </h2>
+                <p className="mt-2 text-md text-gray-700 font-medium max-w-[500px] truncate">
+                  {uploadedFile?.name}
+                </p>
+                <div className="mt-4 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); proceedUpload(chosenType); }}
+                    className="bg-[#FBBF24] hover:bg-[#f0b30f] rounded-lg px-4 py-2 text-xs font-bold transition"
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); setChosenType(""); setStatus("picking"); }}
+                    className="text-xs text-gray-500 underline hover:text-gray-700 transition"
+                  >
+                    Not right? Choose type manually
+                  </button>
+                </div>
+              </>
+            )}
+
+            {status === "picking" && (
+              <>
+                <h2 className="mt-3 text-xl font-bold text-black">Select the file type</h2>
+                <p className="mt-2 text-xs text-gray-500 max-w-[480px]">
+                  {detection?.ambiguous && detection.candidates?.some((c) => c.score > 0)
+                    ? `Couldn't confidently tell which type this is — could be ${detection.candidates
+                        .filter((c) => c.score > 0)
+                        .slice(0, 2)
+                        .map((c) => c.label)
+                        .join(" or ")}.`
+                    : "Pick the correct type for this file."}
+                </p>
+                <p className="mt-1 text-md text-gray-700 font-medium max-w-[500px] truncate">
+                  {uploadedFile?.name}
+                </p>
                 <select
-                  value={target}
-                  onChange={(e) => setTarget(e.target.value)}
+                  value={chosenType}
+                  onChange={(e) => setChosenType(e.target.value)}
                   onClick={(e) => e.stopPropagation()}
-                  className="mt-4 text-xs bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-gray-700"
+                  className="mt-3 text-xs bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-gray-700"
                 >
-                  {IMPORT_TARGETS.map((t) => (
+                  <option value="">Select type...</option>
+                  {BATCH_IMPORT_TYPES.map((t) => (
                     <option key={t.value} value={t.value}>{t.label}</option>
                   ))}
                 </select>
+                <div className="mt-4 flex items-center gap-3">
+                  <button
+                    type="button"
+                    disabled={!chosenType}
+                    onClick={(e) => { e.preventDefault(); proceedUpload(chosenType); }}
+                    className="bg-[#FBBF24] hover:bg-[#f0b30f] disabled:opacity-40 rounded-lg px-4 py-2 text-xs font-bold transition"
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    type="button"
+                    onClick={reset}
+                    className="text-xs text-gray-500 underline hover:text-gray-700 transition"
+                  >
+                    Start over
+                  </button>
+                </div>
               </>
             )}
 

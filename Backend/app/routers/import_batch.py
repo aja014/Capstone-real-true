@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.security import get_current_user
 from app import models, schemas
-from app.routers import import_policyholders, import_fire_property, import_motor
+from app.routers import import_policyholders, import_fire_property, import_motor, import_vehicle
 
 router = APIRouter(
     prefix="/import/batch",
@@ -68,6 +68,12 @@ IMPORT_TYPE_REGISTRY = [
         "label": "Motor Policy",
         "column_map": import_motor.MOTOR_POLICY_COLUMN_MAP,
         "upload_fn": import_motor.upload_motor_policies,
+    },
+    {
+        "key": models.ImportType.vehicle,
+        "label": "Vehicle Information",
+        "column_map": import_vehicle.COLUMN_MAP,
+        "upload_fn": import_vehicle.upload_vehicles,
     },
 ]
 
@@ -182,6 +188,7 @@ PROCESSING_PRIORITY = {
     models.ImportType.policyholder.value: 0,
     models.ImportType.fire_property.value: 1,
     models.ImportType.motor.value: 1,
+    models.ImportType.vehicle.value: 1,
     models.ImportType.fire_property_quotation.value: 2,
     models.ImportType.fire_property_policy.value: 3,
     models.ImportType.motor_policy.value: 3,
