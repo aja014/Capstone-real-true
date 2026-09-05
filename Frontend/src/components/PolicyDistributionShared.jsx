@@ -102,6 +102,7 @@ export async function fetchDistributionPolicies() {
     line: "Fire & Property",
     issuedRaw: p.issue_date,
     issued: formatDateSlash(p.issue_date),
+    expiryRaw: p.period_to,
     expiry: formatDateSlash(p.period_to),
     premium: formatCurrencyPH(p.total_amount_due),
     sum: formatCurrencyPH(p.sum_insured),
@@ -115,6 +116,7 @@ export async function fetchDistributionPolicies() {
     line: "Motor Car",
     issuedRaw: p.issue_date,
     issued: formatDateSlash(p.issue_date),
+    expiryRaw: p.period_to,
     expiry: formatDateSlash(p.period_to),
     premium: formatCurrencyPH(p.total_amount_due),
     sum: "—", // no sum-insured-equivalent field on MotorPolicy
@@ -160,12 +162,17 @@ export function StatCard({ sub, value, label }) {
 }
 
 // ── PolicyTable ───────────────────────────────────────────────────────────────
-export function PolicyTable({ search, setSearch, extraFilters, data }) {
+export function PolicyTable({
+  search, setSearch, extraFilters, data,
+  statusOptions = ["Status: All", "New", "Renewed"],
+  premiumLabel = "Total Amount Due",
+}) {
   const [page, setPage] = useState(1);
   const [lineFilter, setLine] = useState("Policy Line: All");
   const [statusFilter, setStatus] = useState("Status: All");
+  const [expirySort, setExpirySort] = useState(null); // null | "asc" | "desc"
 
-  const filtered = (data ?? []).filter((r) => {
+  let filtered = (data ?? []).filter((r) => {
     const matchLine = lineFilter === "Policy Line: All" || r.line === lineFilter;
     const matchStatus = statusFilter === "Status: All" || r.status === statusFilter;
     const matchSearch =
@@ -173,6 +180,23 @@ export function PolicyTable({ search, setSearch, extraFilters, data }) {
       r.client.toLowerCase().includes(search.toLowerCase());
     return matchLine && matchStatus && matchSearch;
   });
+
+  if (expirySort) {
+    // Sort on the raw ISO expiry date, not the display string (a MM/DD/YYYY
+    // string sorts lexicographically wrong). Rows with no expiry on file
+    // always sink to the bottom regardless of direction.
+    const withExpiry = filtered.filter((r) => r.expiryRaw);
+    const withoutExpiry = filtered.filter((r) => !r.expiryRaw);
+    withExpiry.sort((a, b) =>
+      expirySort === "asc" ? a.expiryRaw.localeCompare(b.expiryRaw) : b.expiryRaw.localeCompare(a.expiryRaw)
+    );
+    filtered = [...withExpiry, ...withoutExpiry];
+  }
+
+  const toggleExpirySort = () => {
+    setExpirySort((d) => (d === null ? "asc" : d === "asc" ? "desc" : null));
+    setPage(1);
+  };
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -186,7 +210,7 @@ export function PolicyTable({ search, setSearch, extraFilters, data }) {
     <div className="bg-white min-h-[500px] rounded-2xl p-5 shadow-sm flex flex-col flex-1">
       <div className="flex flex-wrap gap-2 mb-4 items-center">
         <Dropdown label="Policy Line: All" options={["Policy Line: All", "Motor Car", "Fire & Property"]} value={lineFilter} onChange={handleLineChange} />
-        <Dropdown label="Status: All" options={["Status: All", "New", "Renewed"]} value={statusFilter} onChange={handleStatusChange} />
+        <Dropdown label="Status: All" options={statusOptions} value={statusFilter} onChange={handleStatusChange} />
         <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2">
           <Search className="w-3.5 h-3.5 text-gray-400" />
           <input className="text-xs outline-none text-gray-600 w-36" placeholder="Search Policy Number" value={search} onChange={handleSearch} />
@@ -198,9 +222,16 @@ export function PolicyTable({ search, setSearch, extraFilters, data }) {
         <table className="w-full text-xs text-center">
           <thead>
             <tr className="border-b border-gray-200">
-              {["Policy Number", "Client Name", "Policy Line", "Issued Date", "Expiry Date", "Total Amount Due", "Sum Insured", "Status"].map((h) => (
-                <th key={h} className="py-3 px-3 text-gray-700 font-bold whitespace-nowrap">{h}</th>
-              ))}
+              {["Policy Number", "Client Name", "Policy Line", "Issued Date", "Expiry Date", premiumLabel, "Sum Insured", "Status"].map((h) =>
+                h === "Expiry Date" ? (
+                  <th key={h} onClick={toggleExpirySort} title="Sort by expiry date"
+                    className="py-3 px-3 text-gray-700 font-bold whitespace-nowrap cursor-pointer select-none hover:text-black transition">
+                    Expiry Date {expirySort === "asc" ? "▲" : expirySort === "desc" ? "▼" : ""}
+                  </th>
+                ) : (
+                  <th key={h} className="py-3 px-3 text-gray-700 font-bold whitespace-nowrap">{h}</th>
+                )
+              )}
             </tr>
           </thead>
           <tbody>
@@ -245,6 +276,12 @@ export function MiniPie({ title, data, colors, sub }) {
           <PieChart>
             <Pie data={data} dataKey="value" cx="50%" cy="50%" outerRadius={46} labelLine={false}
               label={({ cx, cy, midAngle, innerRadius, outerRadius, value }) => {
+                // A 0-value slice has no arc to anchor a label to — Recharts
+                // still calls this with a midAngle sitting on the boundary
+                // between its neighbors, so the "0" renders overlapping
+                // whichever slice edge is there. Suppress it; the category
+                // still shows in the legend below, just without a number.
+                if (!value) return null;
                 const RADIAN = Math.PI / 180;
                 const r = innerRadius + (outerRadius - innerRadius) * 0.5;
                 return <text x={cx + r * Math.cos(-midAngle * RADIAN)} y={cy + r * Math.sin(-midAngle * RADIAN)}

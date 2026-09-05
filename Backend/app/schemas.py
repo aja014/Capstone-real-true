@@ -531,3 +531,57 @@ class PolicyDistributionStats(BaseModel):
     bar_chart: list[PolicyDistributionBarEntry] = []
     fire_pie: list[PolicyDistributionPieSlice] = []
     motor_pie: list[PolicyDistributionPieSlice] = []
+
+
+# ------------------------------------------------------------
+# RENEWAL RATIO STATS (Objective 1.4 groundwork — live calculation,
+# no Renewal table yet; see models.py "NOT YET INCLUDED" note)
+# ------------------------------------------------------------
+
+class RenewalRatioBarEntry(BaseModel):
+    label: str  # day-of-month ("1".."31") for MTD, month name ("January", ...) for YTD
+    renewed_count: int
+    lost_count: int
+    pending_count: int
+
+
+class RenewalRatioPieSlice(BaseModel):
+    name: str  # "Renewed Policy" | "Lost Policy" | "Pending"
+    value: int
+
+
+class RenewalPolicyRow(BaseModel):
+    id: int
+    policy_no: Optional[str] = None
+    client_name: str
+    line: str  # "Fire & Property" | "Motor Car"
+    issue_date: Optional[date] = None
+    expiry_date: Optional[date] = None
+    total_amount_due: Optional[Decimal] = None
+    sum_insured: Optional[Decimal] = None
+    status: Literal["Renewed", "Lost", "Pending"]
+
+
+class RenewalRatioStats(BaseModel):
+    period: Literal["daily", "mtd", "ytd"]
+    date: date            # reference "today" for both bucketing and Lost/Pending math
+    range_start: date
+    range_end: date
+
+    # Aggregates cover Renewed+Lost+Pending policies whose expiry
+    # (period_to) falls in [range_start, range_end] — that's every policy
+    # in range, since "New" no longer exists as a status.
+    expiring_count: int
+    renewed_count: int
+    lost_count: int
+    pending_count: int
+    renewal_rate: float  # renewed_count / expiring_count * 100, 0 if expiring_count is 0
+
+    # Empty for "daily" (no chart in that view), same convention as
+    # /stats/policy-distribution.
+    bar_chart: list[RenewalRatioBarEntry] = []
+    fire_pie: list[RenewalRatioPieSlice] = []
+    motor_pie: list[RenewalRatioPieSlice] = []
+
+    # Individual policies whose expiry falls in [range_start, range_end].
+    policies: list[RenewalPolicyRow] = []

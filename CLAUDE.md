@@ -568,7 +568,50 @@ to create `test4` again now returns 400, no server error.
 - `pages/overview.jsx`, `pages/proposal.jsx`, `pages/distribution.jsx` —
   all mock dashboard/chart data, would need new backend aggregation
   endpoints (none exist yet) before connecting.
-- `pages/renewal.jsx` — blocked, no renewal data/backend yet.
+- `pages/renewal.jsx` — DONE. Renewal Ratio Monitoring (Objective 1.4
+  groundwork) is a live, fully wired, fully tested feature — not blocked,
+  no separate Renewal table or import needed. Computed entirely from
+  existing `FirePropertyPolicy`/`MotorPolicy` data already on file
+  (`renewing_policy_no` + `period_to`), same anchor fields called out in
+  the Database Schema section above.
+  - **Backend**: `GET /stats/renewal-ratio` in `routers/stats.py`, params
+    `period` (`daily`/`mtd`/`ytd`) + `date`. `_expiry_range_for_period()`
+    scopes which policies are in view (period_to within today/current
+    month/current year — always the FULL month/year for mtd/ytd, no
+    cutoff at today, unlike `_range_for_period()`'s Policy Distribution
+    behavior). `_renewal_status()` classifies each in-range policy into
+    exactly 3 states (the old "New" category and its 90-day pending
+    window are gone):
+    - Renewed: some other same-line policy's `renewing_policy_no` matches
+      this one's `policy_no`.
+    - Lost: not renewed, and today is already past `period_to`.
+    - Pending: not renewed, and `period_to` hasn't passed yet — no day-
+      count check anymore, however far out the expiry is.
+    A policy whose `period_to` falls outside the selected period's range
+    is simply omitted from that view entirely (not counted, not shown) —
+    a past month/year can therefore only ever contain Lost/Renewed, which
+    falls out of the logic above rather than being special-cased.
+    "Expiring" = Renewed + Lost + Pending; Renewal Rate = Renewed ÷
+    Expiring × 100. Same-line-only renewal matching (fire only renews
+    fire, motor only renews motor) — verified via a deliberate cross-line
+    test (a motor policy's `renewing_policy_no` textually matching a fire
+    policy's `policy_no` does NOT mark the fire policy Renewed).
+  - **Frontend**: `pages/renewal.jsx` + `components/RenewalDailyView.jsx`
+    / `RenewalMTDView.jsx` / `RenewalYTDView.jsx` (bar chart + fire/motor
+    pies + policy table per period) sharing `RenewalRatioShared.jsx`
+    (`mapRenewalRow`, `RenewalRateCard`, `RENEWAL_STATUS_OPTIONS` — now
+    `["Status: All", "Renewed", "Lost", "Pending"]`, "New" removed since
+    the backend can no longer emit it).
+  - **Verified** with real fixture data (full policyholder → case →
+    quotation → policy chains inserted directly, not mocked): renewal
+    chain classification, cross-line isolation, a policy expiring next
+    year correctly absent from this year's YTD view entirely, a past
+    month's bar bucket containing zero Pending (checked globally across
+    all existing data, not just fixtures), a policy expiring later in the
+    current month/year showing Pending regardless of days remaining
+    (including a >90-days-out case that the old rule would have excluded
+    as "New"), and Expiring/Renewal Rate arithmetic against the real
+    computed numbers. Fixtures deleted after verification.
 - `components/FloodRiskModal.jsx` — blocked, GIS feature not built yet.
 
 ## Testing Conventions Established This Session
