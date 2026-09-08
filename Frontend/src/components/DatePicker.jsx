@@ -178,3 +178,68 @@ export function MonthYearPicker({ value, onChange }) {
     </div>
   );
 }
+
+// ── MTDMonthPicker ────────────────────────────────────────────────────────────
+// Same visual language as MonthYearPicker, but options are restricted to
+// January through the CURRENT month of the CURRENT year only -- MTD's table
+// filter should never offer a future month, since MTD itself only ever
+// represents the current calendar month. A separate component rather than a
+// "restrict" prop on MonthYearPicker: MonthYearPicker's multi-year scroll UI
+// doesn't apply here at all (MTD has no year axis to pick).
+export function MTDMonthPicker({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const now = new Date();
+  const year = now.getFullYear();
+  const currentMonth = now.getMonth(); // 0-indexed; e.g. 8 for September
+  const selectedMonth = value ? new Date(value).getMonth() : null;
+
+  const handleSelect = (monthIndex) => {
+    onChange(new Date(year, monthIndex, 1));
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative inline-block" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2 text-xs font-medium text-gray-700 hover:border-gray-400 transition whitespace-nowrap"
+      >
+        {formatMonth(value)}
+        <svg className="w-3 h-3 text-gray-400" viewBox="0 0 12 12" fill="currentColor">
+          <path d="M6 8L1 3h10z" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute top-full mt-2 right-0 z-30 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden w-36">
+          <div className="max-h-64 overflow-y-auto py-1">
+            {MONTHS.slice(0, currentMonth + 1).map((m, i) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => handleSelect(i)}
+                className={`block w-full text-left text-xs px-4 py-2 transition ${
+                  selectedMonth === i ? "bg-yellow-400 font-bold text-black" : "hover:bg-gray-100 text-gray-700"
+                }`}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

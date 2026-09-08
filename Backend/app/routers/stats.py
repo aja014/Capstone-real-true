@@ -19,6 +19,7 @@ MONTH_NAMES = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
 ]
+MONTH_ABBR = [n[:3] for n in MONTH_NAMES]
 
 
 def _is_renewed(renewing_policy_no) -> bool:
@@ -29,10 +30,17 @@ def _range_for_period(period: str, ref_date: date_type) -> tuple[date_type, date
     if period == "daily":
         return ref_date, ref_date
     if period == "mtd":
-        # 1st of the month through the given date — NOT the whole month,
-        # so days after `ref_date` (still in the future relative to it)
-        # never show data.
-        return ref_date.replace(day=1), ref_date
+        # 1st of the month through either today (the current month — never
+        # show days that haven't happened yet) or the full last day of the
+        # month (any other, i.e. past, month — nothing left to cut off).
+        today = date_type.today()
+        start = ref_date.replace(day=1)
+        if ref_date.year == today.year and ref_date.month == today.month:
+            end = today
+        else:
+            last_day = calendar.monthrange(ref_date.year, ref_date.month)[1]
+            end = ref_date.replace(day=last_day)
+        return start, end
     # ytd: Jan 1 through the exact given date — same "as of" cutoff
     # philosophy as MTD, so the two periods never disagree about what
     # "as of `ref_date`" means. The current month's bar is deliberately
@@ -188,8 +196,14 @@ def get_renewal_ratio(
     fire_policies = db.query(models.FirePropertyPolicy).all()
     motor_policies = db.query(models.MotorPolicy).all()
 
-    fire_statuses = _compute_statuses(fire_policies, date)
-    motor_statuses = _compute_statuses(motor_policies, date)
+    # Renewed/Lost/Pending is always judged against the REAL current date,
+    # never against `date` (which, for MTD, may now be a past month the
+    # user explicitly picked to browse) — a policy overdue since July must
+    # still read Lost today even while viewing July's window, not Pending
+    # "as of July 1".
+    today = date_type.today()
+    fire_statuses = _compute_statuses(fire_policies, today)
+    motor_statuses = _compute_statuses(motor_policies, today)
 
     def in_range(p):
         return p.period_to is not None and range_start <= p.period_to <= range_end
@@ -271,4 +285,127 @@ def get_renewal_ratio(
         "fire_pie": fire_pie,
         "motor_pie": motor_pie,
         "policies": policy_rows,
+    }
+
+
+# ------------------------------------------------------------
+# OVERVIEW DASHBOARD (fixed dashboard, no period selector — combines
+# this-month totals, a last-4-calendar-years bar, and a rolling 6-month
+# line in one response since the frontend needs all of it for one view)
+# ------------------------------------------------------------
+
+def _month_bounds(year: int, month: int) -> tuple[date_type, date_type]:
+    last_day = calendar.monthrange(year, month)[1]
+    return date_type(year, month, 1), date_type(year, month, last_day)
+
+
+def _shift_month(year: int, month: int, delta: int) -> tuple[int, int]:
+    total = year * 12 + (month - 1) + delta
+    return total // 12, total % 12 + 1
+
+
+@router.get("/overview", response_model=schemas.OverviewStats)
+def get_overview(db: Session = Depends(get_db)):
+    today = date_type.today()
+    month_start, month_end = _month_bounds(today.year, today.month)
+
+    fire_policies_month = db.query(models.FirePropertyPolicy).filter(
+        models.FirePropertyPolicy.issue_date >= month_start,
+        models.FirePropertyPolicy.issue_date <= month_end,
+    ).all()
+    motor_policies_month = db.query(models.MotorPolicy).filter(
+        models.MotorPolicy.issue_date >= month_start,
+        models.MotorPolicy.issue_date <= month_end,
+    ).all()
+
+    gross_premium_written = sum(
+        (p.total_amount_due or 0) for p in fire_policies_month + motor_policies_month
+    )
+    policies_made = len(fire_policies_month) + len(motor_policies_month)
+
+    fire_quotations_month = db.query(models.FirePropertyQuotation).filter(
+        models.FirePropertyQuotation.quotation_date >= month_start,
+        models.FirePropertyQuotation.quotation_date <= month_end,
+    ).all()
+    motor_quotations_month = db.query(models.MotorQuotation).filter(
+        models.MotorQuotation.quotation_date >= month_start,
+        models.MotorQuotation.quotation_date <= month_end,
+    ).all()
+
+    quotations_offered = len(fire_quotations_month) + len(motor_quotations_month)
+
+    # Quotation vs. Converted Accounts pie: rolling 3-month window ending at
+    # the current month (not calendar-year aligned), same rolling-window
+    # philosophy as monthly_line's 6-month window below — deliberately a
+    # DIFFERENT scope than `quotations_offered` above, which stays
+    # current-month-only per the stat card's own "this month" framing.
+    pie_start_year, pie_start_month = _shift_month(today.year, today.month, -2)
+    pie_range_start, _ = _month_bounds(pie_start_year, pie_start_month)
+
+    fire_quotations_3mo = db.query(models.FirePropertyQuotation).filter(
+        models.FirePropertyQuotation.quotation_date >= pie_range_start,
+        models.FirePropertyQuotation.quotation_date <= month_end,
+    ).all()
+    motor_quotations_3mo = db.query(models.MotorQuotation).filter(
+        models.MotorQuotation.quotation_date >= pie_range_start,
+        models.MotorQuotation.quotation_date <= month_end,
+    ).all()
+
+    pie_quotations_offered = len(fire_quotations_3mo) + len(motor_quotations_3mo)
+    pie_converted = sum(1 for q in fire_quotations_3mo if q.policy is not None) + sum(
+        1 for q in motor_quotations_3mo if q.policy is not None
+    )
+    quotation_pie = [
+        {"name": "Converted", "value": pie_converted},
+        {"name": "Quotation", "value": pie_quotations_offered - pie_converted},
+    ]
+    if pie_start_year == today.year:
+        quotation_pie_label = f"Past 3 Months ({MONTH_ABBR[pie_start_month - 1]}-{MONTH_ABBR[today.month - 1]} {today.year})"
+    else:
+        quotation_pie_label = (
+            f"Past 3 Months ({MONTH_ABBR[pie_start_month - 1]} {pie_start_year}"
+            f"-{MONTH_ABBR[today.month - 1]} {today.year})"
+        )
+
+    # Last 4 calendar years including the current one, oldest first.
+    years = [today.year - 3, today.year - 2, today.year - 1, today.year]
+    yearly_bar = []
+    for year in years:
+        fire_count = db.query(models.FirePropertyPolicy).filter(
+            models.FirePropertyPolicy.issue_date >= date_type(year, 1, 1),
+            models.FirePropertyPolicy.issue_date <= date_type(year, 12, 31),
+        ).count()
+        motor_count = db.query(models.MotorPolicy).filter(
+            models.MotorPolicy.issue_date >= date_type(year, 1, 1),
+            models.MotorPolicy.issue_date <= date_type(year, 12, 31),
+        ).count()
+        yearly_bar.append({"label": str(year), "fire_count": fire_count, "motor_count": motor_count})
+
+    # Rolling 6-month window ending at the current month, oldest first —
+    # NOT calendar-year aligned (e.g. April..September if today is in
+    # September), unlike the YTD-style bucketing used elsewhere in this file.
+    monthly_line = []
+    for delta in range(-5, 1):
+        y, m = _shift_month(today.year, today.month, delta)
+        m_start, m_end = _month_bounds(y, m)
+        fire_count = db.query(models.FirePropertyPolicy).filter(
+            models.FirePropertyPolicy.issue_date >= m_start,
+            models.FirePropertyPolicy.issue_date <= m_end,
+        ).count()
+        motor_count = db.query(models.MotorPolicy).filter(
+            models.MotorPolicy.issue_date >= m_start,
+            models.MotorPolicy.issue_date <= m_end,
+        ).count()
+        monthly_line.append({"label": MONTH_ABBR[m - 1], "fire_count": fire_count, "motor_count": motor_count})
+
+    return {
+        "date": today,
+        "month_label": f"{MONTH_NAMES[today.month - 1]} {today.year}",
+        "gross_premium_written": gross_premium_written,
+        "policies_made": policies_made,
+        "quotations_offered": quotations_offered,
+        "quotation_pie": quotation_pie,
+        "quotation_pie_label": quotation_pie_label,
+        "yearly_bar": yearly_bar,
+        "monthly_line": monthly_line,
     }

@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { StatCard, PolicyTable, MiniPie, formatHumanDate, todayISO } from "./PolicyDistributionShared";
-import { mapRenewalRow, RenewalRateCard, RENEWAL_STATUS_OPTIONS, RENEWAL_PIE_COLORS, ExpiryDateFilter, filterRowsByExpiryDate } from "./RenewalRatioShared";
+import { StatCard, PolicyTable, MiniPie, formatMonthYear, dateToISO, todayISO } from "./PolicyDistributionShared";
+import { mapRenewalRow, RenewalRateCard, RENEWAL_STATUS_OPTIONS, RENEWAL_PIE_COLORS, MonthExpiryFilterMTD } from "./RenewalRatioShared";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -12,19 +12,20 @@ function legendLabel(v) {
   return "Pending";
 }
 
-export default function RenewalMTDView() {
+export default function RenewalMTDView({ ytdRenewalRate }) {
   const [search, setSearch] = useState("");
-  const [expiryFilterDate, setExpiryFilterDate] = useState(null);
+  const [month, setMonth] = useState(null); // null => the real current month
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // "today" is fixed, never user-editable — MTD always shows the WHOLE
-  // current month (including future-dated expiries), and Lost/Pending
-  // status is always evaluated against the real current date. See
-  // RenewalRatioShared / stats.py's _expiry_range_for_period: deliberately
-  // NOT the Distribution FullCalendarPicker cutoff-at-picked-date pattern.
-  const date = todayISO();
+  // No month picked -> the real current month (today), unchanged default
+  // behavior. A picked month re-scopes the whole view -- stat cards, bar
+  // chart, pies, AND table -- via the `date` param below. Lost/Pending
+  // status itself is always judged against the real current date
+  // server-side (stats.py's get_renewal_ratio), regardless of which
+  // month's window is being browsed here.
+  const date = month ? dateToISO(month) : todayISO();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -43,14 +44,15 @@ export default function RenewalMTDView() {
 
   useEffect(() => { load(); }, [load]);
 
-  const sub = `As of ${formatHumanDate(date)}`;
+  const sub = `As of ${formatMonthYear(date)}`;
   const barData = (stats?.bar_chart ?? []).map((b) => ({
     day: b.label, renewed: b.renewed_count, lost: b.lost_count, pending: b.pending_count,
   }));
   const firePie = stats?.fire_pie ?? [];
   const motorPie = stats?.motor_pie ?? [];
-  const rows = filterRowsByExpiryDate((stats?.policies ?? []).map(mapRenewalRow), expiryFilterDate);
-  const rate = stats ? `${Number(stats.renewal_rate).toFixed(2)}%` : "…";
+  const rows = (stats?.policies ?? []).map(mapRenewalRow);
+  // Renewal Rate card always shows YTD, regardless of this view's own period.
+  const rate = ytdRenewalRate != null ? `${Number(ytdRenewalRate).toFixed(2)}%` : "…";
 
   return (
     <div className="flex flex-col gap-4">
@@ -95,9 +97,9 @@ export default function RenewalMTDView() {
           data={rows}
           statusOptions={RENEWAL_STATUS_OPTIONS}
           premiumLabel="Premium"
-          extraFilters={<ExpiryDateFilter value={expiryFilterDate} onChange={setExpiryFilterDate} />}
+          extraFilters={<MonthExpiryFilterMTD value={month} onChange={setMonth} />}
         />
-        <RenewalRateCard rate={loading ? "…" : rate} sub={sub} />
+        <RenewalRateCard rate={rate} />
       </div>
     </div>
   );

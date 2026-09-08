@@ -1,5 +1,9 @@
-import { formatDateSlash, formatCurrencyPH } from "./PolicyDistributionShared";
-import { FullCalendarPicker } from "./DatePicker";
+import { useState, useEffect } from "react";
+import axios from "axios";
+import { formatDateSlash, formatCurrencyPH, todayISO } from "./PolicyDistributionShared";
+import { FullCalendarPicker, MonthYearPicker, MTDMonthPicker } from "./DatePicker";
+
+const API_BASE_URL = "http://127.0.0.1:8000";
 
 // Same 3 slices on every pie/bar in this feature (Renewed/Lost/Pending) —
 // unlike Distribution's fire/motor pies, which use different color pairs
@@ -61,11 +65,90 @@ export function ExpiryDateFilter({ value, onChange }) {
   );
 }
 
-export function RenewalRateCard({ rate, sub }) {
+// ── Expiry MONTH filter (YTD only) ────────────────────────────────────────
+// Same pure client-side pattern as filterRowsByExpiryDate/ExpiryDateFilter
+// above, but narrows by calendar month instead of an exact day — YTD's
+// table has too many days in view for a single-day filter to be useful.
+// Daily/MTD keep the exact-day filter unchanged; this is YTD-only.
+export function filterRowsByExpiryMonth(rows, pickedMonth) {
+  if (!pickedMonth) return rows;
+  const d = new Date(pickedMonth);
+  const year = d.getFullYear();
+  const month = d.getMonth();
+  return rows.filter((r) => {
+    if (!r.expiryRaw) return false;
+    const [ry, rm] = r.expiryRaw.split("-").map(Number);
+    return ry === year && rm === month + 1;
+  });
+}
+
+export function MonthExpiryFilter({ value, onChange }) {
+  return (
+    <div className="flex items-center gap-2">
+      <MonthYearPicker value={value} onChange={onChange} />
+      {value && (
+        <button onClick={() => onChange(null)} className="text-[10px] text-gray-400 hover:text-gray-600 underline">
+          Clear
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Expiry MONTH filter (MTD only) ────────────────────────────────────────
+// Same pure client-side pattern as MonthExpiryFilter above (reuses the same
+// filterRowsByExpiryMonth), but the picker itself is restricted to
+// January..current month (MTDMonthPicker) instead of MonthYearPicker's free
+// multi-year scroll -- MTD's table should never offer a future month.
+export function MonthExpiryFilterMTD({ value, onChange }) {
+  return (
+    <div className="flex items-center gap-2">
+      <MTDMonthPicker value={value} onChange={onChange} />
+      {value && (
+        <button onClick={() => onChange(null)} className="text-[10px] text-gray-400 hover:text-gray-600 underline">
+          Clear
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Shared YTD renewal rate ──────────────────────────────────────────────
+// The Renewal Rate card always shows the YTD figure regardless of which
+// period tab (Daily/MTD/YTD) is active -- fetched ONCE here at the page
+// level (renewal.jsx) and handed down to all 3 views, rather than each
+// view fetching its own copy on every tab switch. Every other stat card/
+// chart/table on each view is untouched and still scoped to that view's
+// own period.
+export function useYtdRenewalRate() {
+  const [rate, setRate] = useState(null); // null = still loading
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const token = localStorage.getItem("token");
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        const res = await axios.get(`${API_BASE_URL}/stats/renewal-ratio`, {
+          headers,
+          params: { period: "ytd", date: todayISO() },
+        });
+        if (!cancelled) setRate(res.data.renewal_rate);
+      } catch {
+        if (!cancelled) setRate(null);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  return rate;
+}
+
+export function RenewalRateCard({ rate }) {
   return (
     <div className="w-64 h-fit flex-shrink-0 bg-white rounded-2xl p-5 shadow-sm flex flex-col justify-center">
-      <p className="text-black font-bold text-sm">Renewal Rate</p>
-      <p className="text-gray-400 text-[10px] mt-0.5">{sub}</p>
+      <p className="text-black font-bold text-sm">Current Renewal Rate</p>
       <p className="text-black font-black text-5xl mt-3">{rate}</p>
       <p className="text-gray-400 text-[10px] mt-2">Renewal Rate = Renewed ÷ Expiring × 100</p>
     </div>

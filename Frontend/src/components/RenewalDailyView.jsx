@@ -5,7 +5,7 @@ import { mapRenewalRow, RenewalRateCard, RENEWAL_STATUS_OPTIONS, ExpiryDateFilte
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
-export default function RenewalDailyView() {
+export default function RenewalDailyView({ ytdRenewalRate }) {
   const [search, setSearch] = useState("");
   const [expiryFilterDate, setExpiryFilterDate] = useState(null);
   const [stats, setStats] = useState(null);
@@ -33,7 +33,8 @@ export default function RenewalDailyView() {
 
   const sub = `As of ${formatHumanDate(date)}`;
   const rows = filterRowsByExpiryDate((stats?.policies ?? []).map(mapRenewalRow), expiryFilterDate);
-  const rate = stats ? `${Number(stats.renewal_rate).toFixed(2)}%` : "…";
+  // Renewal Rate card always shows YTD, regardless of this view's own period.
+  const rate = ytdRenewalRate != null ? `${Number(ytdRenewalRate).toFixed(2)}%` : "…";
 
   return (
     <div className="flex flex-col gap-4">
@@ -54,7 +55,7 @@ export default function RenewalDailyView() {
           premiumLabel="Premium"
           extraFilters={<ExpiryDateFilter value={expiryFilterDate} onChange={setExpiryFilterDate} />}
         />
-        <RenewalRateCard rate={loading ? "…" : rate} sub={sub} />
+        <RenewalRateCard rate={rate} />
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Upload, CheckCircle, XCircle, X, Loader2, FolderUp } from "lucide-react";
 import axios from "axios";
 
@@ -73,18 +73,13 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
   const [chosenType, setChosenType] = useState(""); // a BATCH_IMPORT_TYPES value
 
   // ---- folder mode state ----
-  const dirInputRef = useRef(null);
   const [folderFiles, setFolderFiles] = useState([]);
   const [folderStage, setFolderStage] = useState("idle"); // idle | detecting | review | importing | done
   const [detected, setDetected] = useState([]);
   const [chosenTypes, setChosenTypes] = useState({}); // filename -> type value
   const [batchResults, setBatchResults] = useState([]);
   const [folderError, setFolderError] = useState(null);
-
-  useEffect(() => {
-    // No first-class React prop for webkitdirectory -- set it imperatively.
-    if (dirInputRef.current) dirInputRef.current.webkitdirectory = true;
-  }, []);
+  const [folderDragging, setFolderDragging] = useState(false);
 
   if (!isOpen) return null;
 
@@ -182,6 +177,20 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
   };
 
   // ---- folder handlers ----
+  // A dropped folder only exposes its contents via
+  // dataTransfer.items[].webkitGetAsEntry() (dataTransfer.files alone loses
+  // the directory structure) -- not implemented, so a dropped folder is
+  // safely ignored rather than falling through to the browser's default
+  // navigate-to-file:// behavior. Click-to-browse (the native folder
+  // picker below) remains the supported way to use Folder mode.
+  const handleFolderDrop = (e) => {
+    e.preventDefault();
+    setFolderDragging(false);
+    if (folderStage === "idle") {
+      setFolderError("Drag-and-drop isn't supported for folders yet — click to browse instead.");
+    }
+  };
+
   const handleFolderChange = async (e) => {
     const files = Array.from(e.target.files || []).filter((f) => /\.(xlsx|xls|csv)$/i.test(f.name));
     e.target.value = ""; // allow picking the same folder again later
@@ -256,10 +265,17 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
       <div
         className={`relative bg-[#d9d9d9] rounded-xl transition-colors ${
           mode === "folder" ? "w-[680px] max-w-[95vw] h-[520px]" : "w-[600px] max-w-[95vw] h-[350px]"
-        } ${mode === "single" && dragging ? "bg-[#c8c8c8]" : ""}`}
-        onDragOver={mode === "single" ? (e) => { e.preventDefault(); setDragging(true); } : undefined}
-        onDragLeave={mode === "single" ? () => setDragging(false) : undefined}
-        onDrop={mode === "single" ? handleDrop : undefined}
+        } ${(mode === "single" && dragging) || (mode === "folder" && folderDragging) ? "bg-[#c8c8c8]" : ""}`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          if (mode === "single") setDragging(true);
+          else setFolderDragging(true);
+        }}
+        onDragLeave={() => {
+          if (mode === "single") setDragging(false);
+          else setFolderDragging(false);
+        }}
+        onDrop={mode === "single" ? handleDrop : handleFolderDrop}
       >
         {/* Close */}
         <button
@@ -450,7 +466,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
             {folderStage === "idle" && (
               <label className="flex flex-1 cursor-pointer flex-col items-center justify-center text-center">
                 <input
-                  ref={dirInputRef}
+                  ref={(el) => { if (el) el.webkitdirectory = true; }}
                   type="file"
                   multiple
                   className="hidden"

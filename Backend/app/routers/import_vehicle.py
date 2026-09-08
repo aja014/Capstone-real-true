@@ -68,8 +68,20 @@ def row_to_fields(row) -> dict:
     return fields
 
 
+def normalize_name(value: str) -> str:
+    """
+    Strips periods and collapses whitespace before lowercasing, so a combined
+    "First M. Last" string (as typed on the paper form) and a name rebuilt
+    from separate first/middle/last DB columns (no period on the middle
+    initial) compare as identical instead of relying on raw fuzzy-ratio alone
+    to clear MATCH_THRESHOLD -- same fix already applied in
+    import_fire_property.py/import_motor.py/import_policyholders.py.
+    """
+    return re.sub(r"\s+", " ", (value or "").replace(".", "")).strip().lower()
+
+
 def full_name(last: str, first: str = "", middle: str = "") -> str:
-    return f"{first or ''} {middle or ''} {last or ''}".strip().lower()
+    return normalize_name(f"{first or ''} {middle or ''} {last or ''}")
 
 
 def _create_vehicle_for_policyholder(db: Session, policyholder_id: int, fields: dict) -> int:

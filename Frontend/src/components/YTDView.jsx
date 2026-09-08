@@ -3,7 +3,7 @@ import axios from "axios";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import {
   StatCard, PolicyTable, MiniPie, fetchDistributionPolicies,
-  getPeriodRange, filterRowsByRange, formatCurrencyPH, formatHumanDate, todayISO,
+  getPeriodRange, filterRowsByRange, filterRowsByIssuedMonth, formatCurrencyPH, formatYearOnly, todayISO,
 } from "./PolicyDistributionShared";
 import { MonthYearPicker } from "./DatePicker";
 
@@ -11,37 +11,18 @@ const API_BASE_URL = "http://127.0.0.1:8000";
 const FIRE_COLORS = ["#a5b4fc", "#f87171"];
 const MOTOR_COLORS = ["#f87171", "#a5b4fc"];
 
-function toISO(date) {
-  if (!date) return null;
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-// A picked month that's already in the past resolves to its real last day
-// (the whole month happened, nothing to cap). A picked month that's the
-// CURRENT month must cap at today, not day 30/31 — otherwise this silently
-// reintroduces the future-dated-policy leak that ref-date capping was
-// built to prevent. A future month resolves to its last day same as a
-// past one — it has no partial/current state to worry about, it's just
-// entirely empty until it happens.
-function endOfMonthISO(date) {
-  const today = new Date();
-  const isCurrentMonth =
-    date.getFullYear() === today.getFullYear() && date.getMonth() === today.getMonth();
-  if (isCurrentMonth) return toISO(today);
-
-  const last = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-  return toISO(last);
-}
-
 export default function YTDView() {
   const [search, setSearch] = useState("");
-  const [month, setMonth] = useState(null); // null => defaults to today
+  const [month, setMonth] = useState(null); // null => table shows the full year
   const [stats, setStats] = useState(null);
-  const [rows, setRows] = useState([]);
+  const [allRows, setAllRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const refDate = month ? endOfMonthISO(month) : todayISO();
+  // Fixed to today regardless of the table's month filter — stats/pie/bar
+  // always represent the full year-to-date, same isolation guarantee as
+  // Renewal's YTD view. Only `rows` below reacts to the month filter.
+  const date = todayISO();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -49,23 +30,24 @@ export default function YTDView() {
     try {
       const token = localStorage.getItem("token");
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      const [statsRes, allRows] = await Promise.all([
-        axios.get(`${API_BASE_URL}/stats/policy-distribution`, { headers, params: { period: "ytd", date: refDate } }),
+      const [statsRes, rows] = await Promise.all([
+        axios.get(`${API_BASE_URL}/stats/policy-distribution`, { headers, params: { period: "ytd", date } }),
         fetchDistributionPolicies(),
       ]);
       setStats(statsRes.data);
-      const { start, end } = getPeriodRange("ytd", refDate);
-      setRows(filterRowsByRange(allRows, start, end));
+      const { start, end } = getPeriodRange("ytd", date);
+      setAllRows(filterRowsByRange(rows, start, end));
     } catch {
       setError("Failed to load Policy Distribution data.");
     } finally {
       setLoading(false);
     }
-  }, [refDate]);
+  }, [date]);
 
   useEffect(() => { load(); }, [load]);
 
-  const sub = `As of ${formatHumanDate(refDate)}`;
+  const sub = `As of ${formatYearOnly(date)}`;
+  const rows = month ? filterRowsByIssuedMonth(allRows, month) : allRows;
   const barData = (stats?.bar_chart ?? []).map((b) => ({ month: b.label, fire: b.fire_count, motor: b.motor_count }));
   const firePie = stats?.fire_pie ?? [];
   const motorPie = stats?.motor_pie ?? [];
@@ -116,7 +98,7 @@ export default function YTDView() {
                 onClick={() => setMonth(null)}
                 className="flex items-center cursor-pointer gap-1.5 bg-violet-50 border border-violet-200 text-violet-600 text-xs font-semibold px-3 py-1.5 rounded-xl hover:bg-violet-50 hover:border-violet-200 hover:text-violet-500 transition"
               >
-                Reset to Today
+                Clear
               </button>
             )}
             <MonthYearPicker value={month} onChange={setMonth} />

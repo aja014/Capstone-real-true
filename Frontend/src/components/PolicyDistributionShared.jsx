@@ -12,9 +12,12 @@ const MONTH_NAMES = [
 ];
 
 // ── Date/format helpers ─────────────────────────────────────────────────────
-export function todayISO() {
-  const d = new Date();
+export function dateToISO(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+export function todayISO() {
+  return dateToISO(new Date());
 }
 
 export function formatHumanDate(iso) {
@@ -22,6 +25,24 @@ export function formatHumanDate(iso) {
   const [y, m, d] = iso.split("-").map(Number);
   if (!y || !m || !d) return "";
   return `${MONTH_NAMES[m - 1]} ${d} ${y}`;
+}
+
+// Month-Year and Year-only variants of formatHumanDate, for MTD/YTD stat
+// card captions — a "day" is meaningless once the view represents a whole
+// month or year, so those periods must drop it rather than reuse the
+// Daily-granularity full date.
+export function formatMonthYear(iso) {
+  if (!iso) return "";
+  const [y, m] = iso.split("-").map(Number);
+  if (!y || !m) return "";
+  return `${MONTH_NAMES[m - 1]} ${y}`;
+}
+
+export function formatYearOnly(iso) {
+  if (!iso) return "";
+  const [y] = iso.split("-").map(Number);
+  if (!y) return "";
+  return `${y}`;
 }
 
 export function formatDateSlash(iso) {
@@ -57,12 +78,41 @@ export function deriveStatus(renewingPolicyNo) {
 export function getPeriodRange(period, refDateISO) {
   const [y, m] = refDateISO.split("-").map(Number);
   if (period === "daily") return { start: refDateISO, end: refDateISO };
-  if (period === "mtd") return { start: `${y}-${String(m).padStart(2, "0")}-01`, end: refDateISO };
+  if (period === "mtd") {
+    const start = `${y}-${String(m).padStart(2, "0")}-01`;
+    const todayIso = todayISO();
+    const [ty, tm] = todayIso.split("-").map(Number);
+    // Mirrors Backend/app/routers/stats.py's _range_for_period exactly:
+    // the current month is cut off at today (never show days that
+    // haven't happened yet); any other (i.e. past) picked month gets its
+    // full range, nothing left to cut off.
+    if (y === ty && m === tm) return { start, end: todayIso };
+    const lastDay = new Date(y, m, 0).getDate();
+    return { start, end: `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}` };
+  }
   return { start: `${y}-01-01`, end: refDateISO }; // ytd
 }
 
 export function filterRowsByRange(rows, start, end) {
   return rows.filter((r) => r.issuedRaw && r.issuedRaw >= start && r.issuedRaw <= end);
+}
+
+// Pure client-side table filter, same pattern as RenewalRatioShared's
+// filterRowsByExpiryMonth — narrows to rows issued within exactly the
+// picked calendar month. Deliberately NOT cumulative (Jan-through-month):
+// picking "August" must mean "just August", not "January through August"
+// (the previous endOfMonthISO-driven cutoff read confusingly and also
+// leaked into the stat cards/pie/bar via the backend `date` param).
+export function filterRowsByIssuedMonth(rows, pickedMonth) {
+  if (!pickedMonth) return rows;
+  const d = new Date(pickedMonth);
+  const year = d.getFullYear();
+  const month = d.getMonth();
+  return rows.filter((r) => {
+    if (!r.issuedRaw) return false;
+    const [ry, rm] = r.issuedRaw.split("-").map(Number);
+    return ry === year && rm === month + 1;
+  });
 }
 
 // ── Real policy data (Fire/Property + Motor/Car, combined) ─────────────────
@@ -265,32 +315,57 @@ export function PolicyTable({
 
 // ── MiniPie ───────────────────────────────────────────────────────────────────
 export function MiniPie({ title, data, colors, sub }) {
+  // All-zero total (e.g. zero quotations this month): Recharts can't
+  // compute slice angles from an all-zero pie and draws nothing, leaving a
+  // blank gap. Swap in a neutral placeholder circle sized to match the real
+  // chart, in the SAME flex slot, so the legend next to it never shifts
+  // from its normal position.
+  const total = data.reduce((sum, d) => sum + (d.value || 0), 0);
+
   return (
-    <div className="bg-white rounded-2xl p-4 shadow-sm">
+    <div className="bg-white rounded-2xl p-4 shadow-sm flex flex-col">
       <div className="flex items-center justify-between mb-2">
         <p className="font-bold text-black text-sm">{title}</p>
         <p className="text-gray-400 text-[10px]">{sub}</p>
       </div>
-      <div className="flex items-center gap-3">
-        <ResponsiveContainer width={110} height={100}>
-          <PieChart>
-            <Pie data={data} dataKey="value" cx="50%" cy="50%" outerRadius={46} labelLine={false}
-              label={({ cx, cy, midAngle, innerRadius, outerRadius, value }) => {
-                // A 0-value slice has no arc to anchor a label to — Recharts
-                // still calls this with a midAngle sitting on the boundary
-                // between its neighbors, so the "0" renders overlapping
-                // whichever slice edge is there. Suppress it; the category
-                // still shows in the legend below, just without a number.
-                if (!value) return null;
-                const RADIAN = Math.PI / 180;
-                const r = innerRadius + (outerRadius - innerRadius) * 0.5;
-                return <text x={cx + r * Math.cos(-midAngle * RADIAN)} y={cy + r * Math.sin(-midAngle * RADIAN)}
-                  fill="#fff" textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={700}>{value}</text>;
-              }}>
-              {data.map((_, i) => <Cell key={i} fill={colors[i]} />)}
-            </Pie>
-          </PieChart>
-        </ResponsiveContainer>
+      {/* flex-1 + items-center: on pages where this card sits next to a
+          taller sibling in a CSS grid row (e.g. Overview's bar chart), the
+          card's outer box stretches to match — without this, the chart/
+          legend row stays pinned to the top of that taller box instead of
+          centering in it. Harmless where nothing stretches the card (e.g.
+          Distribution/Renewal's stacked MiniPie column): flex-1 just
+          resolves to the row's natural height there. */}
+      <div className="flex items-center gap-3 flex-1">
+        {total === 0 ? (
+          <div style={{ width: 110, height: 100 }} className="flex items-center justify-center flex-shrink-0">
+            <svg width={92} height={92}>
+              <circle cx={46} cy={46} r={46} fill="#e5e7eb" />
+              <text x={46} y={46} textAnchor="middle" dominantBaseline="central" fontSize={9} fontWeight={700} fill="#9ca3af">
+                No data yet
+              </text>
+            </svg>
+          </div>
+        ) : (
+          <ResponsiveContainer width={110} height={100}>
+            <PieChart>
+              <Pie data={data} dataKey="value" cx="50%" cy="50%" outerRadius={46} labelLine={false}
+                label={({ cx, cy, midAngle, innerRadius, outerRadius, value }) => {
+                  // A 0-value slice has no arc to anchor a label to — Recharts
+                  // still calls this with a midAngle sitting on the boundary
+                  // between its neighbors, so the "0" renders overlapping
+                  // whichever slice edge is there. Suppress it; the category
+                  // still shows in the legend below, just without a number.
+                  if (!value) return null;
+                  const RADIAN = Math.PI / 180;
+                  const r = innerRadius + (outerRadius - innerRadius) * 0.5;
+                  return <text x={cx + r * Math.cos(-midAngle * RADIAN)} y={cy + r * Math.sin(-midAngle * RADIAN)}
+                    fill="#fff" textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={700}>{value}</text>;
+                }}>
+                {data.map((_, i) => <Cell key={i} fill={colors[i]} />)}
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+        )}
         <div className="flex flex-col gap-2">
           {data.map((d, i) => (
             <div key={d.name} className="flex items-center gap-1.5">

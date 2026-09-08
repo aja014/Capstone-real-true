@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import axios from "axios";
 import {
   BarChart,
   Bar,
@@ -15,58 +16,102 @@ import {
   Cell,
 } from "recharts";
 import Sidebar from "../components/sidebar";
+import { StatCard, formatCurrencyPH } from "../components/PolicyDistributionShared";
 
-// --- Data ---
-const barData = [
-  { year: "2022", policies: 72 },
-  { year: "2023", policies: 86 },
-  { year: "2025", policies: 82 },
-  { year: "2026", policies: 28 },
-];
-
-const lineData = [
-  { month: "Oct", motor: 25, fire: 17 },
-  { month: "Nov", motor: 20, fire: 17 },
-  { month: "Dec", motor: 17, fire: 14 },
-  { month: "Jan", motor: 19, fire: 8 },
-  { month: "Feb", motor: 22, fire: 14 },
-  { month: "Mar", motor: 12, fire: 4 },
-];
-
-const pieData = [
-  { name: "Converted Accounts", value: 44 },
-  { name: "Quotation", value: 56 },
-];
-
+const API_BASE_URL = "http://127.0.0.1:8000";
 const PIE_COLORS = ["#FBBF24", "#FEF3C7"];
 
-const statCards = [
-  {
-    label: "Gross Premium Written",
-    value: "₱ 43,523.01",
-    sub: "Today",
-    big: false,
-  },
-  { label: "Policies made", value: "16", sub: "As of March 2026", big: true },
-  { label: "Total Quotation Offered", value: "39", sub: "As of March 2026", big: true },
-  { label: "Filed Claims", value: "3", sub: "As of March 2026", big: true },
-];
+// ── QuotationConversionPie ──────────────────────────────────────────────────
+// Independent of PolicyDistributionShared's MiniPie — sized back to its
+// original (pre-MiniPie-refactor) dimensions: ResponsiveContainer
+// width="100%" height={180}, outerRadius={80}. Duplicates (rather than
+// imports) the two real fixes MiniPie carries: 0-value-slice label
+// suppression, and the all-zero "No data yet" empty state (scaled up to
+// match this pie's larger size).
+function QuotationConversionPie({ title, data, colors, sub }) {
+  const total = data.reduce((sum, d) => sum + (d.value || 0), 0);
 
-// Custom pie label
-const renderCustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, name }) => {
-  const RADIAN = Math.PI / 180;
-  const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-  const x = cx + radius * Math.cos(-midAngle * RADIAN);
-  const y = cy + radius * Math.sin(-midAngle * RADIAN);
   return (
-    <text x={x} y={y} fill={name === "Quotation" ? "#92400e" : "#1f2937"} textAnchor="middle" dominantBaseline="central" fontSize={13} fontWeight={700}>
-      {`${(percent * 100).toFixed(0)}%`}
-    </text>
+    <div className="bg-white rounded-2xl p-4 shadow-sm flex flex-col">
+      <div className="flex items-center justify-between mb-2">
+        <p className="font-bold text-black text-sm">{title}</p>
+        <p className="text-gray-400 text-[10px]">{sub}</p>
+      </div>
+      <div className="flex flex-col items-center justify-center flex-1 gap-2">
+        {total === 0 ? (
+          <div style={{ width: "100%", height: 180 }} className="flex items-center justify-center flex-shrink-0">
+            <svg width={160} height={160}>
+              <circle cx={80} cy={80} r={80} fill="#e5e7eb" />
+              <text x={80} y={80} textAnchor="middle" dominantBaseline="central" fontSize={13} fontWeight={700} fill="#9ca3af">
+                No data yet
+              </text>
+            </svg>
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={180}>
+            <PieChart>
+              <Pie data={data} dataKey="value" cx="50%" cy="50%" outerRadius={80} labelLine={false}
+                label={({ cx, cy, midAngle, innerRadius, outerRadius, value }) => {
+                  if (!value) return null;
+                  const RADIAN = Math.PI / 180;
+                  const r = innerRadius + (outerRadius - innerRadius) * 0.5;
+                  return <text x={cx + r * Math.cos(-midAngle * RADIAN)} y={cy + r * Math.sin(-midAngle * RADIAN)}
+                    fill="#fff" textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={700}>{value}</text>;
+                }}>
+                {data.map((_, i) => <Cell key={i} fill={colors[i]} />)}
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+        )}
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
+          {data.map((d, i) => (
+            <div key={d.name} className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: colors[i] }} />
+              <span className="text-[10px] text-gray-600">{d.name}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
-};
+}
 
 export default function Overview() {
   const [activeNav, setActiveNav] = useState("Overview");
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = localStorage.getItem("token");
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const res = await axios.get(`${API_BASE_URL}/stats/overview`, { headers });
+      setStats(res.data);
+    } catch {
+      setError("Failed to load Overview data.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const sub = loading ? "…" : `As of ${stats?.month_label ?? ""}`;
+  const quotationPieSub = loading ? "…" : (stats?.quotation_pie_label ?? "Past 3 Months");
+  const quotationPie = stats?.quotation_pie ?? [];
+  const yearlyBar = (stats?.yearly_bar ?? []).map((b) => ({
+    year: b.label,
+    fire: b.fire_count,
+    motor: b.motor_count,
+  }));
+  const monthlyLine = (stats?.monthly_line ?? []).map((m) => ({
+    month: m.label,
+    fire: m.fire_count,
+    motor: m.motor_count,
+  }));
 
   return (
     <div className="min-h-screen bg-yellow-400 p-4 sm:p-6 flex gap-4">
@@ -77,18 +122,30 @@ export default function Overview() {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col gap-4 min-w-0">
+        {error && <p className="text-red-500 text-xs">{error}</p>}
 
         {/* Stat Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {statCards.map((card) => (
-            <div key={card.label} className="bg-white rounded-2xl px-5 py-4 shadow-sm flex flex-col justify-between min-h-[110px]">
-              <p className="text-gray-400 text-xs font-medium">{card.sub}</p>
-              <p className={`font-black text-black leading-none my-2 ${card.big ? "text-4xl sm:text-5xl" : "text-2xl sm:text-4xl"}`}>
-                {card.value}
-              </p>
-              <p className="text-gray-500 text-xs">{card.label}</p>
-            </div>
-          ))}
+          <StatCard
+            sub={sub}
+            value={loading ? "…" : formatCurrencyPH(stats?.gross_premium_written, false)}
+            label="Gross Premium Written"
+          />
+          <StatCard
+            sub={sub}
+            value={loading ? "…" : String(stats?.policies_made ?? 0)}
+            label="Policies Made"
+          />
+          <StatCard
+            sub={loading ? "…" : `This Month (${stats?.month_label ?? ""})`}
+            value={loading ? "…" : String(stats?.quotations_offered ?? 0)}
+            label="Total Quotation Offered"
+          />
+          <StatCard
+            sub={sub}
+            value="—"
+            label="Filed Claims"
+          />
         </div>
 
         {/* Charts Row */}
@@ -98,60 +155,45 @@ export default function Overview() {
           <div className="lg:col-span-2 bg-white rounded-2xl p-5 shadow-sm">
             <h2 className="font-bold text-black text-sm mb-4">Policy Made (Past 4 Years)</h2>
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={barData} barCategoryGap="10%">
+              <BarChart data={yearlyBar} barCategoryGap="15%">
                 <CartesianGrid vertical={false} stroke="#f3f4f6" />
                 <XAxis dataKey="year" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} domain={[0, 88]} ticks={[0, 22, 44, 66, 88]} />
+                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <Tooltip
                   contentStyle={{ borderRadius: 10, border: "none", fontSize: 12 }}
                   cursor={{ fill: "#f9fafb" }}
                 />
-                <Bar dataKey="policies" fill="#6b9bd2" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="fire" name="Fire & Property" stackId="a" fill="#a5b4fc" />
+                <Bar dataKey="motor" name="Motor & Car" stackId="a" fill="#6b9bd2" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          </div>
-
-          {/* Pie Chart */}
-          <div className="bg-white rounded-2xl p-5 shadow-sm flex flex-col items-center">
-            <h2 className="font-bold text-black text-sm text-center mb-1">Quotation vs. Converted Accounts</h2>
-            <p className="text-gray-400 text-xs mb-3">(As of March 2026)</p>
-            <ResponsiveContainer width="100%" height={180}>
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={80}
-                  dataKey="value"
-                  labelLine={false}
-                  label={renderCustomLabel}
-                >
-                  {pieData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={PIE_COLORS[index]} />
-                  ))}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
-            {/* Legend */}
-            <div className="flex flex-col gap-1.5 mt-2 self-start pl-4">
-              {pieData.map((entry, i) => (
-                <div key={entry.name} className="flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-sm inline-block flex-shrink-0" style={{ backgroundColor: PIE_COLORS[i] }} />
-                  <span className="text-xs text-gray-600">{entry.name}</span>
+            <div className="flex items-center gap-4 mt-1 justify-center">
+              {[["#a5b4fc", "Fire & Property"], ["#6b9bd2", "Motor & Car"]].map(([c, l]) => (
+                <div key={l} className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-sm" style={{ background: c }} />
+                  <span className="text-[10px] text-gray-500">{l}</span>
                 </div>
               ))}
             </div>
           </div>
+
+          {/* Pie Chart */}
+          <QuotationConversionPie
+            title="Quotation vs. Converted Accounts"
+            data={quotationPie}
+            colors={PIE_COLORS}
+            sub={quotationPieSub}
+          />
         </div>
 
         {/* Line Chart */}
         <div className="bg-white rounded-2xl p-5 shadow-sm">
           <h2 className="font-bold text-black text-sm mb-4">Policy Line (Past 6 Months)</h2>
           <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={lineData}>
+            <LineChart data={monthlyLine}>
               <CartesianGrid stroke="#f3f4f6" />
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} domain={[0, 30]} ticks={[0, 10, 20, 30]} label={{ value: "count", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: "#9ca3af" } }} />
+              <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false} label={{ value: "count", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: "#9ca3af" } }} />
               <Tooltip contentStyle={{ borderRadius: 10, border: "none", fontSize: 12 }} />
               <Legend
                 wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
@@ -164,7 +206,6 @@ export default function Overview() {
                 strokeWidth={2}
                 dot={{ r: 4, fill: "#6366f1", strokeWidth: 0 }}
                 activeDot={{ r: 5 }}
-                label={{ position: "top", fontSize: 10, fill: "#6366f1" }}
               />
               <Line
                 type="monotone"
@@ -173,7 +214,6 @@ export default function Overview() {
                 strokeWidth={2}
                 dot={{ r: 4, fill: "#f87171", strokeWidth: 0 }}
                 activeDot={{ r: 5 }}
-                label={{ position: "top", fontSize: 10, fill: "#f87171" }}
               />
             </LineChart>
           </ResponsiveContainer>

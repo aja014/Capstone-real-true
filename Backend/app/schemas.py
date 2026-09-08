@@ -585,3 +585,51 @@ class RenewalRatioStats(BaseModel):
 
     # Individual policies whose expiry falls in [range_start, range_end].
     policies: list[RenewalPolicyRow] = []
+
+
+# ------------------------------------------------------------
+# OVERVIEW DASHBOARD (fixed one-view dashboard, no period selector —
+# see Backend/app/routers/stats.py get_overview for the 3 time windows
+# combined here: this-month totals, last-4-calendar-years bar, rolling
+# 6-month line)
+# ------------------------------------------------------------
+
+class OverviewPieSlice(BaseModel):
+    name: str  # "Converted" | "Quotation"
+    value: int
+
+
+class OverviewYearlyBarEntry(BaseModel):
+    label: str  # calendar year, e.g. "2023"
+    fire_count: int
+    motor_count: int
+
+
+class OverviewMonthlyLineEntry(BaseModel):
+    label: str  # month abbreviation, e.g. "Apr" — always distinct within a 6-month window, no year suffix needed
+    fire_count: int
+    motor_count: int
+
+
+class OverviewStats(BaseModel):
+    date: date  # reference "today"
+    month_label: str  # e.g. "September 2026", for stat card captions
+
+    gross_premium_written: Decimal
+    policies_made: int
+    quotations_offered: int
+
+    # Rolling 3-month window ending at the current month (not calendar-year
+    # aligned) — split by whether a policy has since been attached
+    # (FirePropertyQuotation.policy / MotorQuotation.policy, uselist=False).
+    # Deliberately a DIFFERENT scope than `quotations_offered` above, which
+    # stays current-month-only.
+    quotation_pie: list[OverviewPieSlice]
+    quotation_pie_label: str  # e.g. "Past 3 Months (Jul-Sep 2026)", for the pie's own sub-caption
+
+    # Last 4 calendar years including the current one, oldest first.
+    yearly_bar: list[OverviewYearlyBarEntry]
+
+    # Rolling 6-month window ending at the current month (not calendar-year
+    # aligned), oldest first.
+    monthly_line: list[OverviewMonthlyLineEntry]

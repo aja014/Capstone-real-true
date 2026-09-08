@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { StatCard, PolicyTable, MiniPie, formatHumanDate, todayISO } from "./PolicyDistributionShared";
-import { mapRenewalRow, RenewalRateCard, RENEWAL_STATUS_OPTIONS, RENEWAL_PIE_COLORS, ExpiryDateFilter, filterRowsByExpiryDate } from "./RenewalRatioShared";
+import { StatCard, PolicyTable, MiniPie, formatYearOnly, todayISO } from "./PolicyDistributionShared";
+import { mapRenewalRow, RenewalRateCard, RENEWAL_STATUS_OPTIONS, RENEWAL_PIE_COLORS, MonthExpiryFilter, filterRowsByExpiryMonth } from "./RenewalRatioShared";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -12,9 +12,9 @@ function legendLabel(v) {
   return "Pending";
 }
 
-export default function RenewalYTDView() {
+export default function RenewalYTDView({ ytdRenewalRate }) {
   const [search, setSearch] = useState("");
-  const [expiryFilterDate, setExpiryFilterDate] = useState(null);
+  const [expiryFilterMonth, setExpiryFilterMonth] = useState(null);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -41,14 +41,17 @@ export default function RenewalYTDView() {
 
   useEffect(() => { load(); }, [load]);
 
-  const sub = `As of ${formatHumanDate(date)}`;
+  const sub = `As of ${formatYearOnly(date)}`;
   const barData = (stats?.bar_chart ?? []).map((b) => ({
     month: b.label, renewed: b.renewed_count, lost: b.lost_count, pending: b.pending_count,
   }));
   const firePie = stats?.fire_pie ?? [];
   const motorPie = stats?.motor_pie ?? [];
-  const rows = filterRowsByExpiryDate((stats?.policies ?? []).map(mapRenewalRow), expiryFilterDate);
-  const rate = stats ? `${Number(stats.renewal_rate).toFixed(2)}%` : "…";
+  const rows = filterRowsByExpiryMonth((stats?.policies ?? []).map(mapRenewalRow), expiryFilterMonth);
+  // Renewal Rate card always shows YTD (this view IS the YTD view, but it
+  // uses the same shared fetch as Daily/MTD for consistency and to
+  // guarantee an identical figure across all 3 tabs).
+  const rate = ytdRenewalRate != null ? `${Number(ytdRenewalRate).toFixed(2)}%` : "…";
 
   return (
     <div className="flex flex-col gap-4">
@@ -93,9 +96,9 @@ export default function RenewalYTDView() {
           data={rows}
           statusOptions={RENEWAL_STATUS_OPTIONS}
           premiumLabel="Premium"
-          extraFilters={<ExpiryDateFilter value={expiryFilterDate} onChange={setExpiryFilterDate} />}
+          extraFilters={<MonthExpiryFilter value={expiryFilterMonth} onChange={setExpiryFilterMonth} />}
         />
-        <RenewalRateCard rate={loading ? "…" : rate} sub={sub} />
+        <RenewalRateCard rate={rate} />
       </div>
     </div>
   );
