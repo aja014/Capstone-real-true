@@ -192,8 +192,13 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
   };
 
   const handleFolderChange = async (e) => {
-    const files = Array.from(e.target.files || []).filter((f) => /\.(xlsx|xls|csv)$/i.test(f.name));
+    const rawFiles = Array.from(e.target.files || []);
+    const files = rawFiles.filter((f) => /\.(xlsx|xls|csv)$/i.test(f.name));
     e.target.value = ""; // allow picking the same folder again later
+    if (rawFiles.length === 0) {
+      setFolderError("This folder is empty — please select a folder that contains files.");
+      return;
+    }
     if (files.length === 0) return;
 
     setFolderFiles(files);
