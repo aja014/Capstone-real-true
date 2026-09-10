@@ -218,7 +218,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
     }
   };
 
-  const allTypesChosen = folderFiles.length > 0 && folderFiles.every((f) => chosenTypes[f.name]);
+  const allTypesChosen = folderFiles.length > 0 && folderFiles.every((f) => chosenTypes[f.webkitRelativePath || f.name]);
 
   const importAll = async () => {
     setFolderStage("importing");
@@ -226,7 +226,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
 
     const formData = new FormData();
     folderFiles.forEach((f) => formData.append("files", f, f.webkitRelativePath || f.name));
-    folderFiles.forEach((f) => formData.append("import_types", chosenTypes[f.name]));
+    folderFiles.forEach((f) => formData.append("import_types", chosenTypes[f.webkitRelativePath || f.name]));
 
     try {
       const response = await axios.post(`${API_BASE_URL}/import/batch/upload`, formData, { headers: authHeaders() });

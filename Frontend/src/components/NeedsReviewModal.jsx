@@ -128,9 +128,21 @@ export default function NeedsReviewModal({ isOpen, onClose, records, loading, po
                     candidates === undefined ? (
                       <p className="text-xs text-gray-400">Loading quotation candidates...</p>
                     ) : candidates.length === 0 ? (
-                      <p className="text-xs text-amber-600">
-                        No unattached quotation found for this policyholder — import the quotation first.
-                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-xs text-amber-600">
+                          No unattached quotation found for this policyholder — import the quotation first.
+                        </p>
+                        <button
+                          type="button"
+                          disabled={busyId === r.id}
+                          onClick={() => deleteRecord(r.id)}
+                          title="Discard this row"
+                          className="flex items-center gap-1 text-xs font-medium text-gray-400 hover:text-red-500 disabled:opacity-40 rounded-lg px-2 py-1.5 transition"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                        {busyId === r.id && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
+                      </div>
                     ) : (
                       <div className="flex flex-wrap items-center gap-2">
                         <select

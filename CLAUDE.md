@@ -122,6 +122,16 @@ by hand) — this bit us once already (see reset script below).
   Import" below)
 - `import_motor.py` — bulk import for Motor/Car Quotations and Policies (2
   importers in one file)
+- `import_vehicle.py` — bulk import for Vehicle Information
+  (`POST /import/vehicles/upload`). No paper-document precedent of its own
+  (vehicle details normally only ever appear inside a Quotation/Policy
+  form) — its 9 columns instead mirror what the Vehicle Information tab
+  already displays as raw fields. Dedupes on exact plate/engine/chassis
+  match (reuses `import_motor.find_existing_vehicle`); a genuinely new row
+  only ever creates Policyholder → Insurance Case → Vehicle, never a
+  Quotation. Wired into the shared needs-review queue via
+  `models.ImportType.vehicle` / `new_policyholder_fields()` /
+  `resolve_for_policyholder()`, same pattern as every other importer.
 - `import_shared.py` — cross-cutting logic reused by the 2 Policy importers
   only (quotation-matching heuristic, name/address splitting) — see below
 - `import_batch.py` — folder upload: column-header type detection +
@@ -383,6 +393,20 @@ Wrapped the `db.commit()` in `try/except IntegrityError` so that race
 returns the same clean `400 "User already exists"` instead of a raw 500.
 Verified via the real `/users` endpoint (not just direct SQL): attempting
 to create `test4` again now returns 400, no server error.
+
+**Second cleanup (2026-09-10)**: discovered the table had drifted to 17
+rows (an untracked `new1` test row, id 33, had been added since the last
+cleanup above). Investigated all rows with the user and did a broader
+pass this time — removed `new1` plus every other obviously-test-named
+leftover still sitting in the table from earlier sessions (`more`,
+`newaccount`, `admin_test`, `admin_test2`, `admin_test3`, `testing1`,
+`test2`, `test3`, `test4`, `test5`, `ttry`, `admin12` — 13 rows total).
+**4 real users remain: `james` (id 3), `aldrin` (id 5), `manager` (id 8),
+`Aaron James` (id 10, role `manager`).** No FK anywhere in `models.py`
+references `users.id`, so this was safe — but note `users` has no
+delete-archive table (unlike `deleted_policyholders` etc.), so this
+cleanup was a hard, unrecoverable delete, done only after explicit user
+confirmation of the exact row list.
 
 ## Frontend Status
 - `pages/login.jsx` — fully wired to `POST /login`, tested working
