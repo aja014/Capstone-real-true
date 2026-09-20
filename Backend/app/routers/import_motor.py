@@ -8,6 +8,7 @@ from app.database import get_db
 from app.security import get_current_user
 from app import models, schemas
 from app.routers import import_shared
+from app.services.flood_risk import lookup_flood_risk
 
 router = APIRouter(
     prefix="/import/motor",
@@ -242,6 +243,7 @@ def upload_motor_quotations(file: UploadFile = File(...), db: Session = Depends(
                         deductible=fields.get("deductible") or None,
                         plate_no=plate_no or None,
                         total_amount_due=fields.get("total_amount_due") or None,
+                        **lookup_flood_risk(fields.get("address")),
                     )
                     db.add(new_quotation)
                     db.flush()
@@ -326,6 +328,7 @@ def upload_motor_quotations(file: UploadFile = File(...), db: Session = Depends(
                     deductible=fields.get("deductible") or None,
                     plate_no=plate_no or None,
                     total_amount_due=fields.get("total_amount_due") or None,
+                    **lookup_flood_risk(fields.get("address")),
                 )
                 db.add(new_quotation)
                 db.flush()
@@ -428,6 +431,7 @@ def resolve_for_policyholder(db: Session, record: models.ImportRecord, policyhol
             deductible=fields.get("deductible") or None,
             plate_no=plate_no or None,
             total_amount_due=fields.get("total_amount_due") or None,
+            **lookup_flood_risk(fields.get("address")),
         )
         db.add(new_quotation)
         db.flush()
@@ -465,6 +469,7 @@ def resolve_for_policyholder(db: Session, record: models.ImportRecord, policyhol
         deductible=fields.get("deductible") or None,
         plate_no=plate_no or None,
         total_amount_due=fields.get("total_amount_due") or None,
+        **lookup_flood_risk(fields.get("address")),
     )
     db.add(new_quotation)
     db.flush()

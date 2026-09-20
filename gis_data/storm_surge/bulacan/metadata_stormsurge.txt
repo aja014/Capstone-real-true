@@ -1,0 +1,27 @@
+### NOAH Storm Surge Hazard Maps
+
+# Description:
+The project is a DOST Grant-In-Aid project under Project NOAH implemented by PAGASA. The project aims to enhance the disaster-forecasting capabilities of PAGASA by generating detailed storm surge hazard maps using Japan Meteorological Agency storm surge model, WXTide software and Flo-2D, a two-dimensional flood modeling software that uses continuity and dynamic wave momentum equation. The storm surge hazard maps utilize either the 1-meter resolution LiDAR or the 5-meter resolution IfSAR-derived Digital Elevation Model data. The storm surge levels are categorized into four groups based on their peak height to create the Storm Surge Advisory (SSA) Maps – SSA 1 (up to 2m), SSA 2 (up to 3m), SSA 3 (up to 4m), and SSA 4 (more than 4m). The SSA maps are available for all the coastal provinces in the country.
+
+# Geographic Coverage
+Entire coastal provinces in the Philippines
+
+# Attributes Information
+HAZ: Hazard classification indicator.
+1: Low hazard (yellow) (0.2 m < maximum depth < 0.5 m, and 0 sqm/s < maximum depth x velocity < 0.5 sqm/s)
+2: Medium hazard (orange) (0.5 m < maximum depth < 1.5 m, or 0.5 sqm/s < maximum depth x velocity < 1.5 sqm/s)
+3: High hazard (red) (maximum depth > 1.5 m, or maximum depth x velocity > 1.5 sqm/s)
+
+# Coordinate System
+Datum: WGS 84
+EPSG Code: 4326
+
+# Data Format
+ESRI Shapefile
+
+# Use Constraints
+This data is licensed under Open Data Commons Open Database License (ODC-ODbL). If you alter or build upon our data, you may only distribute the result under the same license
+(ODC-ODbL).
+
+# Update Frequency
+Annual, or as needed based on field validation and/or new data inputs

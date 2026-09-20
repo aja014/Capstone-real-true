@@ -1,13 +1,13 @@
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 
-const LOCATION = {
-  lat: 14.8138,
-  lng: 121.0448,
-  zoom: 16,
+const CATEGORY_STYLE = {
+  Low: "text-green-600",
+  Medium: "text-amber-600",
+  High: "text-red-600",
 };
 
-function LeafletMap() {
+function LeafletMap({ lat, lng }) {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
 
@@ -18,8 +18,8 @@ function LeafletMap() {
       if (!L) return;
 
       mapInstanceRef.current = L.map(mapRef.current, {
-        center: [LOCATION.lat, LOCATION.lng],
-        zoom: LOCATION.zoom,
+        center: [lat, lng],
+        zoom: 16,
         zoomControl: true,
         scrollWheelZoom: false,
         attributionControl: false,
@@ -40,7 +40,7 @@ function LeafletMap() {
         iconAnchor: [14, 36],
       });
 
-      L.marker([LOCATION.lat, LOCATION.lng], { icon: redIcon }).addTo(mapInstanceRef.current);
+      L.marker([lat, lng], { icon: redIcon }).addTo(mapInstanceRef.current);
     };
 
     const loadLeaflet = () => {
@@ -77,13 +77,25 @@ function LeafletMap() {
         mapInstanceRef.current = null;
       }
     };
-  }, []);
+  }, [lat, lng]);
 
   return <div ref={mapRef} className="h-full w-full" />;
 }
 
-export default function FloodRiskModal({ isOpen, onClose }) {
+// `quotation` is a row from src/lib/quotations.js's fetchAllQuotations() —
+// carries latitude/longitude/flood_risk_flag/flood_risk_category (borrowed
+// from the case's Survey for Fire rows, stored directly for Motor rows) and
+// address_label (location_of_risk or address, whichever the line uses).
+// 3 real states, not 2: no coordinates at all (never geocoded, or geocoding
+// failed) is a DIFFERENT, more honest state than coordinates that geocoded
+// fine but simply fall outside every mapped hazard zone.
+export default function FloodRiskModal({ isOpen, onClose, quotation }) {
   if (!isOpen) return null;
+
+  const hasCoordinates = quotation?.latitude != null && quotation?.longitude != null;
+  const lat = hasCoordinates ? Number(quotation.latitude) : null;
+  const lng = hasCoordinates ? Number(quotation.longitude) : null;
+  const category = quotation?.flood_risk_category || null;
 
   return (
     <div
@@ -99,9 +111,13 @@ export default function FloodRiskModal({ isOpen, onClose }) {
 
         <div className="flex p-7">
 
-          {/* LEFT — Live Map */}
-          <div className="w-[320px] flex-shrink-0 overflow-hidden rounded-xl" style={{ height: 350 }}>
-            <LeafletMap />
+          {/* LEFT — Live Map, or a placeholder when there's nothing to plot */}
+          <div className="w-[320px] flex-shrink-0 overflow-hidden rounded-xl bg-[#e8ddc0] flex items-center justify-center" style={{ height: 350 }}>
+            {hasCoordinates ? (
+              <LeafletMap lat={lat} lng={lng} />
+            ) : (
+              <p className="px-6 text-center text-xs text-[#8A7B64]">No coordinates on file for this quotation yet</p>
+            )}
           </div>
 
           {/* DIVIDER */}
@@ -112,9 +128,7 @@ export default function FloodRiskModal({ isOpen, onClose }) {
 
             {/* LOCATION */}
             <h2 className="max-w-[210px] text-lg font-bold leading-[1.15] text-black">
-              Barangay San Nicolas,<br />
-              City of San Jose del Monte,<br />
-              Bulacan
+              {quotation?.address_label || "Address not on file"}
             </h2>
 
             <div className="mt-10">
@@ -127,21 +141,30 @@ export default function FloodRiskModal({ isOpen, onClose }) {
                 <div className="h-px flex-1 bg-[#8A7B64]" />
               </div>
 
-              {/* MAIN RESULT */}
-              <h1 className="text-3xl font-black leading-none text-black">
-                Flood Prone Area
-              </h1>
-
-              <div className="mt-2 text-md text-[#444]">
-                Level: Low
-              </div>
-
-              {/* FINDINGS */}
-              <ul className="mt-2 space-y-1 text-sm text-red-500">
-                <li>- Low Lying Area</li>
-                <li>- Clogged Drain</li>
-              </ul>
-
+              {/* MAIN RESULT — 3 real states */}
+              {!hasCoordinates ? (
+                <p className="text-md text-[#6D604D]">
+                  Flood risk not yet available for this quotation.
+                </p>
+              ) : category ? (
+                <>
+                  <h1 className={`text-3xl font-black leading-none ${CATEGORY_STYLE[category] || "text-black"}`}>
+                    {category} Risk
+                  </h1>
+                  <div className="mt-2 text-md text-[#444]">
+                    Within a mapped 100-year flood hazard zone
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h1 className="text-3xl font-black leading-none text-green-600">
+                    Not Flood-Prone
+                  </h1>
+                  <div className="mt-2 text-md text-[#444]">
+                    Outside every mapped flood hazard zone
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

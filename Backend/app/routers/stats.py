@@ -409,3 +409,128 @@ def get_overview(db: Session = Depends(get_db)):
         "yearly_bar": yearly_bar,
         "monthly_line": monthly_line,
     }
+
+
+# ------------------------------------------------------------
+# QUOTATIONS / PROPOSAL PAGE (KPI cards + per-line pies + trend chart —
+# the page's own quotation TABLE reuses the existing per-quotation REST
+# endpoints/join logic instead, see Frontend/src/lib/quotations.js)
+# ------------------------------------------------------------
+
+@router.get("/quotation-proposal", response_model=schemas.QuotationProposalStats)
+def get_quotation_proposal_stats(
+    # Literal[3, 6, 12] rejects a numeric query string like "3" outright in
+    # this FastAPI/pydantic version (no int coercion before the literal
+    # check) -- validated by hand instead, same 3 allowed values.
+    months: int = Query(6),
+    # Both must be supplied to activate "specific month" mode; a partial or
+    # invalid pair silently falls back to rolling mode, same "invalid ->
+    # default" convention as `months` above.
+    year: int | None = Query(None),
+    month: int | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    if months not in (3, 6, 12):
+        months = 6
+    today = date_type.today()
+
+    use_month_mode = year is not None and month is not None and 1 <= month <= 12
+
+    if use_month_mode:
+        mode = "month"
+        range_start, month_end = _month_bounds(year, month)
+        # Same cutoff rule as _range_for_period("mtd", ...): don't count/
+        # show days that haven't happened yet for the current month; a
+        # past month is shown in full, a future month ends up all-zero.
+        if year == today.year and month == today.month:
+            range_end = today
+        else:
+            range_end = month_end
+    else:
+        mode = "rolling"
+        year = None
+        month = None
+        start_y, start_m = _shift_month(today.year, today.month, -(months - 1))
+        range_start, _ = _month_bounds(start_y, start_m)
+        # Uncapped at today, matching the original trend's current-month
+        # bucket (m_start <= date <= m_end) -- unlike month mode's day-level
+        # cutoff below, this rolling window was never "as of today" scoped.
+        _, range_end = _month_bounds(today.year, today.month)
+
+    fire_quotations = db.query(models.FirePropertyQuotation).filter(
+        models.FirePropertyQuotation.quotation_date >= range_start,
+        models.FirePropertyQuotation.quotation_date <= range_end,
+    ).all()
+    motor_quotations = db.query(models.MotorQuotation).filter(
+        models.MotorQuotation.quotation_date >= range_start,
+        models.MotorQuotation.quotation_date <= range_end,
+    ).all()
+
+    fire_converted = sum(1 for q in fire_quotations if q.policy is not None)
+    motor_converted = sum(1 for q in motor_quotations if q.policy is not None)
+
+    total_quotations = len(fire_quotations) + len(motor_quotations)
+    converted_accounts = fire_converted + motor_converted
+    conversion_rate = (converted_accounts / total_quotations * 100) if total_quotations else 0.0
+
+    fire_pie = [
+        {"name": "Not Yet Converted", "value": len(fire_quotations) - fire_converted},
+        {"name": "Converted Account", "value": fire_converted},
+    ]
+    motor_pie = [
+        {"name": "Not Yet Converted", "value": len(motor_quotations) - motor_converted},
+        {"name": "Converted Account", "value": motor_converted},
+    ]
+
+    trend = []
+    if use_month_mode:
+        # Day-level granularity within the one selected month — same
+        # per-day bucketing/labeling convention as /stats/policy-distribution
+        # MTD's bar_chart (label = plain day number).
+        buckets = {d: {"fire": 0, "motor": 0, "fire_conv": 0, "motor_conv": 0} for d in range(1, range_end.day + 1)}
+        for q in fire_quotations:
+            buckets[q.quotation_date.day]["fire"] += 1
+            if q.policy is not None:
+                buckets[q.quotation_date.day]["fire_conv"] += 1
+        for q in motor_quotations:
+            buckets[q.quotation_date.day]["motor"] += 1
+            if q.policy is not None:
+                buckets[q.quotation_date.day]["motor_conv"] += 1
+        for d in sorted(buckets):
+            b = buckets[d]
+            trend.append({
+                "label": str(d),
+                "quotation_count": b["fire"] + b["motor"],
+                "converted_count": b["fire_conv"] + b["motor_conv"],
+            })
+    else:
+        # Rolling window ending at the current month, oldest first — same
+        # non-calendar-year-aligned philosophy as /overview's monthly_line,
+        # just parameterized by `months` instead of a fixed 6.
+        for delta in range(-(months - 1), 1):
+            y, m = _shift_month(today.year, today.month, delta)
+            m_start, m_end = _month_bounds(y, m)
+            fire_in_month = [q for q in fire_quotations if q.quotation_date and m_start <= q.quotation_date <= m_end]
+            motor_in_month = [q for q in motor_quotations if q.quotation_date and m_start <= q.quotation_date <= m_end]
+            quotation_count = len(fire_in_month) + len(motor_in_month)
+            converted_count = (
+                sum(1 for q in fire_in_month if q.policy is not None)
+                + sum(1 for q in motor_in_month if q.policy is not None)
+            )
+            trend.append({"label": MONTH_ABBR[m - 1], "quotation_count": quotation_count, "converted_count": converted_count})
+
+    return {
+        "date": today,
+        "total_quotations": total_quotations,
+        "converted_accounts": converted_accounts,
+        "conversion_rate": conversion_rate,
+        "fire_pie": fire_pie,
+        "motor_pie": motor_pie,
+        "mode": mode,
+        "range_start": range_start,
+        "range_end": range_end,
+        "months": None if use_month_mode else months,
+        "year": year,
+        "month": month,
+        "trend": trend,
+    }

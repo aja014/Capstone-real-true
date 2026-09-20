@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.security import get_current_user
 from app import models, schemas
+from app.services.flood_risk import lookup_flood_risk
 
 router = APIRouter(
     prefix="",
@@ -29,7 +30,12 @@ def get_case_or_404(db: Session, insurance_case_id: int):
 def create_survey(survey: schemas.FirePropertySurveyCreate, db: Session = Depends(get_db)):
     get_case_or_404(db, survey.insurance_case_id)
 
-    db_survey = models.FirePropertySurvey(**survey.model_dump())
+    survey_fields = survey.model_dump()
+    gis_fields = ("latitude", "longitude", "flood_risk_flag", "flood_risk_category")
+    if all(survey_fields.get(f) is None for f in gis_fields):
+        survey_fields.update(lookup_flood_risk(survey_fields.get("location_of_risk")))
+
+    db_survey = models.FirePropertySurvey(**survey_fields)
     db.add(db_survey)
     db.commit()
     db.refresh(db_survey)

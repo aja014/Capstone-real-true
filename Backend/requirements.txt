@@ -1,0 +1,7 @@
+# New deps for Objective 2.1 (GIS flood-risk lookup, app/services/flood_risk.py).
+# geopandas/fiona are NOT used -- no wheels for this venv's Python 3.14 at time
+# of writing, and pyogrio (GDAL-backed) reads the shapefile far faster than
+# pyshp's pure-Python parser anyway (~2.5s vs several minutes for this file's
+# 3 huge dissolved hazard polygons).
+shapely==2.1.2
+pyogrio==0.13.0

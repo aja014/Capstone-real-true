@@ -49,6 +49,12 @@ const IMPORT_TARGET_TO_DETECTED_TYPE = {
   vehicle: "vehicle",
 };
 
+// These 2 importers geocode every row's address for the flood-risk lookup
+// (app/services/flood_risk.py), rate-limited to >=1s/request against
+// Nominatim -- worth calling out in the upload/import progress UI so a
+// larger file doesn't look stuck.
+const GEOCODED_BATCH_TYPES = new Set(["fire_property", "motor"]);
+
 function authHeaders() {
   const token = localStorage.getItem("token");
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -424,6 +430,11 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
                 <p className="mt-2 text-md text-gray-700 font-medium max-w-[500px] truncate">
                   {uploadedFile?.name}
                 </p>
+                {GEOCODED_BATCH_TYPES.has(chosenType) && (
+                  <p className="mt-2 text-xs text-gray-500 max-w-[480px]">
+                    Processing — this may take longer for larger files due to flood-risk lookups.
+                  </p>
+                )}
               </>
             )}
 
@@ -533,6 +544,11 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
                     </div>
                   ))}
                 </div>
+                {folderStage === "importing" && Object.values(chosenTypes).some((t) => GEOCODED_BATCH_TYPES.has(t)) && (
+                  <p className="mt-2 text-xs text-gray-500">
+                    Processing — this may take longer for larger files due to flood-risk lookups.
+                  </p>
+                )}
                 {folderError && <p className="mt-2 text-xs text-red-500">{folderError}</p>}
                 <div className="flex items-center justify-between mt-3">
                   <button

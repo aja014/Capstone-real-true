@@ -276,7 +276,9 @@ class FirePropertySurvey(Base):
     latitude = Column(DECIMAL(10, 7))
     longitude = Column(DECIMAL(10, 7))
     flood_risk_flag = Column(Boolean)
-    flood_risk_category = Column(String(50))  # e.g. low/medium/high, if available
+    flood_risk_category = Column(String(50))  # combined worst-of-river-flood/storm-surge result
+    river_flood_category = Column(String(50))  # river-flood-alone breakdown, for future ML use
+    storm_surge_category = Column(String(50))  # storm-surge-alone breakdown, for future ML use
 
     created_at = Column(DateTime, server_default=func.now())
 
@@ -387,6 +389,14 @@ class MotorQuotation(Base):
     deductible = Column(DECIMAL(15, 2))
     plate_no = Column(String(30))
     total_amount_due = Column(DECIMAL(15, 2))
+
+    # GIS — populated after geocode + flood-hazard lookup (app/services/flood_risk.py)
+    latitude = Column(DECIMAL(10, 7))
+    longitude = Column(DECIMAL(10, 7))
+    flood_risk_flag = Column(Boolean)
+    flood_risk_category = Column(String(50))  # combined worst-of-river-flood/storm-surge result
+    river_flood_category = Column(String(50))  # river-flood-alone breakdown, for future ML use
+    storm_surge_category = Column(String(50))  # storm-surge-alone breakdown, for future ML use
 
     created_at = Column(DateTime, server_default=func.now())
 

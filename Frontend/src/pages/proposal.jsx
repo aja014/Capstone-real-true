@@ -1,85 +1,42 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import axios from "axios";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Search } from "lucide-react";
 import Sidebar from "../components/sidebar";
 import FloodRiskModal from "../components/FloodRiskModal";
 import { MonthYearPicker } from "../components/DatePicker";
+import { fetchAllQuotations } from "../lib/quotations";
 
-const BAR_DATA_BY_PERIOD = {
-  "Past 6 Months": [
-    { month: "Oct", converted: 25, quotation: 17 },
-    { month: "Nov", converted: 9,  quotation: 20 },
-    { month: "Dec", converted: 17, quotation: 14 },
-    { month: "Jan", converted: 9,  quotation: 19 },
-    { month: "Feb", converted: 22, quotation: 14 },
-    { month: "Mar", converted: 4,  quotation: 12 },
-  ],
-  "Past 3 Months": [
-    { month: "Jan", converted: 9,  quotation: 19 },
-    { month: "Feb", converted: 22, quotation: 14 },
-    { month: "Mar", converted: 4,  quotation: 12 },
-  ],
-  "Past 12 Months": [
-    { month: "Apr", converted: 18, quotation: 22 },
-    { month: "May", converted: 21, quotation: 15 },
-    { month: "Jun", converted: 13, quotation: 18 },
-    { month: "Jul", converted: 7,  quotation: 11 },
-    { month: "Aug", converted: 19, quotation: 16 },
-    { month: "Sep", converted: 11, quotation: 23 },
-    { month: "Oct", converted: 25, quotation: 17 },
-    { month: "Nov", converted: 9,  quotation: 20 },
-    { month: "Dec", converted: 17, quotation: 14 },
-    { month: "Jan", converted: 9,  quotation: 19 },
-    { month: "Feb", converted: 22, quotation: 14 },
-    { month: "Mar", converted: 4,  quotation: 12 },
-  ],
-};
+const API_BASE_URL = "http://127.0.0.1:8000";
 
-const firePieData  = [{ name: "Quotation", value: 3 }, { name: "Converted Account", value: 2 }];
-const motorPieData = [{ name: "Quotation", value: 9 }, { name: "Converted Account", value: 2 }];
-const PIE_COLORS   = ["#a5b4fc", "#6366f1"];
+function authHeaders() {
+  const token = localStorage.getItem("token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+const PERIOD_TO_MONTHS = { "Past 6 Months": 6, "Past 3 Months": 3, "Past 12 Months": 12 };
+
+const PIE_COLORS = ["#a5b4fc", "#6366f1"]; // [Not Yet Converted, Converted Account] — matches backend fire_pie/motor_pie order
+
+// March Policy Forecast — genuinely depends on the not-yet-started
+// predictive model (Objective 1.2), stays mock per explicit scope decision.
 const forecastData = [{ name: "March", converted: 4, forecast: 10 }];
-
-const ALL_TABLE_DATA = [
-  // March 2026
-  { month:"March 2026",    quote:"Q-1016", date:"03/15/2026", client:"Juan Karlos",    type:"Motor & Car",  premium:"₱8,500.00",  sum:"₱30,000.00", risk:"Fair", claim:"YES" },
-  { month:"March 2026",    quote:"Q-1017", date:"03/15/2026", client:"Marie Grace",    type:"Fire & Prop.", premium:"₱10,000.00", sum:"₱50,000.00", risk:"Good", claim:"NO"  },
-  { month:"March 2026",    quote:"Q-1018", date:"03/15/2026", client:"John Lopez",     type:"Motor & Car",  premium:"₱8,500.00",  sum:"₱30,000.00", risk:"Fair", claim:"YES" },
-  { month:"March 2026",    quote:"Q-1019", date:"03/15/2026", client:"Arun Sin",       type:"Fire & Prop.", premium:"₱10,000.00", sum:"₱50,000.00", risk:"Good", claim:"NO"  },
-  { month:"March 2026",    quote:"Q-1020", date:"03/15/2026", client:"Atong Wang",     type:"Fire & Prop.", premium:"₱10,000.00", sum:"₱50,000.00", risk:"Good", claim:"YES" },
-  { month:"March 2026",    quote:"Q-1021", date:"03/16/2026", client:"Sofia Ramirez",  type:"Motor & Car",  premium:"₱9,000.00",  sum:"₱35,000.00", risk:"Good", claim:"NO"  },
-  { month:"March 2026",    quote:"Q-1022", date:"03/16/2026", client:"Carlos Mendez",  type:"Fire & Prop.", premium:"₱12,000.00", sum:"₱60,000.00", risk:"Fair", claim:"YES" },
-  { month:"March 2026",    quote:"Q-1023", date:"03/17/2026", client:"Elena Cruz",     type:"Motor & Car",  premium:"₱7,500.00",  sum:"₱28,000.00", risk:"Poor", claim:"NO"  },
-  { month:"March 2026",    quote:"Q-1024", date:"03/17/2026", client:"Miguel Torres",  type:"Fire & Prop.", premium:"₱11,000.00", sum:"₱45,000.00", risk:"Good", claim:"YES" },
-  { month:"March 2026",    quote:"Q-1025", date:"03/18/2026", client:"Leonor Rivera",  type:"Motor & Car",  premium:"₱8,000.00",  sum:"₱32,000.00", risk:"Fair", claim:"NO"  },
-  // February 2026
-  { month:"February 2026", quote:"Q-1006", date:"02/05/2026", client:"Jose Rizal",     type:"Fire & Prop.", premium:"₱13,500.00", sum:"₱55,000.00", risk:"Good", claim:"YES" },
-  { month:"February 2026", quote:"Q-1007", date:"02/08/2026", client:"Carmen Flores",  type:"Motor & Car",  premium:"₱9,500.00",  sum:"₱40,000.00", risk:"Fair", claim:"NO"  },
-  { month:"February 2026", quote:"Q-1008", date:"02/10/2026", client:"Diego Santos",   type:"Fire & Prop.", premium:"₱10,500.00", sum:"₱48,000.00", risk:"Good", claim:"YES" },
-  { month:"February 2026", quote:"Q-1009", date:"02/14/2026", client:"Ana Reyes",      type:"Motor & Car",  premium:"₱8,200.00",  sum:"₱31,000.00", risk:"Poor", claim:"NO"  },
-  { month:"February 2026", quote:"Q-1010", date:"02/18/2026", client:"Pedro Gomez",    type:"Fire & Prop.", premium:"₱14,000.00", sum:"₱62,000.00", risk:"Good", claim:"YES" },
-  // January 2026
-  { month:"January 2026",  quote:"Q-1001", date:"01/05/2026", client:"Rosa Magtanggol",type:"Motor & Car",  premium:"₱7,800.00",  sum:"₱29,000.00", risk:"Good", claim:"NO"  },
-  { month:"January 2026",  quote:"Q-1002", date:"01/08/2026", client:"Ben Aquino",     type:"Fire & Prop.", premium:"₱11,500.00", sum:"₱52,000.00", risk:"Fair", claim:"YES" },
-  { month:"January 2026",  quote:"Q-1003", date:"01/12/2026", client:"Luisa Chua",     type:"Motor & Car",  premium:"₱8,900.00",  sum:"₱33,000.00", risk:"Good", claim:"NO"  },
-  { month:"January 2026",  quote:"Q-1004", date:"01/18/2026", client:"Marco Velarde",  type:"Fire & Prop.", premium:"₱12,500.00", sum:"₱58,000.00", risk:"Poor", claim:"YES" },
-  { month:"January 2026",  quote:"Q-1005", date:"01/25/2026", client:"Tina Bautista",  type:"Motor & Car",  premium:"₱9,200.00",  sum:"₱36,000.00", risk:"Fair", claim:"NO"  },
-];
 
 const PAGE_SIZE = 5;
 
-function Dropdown({ label, options, value, onChange }) {
+function Dropdown({ label, options, value, onChange, disabled }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
-      <button onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2 text-xs font-medium text-gray-700 hover:border-gray-400 transition whitespace-nowrap">
+      <button onClick={() => !disabled && setOpen(o => !o)} disabled={disabled}
+        title={disabled ? "Overridden by the selected month below" : undefined}
+        className={`flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2 text-xs font-medium transition whitespace-nowrap ${disabled ? "text-gray-300 cursor-not-allowed" : "text-gray-700 hover:border-gray-400"}`}>
         {value || label} <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
-      {open && options && (
+      {open && !disabled && options && (
         <div className="absolute top-full mt-1 left-0 z-20 bg-white border border-gray-100 rounded-xl shadow-lg min-w-[140px]">
           {options.map(opt => (
             <button key={opt} onClick={() => { onChange?.(opt); setOpen(false); }}
@@ -103,10 +60,10 @@ function StatCard({ sub, value, label }) {
   );
 }
 
-function MiniPie({ title, data }) {
+function MiniPie({ title, data, sub }) {
   return (
     <div className="bg-white rounded-2xl p-4 shadow-sm">
-      <p className="text-gray-400 text-[10px] mb-0.5">As of March 2026</p>
+      <p className="text-gray-400 text-[10px] mb-0.5">{sub}</p>
       <p className="font-bold text-black text-sm mb-2">{title}</p>
       <div className="flex items-center gap-3">
         <ResponsiveContainer width={110} height={95}>
@@ -144,10 +101,20 @@ const BarValueLabel = ({ x, y, width, value }) => (
   <text x={x + width / 2} y={y + 18} fill="#fff" textAnchor="middle" fontSize={12} fontWeight={700}>{value}</text>
 );
 
-function parseDate(dateStr) {
-  const [mm, , yyyy] = dateStr.split("/").map(Number);
-  return { month: mm, year: yyyy };
+function formatQuoteDate(value) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (isNaN(d)) return "—";
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const yyyy = d.getUTCFullYear();
+  return `${mm}/${dd}/${yyyy}`;
 }
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
 
 export default function QuotationsProposal() {
   const [page, setPage]           = useState(1);
@@ -156,30 +123,115 @@ export default function QuotationsProposal() {
   const [lineFilter, setLine]     = useState("Policy Line: All");
   const [statusFilter, setStatus] = useState("Status: All");
   const [month, setMonth]         = useState(null);
-  const [openFloodModal, setOpenFloodModal] = useState(false);
+  const [search, setSearch]       = useState("");
+  const [floodModalQuotation, setFloodModalQuotation] = useState(null);
 
-  const barData = BAR_DATA_BY_PERIOD[period] ?? BAR_DATA_BY_PERIOD["Past 6 Months"];
+  const [stats, setStats]         = useState(null);
+  const [statsError, setStatsError] = useState(null);
 
-  const selectedMonth = month ? month.getMonth() + 1 : null;
-  const selectedYear  = month ? month.getFullYear() : null;
+  const [quotations, setQuotations]   = useState([]);
+  const [quotationsLoading, setQuotationsLoading] = useState(true);
+  const [quotationsError, setQuotationsError]     = useState(null);
 
-  const filtered = ALL_TABLE_DATA.filter(r => {
-    let matchMonth = true;
-    if (month) {
-      const { month: rowMonth, year: rowYear } = parseDate(r.date);
-      matchMonth = rowMonth === selectedMonth && rowYear === selectedYear;
+  const fetchStats = useCallback(async (params) => {
+    setStatsError(null);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/stats/quotation-proposal`, {
+        params,
+        headers: authHeaders(),
+      });
+      setStats(res.data);
+    } catch (err) {
+      setStatsError("Failed to load quotation stats.");
     }
-    const matchRisk   = riskFilter   === "Risk Assessment: All" || r.risk  === riskFilter;
-    const matchLine   = lineFilter   === "Policy Line: All"     || r.type  === lineFilter;
-    const matchStatus = statusFilter === "Status: All"          || r.claim === statusFilter;
-    return matchMonth && matchRisk && matchLine && matchStatus;
+  }, []);
+
+  // `month` (the calendar-month picker, cleared via "Show All Months")
+  // takes over from `period` (the Past X Months dropdown) whenever it's
+  // set — the dropdown is visually disabled in that state (see the
+  // Dropdown below) rather than removed, since the user can always clear
+  // the month to go back to it.
+  useEffect(() => {
+    if (month) {
+      fetchStats({ year: month.getFullYear(), month: month.getMonth() + 1 });
+    } else {
+      fetchStats({ months: PERIOD_TO_MONTHS[period] ?? 6 });
+    }
+  }, [period, month, fetchStats]);
+
+  useEffect(() => {
+    (async () => {
+      setQuotationsLoading(true);
+      setQuotationsError(null);
+      try {
+        setQuotations(await fetchAllQuotations());
+      } catch (err) {
+        setQuotationsError("Failed to load quotations.");
+      } finally {
+        setQuotationsLoading(false);
+      }
+    })();
+  }, []);
+
+  // The bar's full height must equal the real total (t.quotation_count),
+  // with "Converted" as a segment WITHIN it — not stacked on top of it.
+  // Stacking converted_count + quotation_count (the raw total) double-
+  // counts, since quotation_count already includes the converted ones;
+  // stack converted_count + (total - converted) instead, so the two
+  // segments sum exactly to the total.
+  const trendData = (stats?.trend ?? []).map((t) => ({
+    label: t.label,
+    converted_count: t.converted_count,
+    not_converted_count: Math.max(0, t.quotation_count - t.converted_count),
+  }));
+
+  // Table rows are scoped to the exact same range_start/range_end the
+  // backend used for the KPI cards/pies/trend above (rolling window OR the
+  // one selected month) — reuses the backend's own date math instead of
+  // re-deriving "Past X Months" bounds in JS. Both are plain ISO
+  // "YYYY-MM-DD" strings, so a lexicographic compare is a valid date
+  // compare. A quotation with no date is excluded either way, same as the
+  // backend's own SQL range filter excludes NULL quotation_date rows.
+  const filtered = quotations.filter((q) => {
+    const matchRange = !!stats && !!q.quotation_date
+      && q.quotation_date >= stats.range_start && q.quotation_date <= stats.range_end;
+    const matchLine = lineFilter === "Policy Line: All" || q.line === lineFilter;
+    // Risk Assessment is still a fixed "Pending" placeholder (see the table
+    // cell below) — its filter can only ever match "Pending" or "All", never
+    // a specific outcome, since there's no real value yet.
+    const matchRisk = riskFilter === "Risk Assessment: All" || riskFilter === "Pending";
+    // Status is real, unlike Risk Assessment above — same "has a linked
+    // policy" definition the "Converted Accounts" KPI card already uses
+    // (q.is_converted comes straight from fetchAllQuotations() in
+    // lib/quotations.js).
+    const matchStatus = statusFilter === "Status: All"
+      || (statusFilter === "Converted" && q.is_converted)
+      || (statusFilter === "Not Yet Converted" && !q.is_converted);
+    // Same substring-across-all-fields pattern as Policy Holder Info's
+    // Quotation tab search (policy.jsx) -- not restricted to Client Name/
+    // Quote Number, matches whatever the existing convention already does.
+    const searchText = search.toLowerCase();
+    const matchSearch = searchText === "" || Object.values(q).some((v) =>
+      String(v).toLowerCase().includes(searchText)
+    );
+    return matchRange && matchLine && matchRisk && matchStatus && matchSearch;
   });
 
-  const totalPages  = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const safePage    = Math.min(page, totalPages);
-  const pageRows    = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage   = Math.min(page, totalPages);
+  const pageRows   = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   const handleFilterChange = (setter) => (val) => { setter(val); setPage(1); };
+
+  const conversionRateLabel = stats ? `${Math.round(stats.conversion_rate)}%` : "—";
+
+  // Drives the "All time" replacement sub-label on the 3 KPI cards + both
+  // pies — reflects whichever filter is actually active.
+  const periodLabel = month
+    ? `${MONTH_NAMES[month.getMonth()]} ${month.getFullYear()}`
+    : period;
+
+  const currentYear = new Date().getFullYear();
 
   return (
     <div className="min-h-screen bg-yellow-400 p-4 sm:p-6 flex gap-4">
@@ -187,40 +239,44 @@ export default function QuotationsProposal() {
       <div className="flex-1 flex flex-col gap-4 min-w-0">
 
         <div className="grid grid-cols-3 gap-4">
-          <StatCard sub="As of March 2026" value="16" label="Total Proposal Quotes" />
-          <StatCard sub="As of March 2026" value="4"  label="Converted Accounts" />
-          <StatCard sub="As of March 2026" value="12" label="Offered Quotation" />
+          <StatCard sub={periodLabel} value={stats ? stats.total_quotations : "—"} label="Total Quotations" />
+          <StatCard sub={periodLabel} value={stats ? stats.converted_accounts : "—"} label="Converted Accounts" />
+          <StatCard sub={periodLabel} value={conversionRateLabel} label="Conversion Rate" />
         </div>
+        {statsError && <p className="text-xs text-red-600 bg-white/70 rounded-lg px-3 py-2">{statsError}</p>}
 
         <div className="flex gap-4">
           <div className="flex-1 bg-white rounded-2xl p-5 shadow-sm flex flex-col gap-3 min-w-0">
             <div className="flex items-center justify-between">
-              <h2 className="font-bold text-black text-sm">Monthly Quotation Conversion Trend</h2>
+              <h2 className="font-bold text-black text-sm">
+                {month ? "Daily Quotation Conversion Trend" : "Monthly Quotation Conversion Trend"}
+              </h2>
               <Dropdown
                 label="Past 6 Months"
                 options={["Past 6 Months", "Past 3 Months", "Past 12 Months"]}
                 value={period}
                 onChange={setPeriod}
+                disabled={!!month}
               />
             </div>
             <ResponsiveContainer width="100%" height={270}>
-              <BarChart data={barData} barCategoryGap="30%">
+              <BarChart data={trendData} barCategoryGap="30%">
                 <CartesianGrid vertical={false} stroke="#f3f4f6" />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} domain={[0, 50]}
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false}
                   label={{ value: "count", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: "#9ca3af" } }} />
                 <Tooltip contentStyle={{ borderRadius: 10, border: "none", fontSize: 12 }} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="converted" name="Converted" stackId="a" fill="#6366f1"
+                <Bar dataKey="converted_count" name="Converted" stackId="a" fill="#6366f1"
                   label={{ position: "center", fontSize: 10, fill: "#fff", fontWeight: 700 }} />
-                <Bar dataKey="quotation"  name="Quotation"  stackId="a" fill="#a5b4fc" radius={[4,4,0,0]}
+                <Bar dataKey="not_converted_count" name="Not Yet Converted" stackId="a" fill="#a5b4fc" radius={[4,4,0,0]}
                   label={{ position: "center", fontSize: 10, fill: "#fff", fontWeight: 700 }} />
               </BarChart>
             </ResponsiveContainer>
           </div>
           <div className="flex flex-col gap-3 w-64 flex-shrink-0">
-            <MiniPie title="Fire & Property" data={firePieData} />
-            <MiniPie title="Motor & Car"     data={motorPieData} />
+            <MiniPie title="Fire & Property" data={stats?.fire_pie ?? []} sub={periodLabel} />
+            <MiniPie title="Motor & Car"     data={stats?.motor_pie ?? []} sub={periodLabel} />
           </div>
         </div>
 
@@ -239,40 +295,56 @@ export default function QuotationsProposal() {
                 )}
                 <MonthYearPicker value={month} onChange={handleFilterChange(setMonth)} />
               </div>
-              <Dropdown label="Risk Assessment: All" options={["Risk Assessment: All","Fair","Good","Poor"]} value={riskFilter} onChange={handleFilterChange(setRisk)} />
-              <Dropdown label="Policy Line: All"     options={["Policy Line: All","Motor & Car","Fire & Prop."]} value={lineFilter} onChange={handleFilterChange(setLine)} />
-              <Dropdown label="Status: All"          options={["Status: All","YES","NO"]} value={statusFilter} onChange={handleFilterChange(setStatus)} />
+              <Dropdown label="Risk Assessment: All" options={["Risk Assessment: All","Pending"]} value={riskFilter} onChange={handleFilterChange(setRisk)} />
+              <Dropdown label="Policy Line: All"     options={["Policy Line: All","Fire & Property","Motor Car"]} value={lineFilter} onChange={handleFilterChange(setLine)} />
+              <Dropdown label="Status: All"          options={["Status: All","Converted","Not Yet Converted"]} value={statusFilter} onChange={handleFilterChange(setStatus)} />
+              <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2">
+                <Search className="w-3.5 h-3.5 text-gray-400" />
+                <input className="text-xs outline-none text-gray-600 w-36"
+                  placeholder="Search Quotation..."
+                  value={search}
+                  onChange={(e) => handleFilterChange(setSearch)(e.target.value)} />
+              </div>
+              {search && (
+                <span className="text-xs text-gray-400">{filtered.length} result{filtered.length !== 1 ? "s" : ""}</span>
+              )}
             </div>
+            {quotationsError && <p className="text-xs text-red-600 mb-3">{quotationsError}</p>}
             <div className="overflow-x-auto">
               <table className="w-full text-xs text-center">
                 <thead>
                   <tr className="border-b border-gray-100">
-                    {["Quote Number","Quote Date","Client Name","Policy Type","Premium","Sum Insured","Risk Assessment","Claim Possibility","Geospatial Information",""].map(h => (
+                    {["Quote Number","Client Name","Insurance Line","Quotation Date","Status","Risk Assessment","Claim Possibility","Geospatial Information"].map(h => (
                       <th key={h} className="py-2 px-2 text-gray-500 font-semibold whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {pageRows.map((r, i) => (
-                    <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 transition">
-                      <td className="py-2.5 px-2">{r.quote}</td>
-                      <td className="py-2.5 px-2">{r.date}</td>
-                      <td className="py-2.5 px-2">{r.client}</td>
-                      <td className="py-2.5 px-2">{r.type}</td>
-                      <td className="py-2.5 px-2">{r.premium}</td>
-                      <td className="py-2.5 px-2">{r.sum}</td>
-                      <td className="py-2.5 px-2">{r.risk}</td>
+                  {quotationsLoading && (
+                    <tr><td colSpan={8} className="py-6 text-gray-400 text-xs">Loading quotations…</td></tr>
+                  )}
+                  {!quotationsLoading && pageRows.map((r) => (
+                    <tr key={`${r.line}-${r.id}`} className="border-b border-gray-50 hover:bg-gray-50 transition">
+                      <td className="py-2.5 px-2">{r.id}</td>
+                      <td className="py-2.5 px-2">{r.client_name || "—"}</td>
+                      <td className="py-2.5 px-2">{r.line}</td>
+                      <td className="py-2.5 px-2">{formatQuoteDate(r.quotation_date)}</td>
+                      <td className="py-2.5 px-2">{r.is_converted ? (r.converted_policy_no || "Converted") : "Not Yet Converted"}</td>
+                      {/* Risk Assessment / Claim Possibility: honest fixed
+                          placeholder, not real data — same "not yet
+                          computable" pattern as Overview's Filed Claims "—",
+                          since both genuinely depend on the not-yet-started
+                          predictive model (Objective 1.2). */}
+                      <td className="py-2.5 px-2 text-gray-400">Pending</td>
+                      <td className="py-2.5 px-2 text-gray-400">Pending</td>
                       <td className="py-2.5 px-2">
-                        <span className={`font-bold ${r.claim === "YES" ? "text-green-500" : "text-red-500"}`}>{r.claim}</span>
-                      </td>
-                      <td className="py-2.5 px-2">
-                        <button onClick={() => setOpenFloodModal(true)}
+                        <button onClick={() => setFloodModalQuotation(r)}
                           className="bg-black text-white text-[11px] px-3 py-1 rounded-lg hover:bg-gray-800 transition">View</button>
                       </td>
                     </tr>
                   ))}
-                  {pageRows.length === 0 && (
-                    <tr><td colSpan={10} className="py-6 text-gray-400 text-xs">No records found.</td></tr>
+                  {!quotationsLoading && pageRows.length === 0 && (
+                    <tr><td colSpan={8} className="py-6 text-gray-400 text-xs">No records found.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -285,11 +357,18 @@ export default function QuotationsProposal() {
           </div>
 
           <div className="flex flex-col gap-3 w-64 flex-shrink-0">
-            <div className="bg-white rounded-2xl p-5 shadow-sm flex items-center gap-3">
-              <p className="text-black font-black text-4xl leading-none">50%</p>
-              <p className="text-gray-600 text-xs leading-snug">Average Quotation<br />Claiming Rate</p>
+            {/* Still mock — depends on the not-yet-started predictive model
+                (Objective 1.2). Yearly-scoped, deliberately independent of
+                both the Past X Months and specific-month filters above. */}
+            <div className="bg-white rounded-2xl p-5 shadow-sm flex flex-col gap-1">
+              <p className="text-gray-400 text-[10px]">As of {currentYear}</p>
+              <div className="flex items-center gap-3">
+                <p className="text-black font-black text-4xl leading-none">50%</p>
+                <p className="text-gray-600 text-xs leading-snug">Average Quotation<br />Claiming Rate</p>
+              </div>
             </div>
             <div className="bg-white rounded-2xl p-5 shadow-sm flex-1">
+              <p className="text-gray-400 text-[10px] text-center mb-1">As of {currentYear}</p>
               <h2 className="font-bold text-black text-sm mb-3 text-center">March Policy Forecast</h2>
               <ResponsiveContainer width="100%" height={170}>
                 <BarChart data={forecastData} barGap={8} barCategoryGap="25%" margin={{ top:8, right:8, left:-20, bottom:0 }}>
@@ -309,7 +388,11 @@ export default function QuotationsProposal() {
           </div>
         </div>
 
-        <FloodRiskModal isOpen={openFloodModal} onClose={() => setOpenFloodModal(false)} />
+        <FloodRiskModal
+          isOpen={!!floodModalQuotation}
+          onClose={() => setFloodModalQuotation(null)}
+          quotation={floodModalQuotation}
+        />
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ import Sidebar from "../components/sidebar";
 import UploadModal from "../components/UploadFileModal";
 import NeedsReviewModal from "../components/NeedsReviewModal";
 import { FullCalendarPicker } from "../components/DatePicker";
+import { fetchAllQuotations } from "../lib/quotations";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -54,6 +55,11 @@ function formatOrDash(value) {
 function formatCell(value, type) {
   if (type === "date") return formatDate(value);
   if (type === "currency") return formatCurrency(value);
+  // React renders a bare boolean as nothing, so any column whose value is a
+  // real true/false (e.g. flood_risk_flag) would silently render blank
+  // instead of "false" -- catches this by value, not by column `type`, so it
+  // also covers Motor Quotation's equivalent column whenever that's added.
+  if (typeof value === "boolean") return value ? "Yes" : "No";
   return formatOrDash(value);
 }
 
@@ -335,6 +341,10 @@ const MOTOR_QUOTATION_COLUMNS = [
   { id: "deductible", dataKey: "deductible", header: "Deductible", type: "currency", width: "min-w-[130px]" },
   { id: "plate_no", dataKey: "plate_no", header: "Plate No.", width: "min-w-[120px]" },
   { id: "total_amount_due", dataKey: "total_amount_due", header: "Total Amount Due", type: "currency", width: "min-w-[150px]" },
+  { id: "latitude", dataKey: "latitude", header: "Latitude", width: "min-w-[100px]" },
+  { id: "longitude", dataKey: "longitude", header: "Longitude", width: "min-w-[100px]" },
+  { id: "flood_risk_flag", dataKey: "flood_risk_flag", header: "Flood Risk Flag", width: "min-w-[130px]" },
+  { id: "flood_risk_category", dataKey: "flood_risk_category", header: "Flood Risk Category", width: "min-w-[150px]" },
 ];
 
 // Survey Report exposes every real field from FirePropertySurveyOut
@@ -613,45 +623,10 @@ export default function PolicyHolderInformation() {
     setQuotationLoading(true);
     setQuotationError(null);
     try {
-      const token = localStorage.getItem("token");
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      const [fpQRes, motorQRes, fpPRes, motorPRes, casesRes, phRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/fire-property/quotations`, { headers }),
-        axios.get(`${API_BASE_URL}/motor/quotations`, { headers }),
-        axios.get(`${API_BASE_URL}/fire-property/policies`, { headers }),
-        axios.get(`${API_BASE_URL}/motor/policies`, { headers }),
-        axios.get(`${API_BASE_URL}/insurance-cases`, { headers }),
-        axios.get(`${API_BASE_URL}/policyholders`, { headers }),
-      ]);
-      // Same case → policyholder join Policy/Vehicle already use. Client
-      // Name here is the RESOLVED policyholder, deliberately independent
-      // of insured_name (the raw literal field) — same relationship as
-      // Policy's Client Name vs Insured Name & Address.
-      const policyholderByCase = new Map(casesRes.data.map((c) => [c.id, c.policyholder_id]));
-      const nameByPolicyholder = new Map(
-        phRes.data.map((p) => [p.id, [p.first_name, p.middle_name, p.last_name].filter(Boolean).join(" ")])
-      );
-      const resolveClientName = (caseId) => nameByPolicyholder.get(policyholderByCase.get(caseId)) || null;
-      // null (not "—") when absent — formatOrDash renders it, same as every
-      // other empty field, instead of a special "no policy yet" string.
-      const fpPolicyByQuotation = new Map(fpPRes.data.map((p) => [p.quotation_id, p.policy_no || null]));
-      const motorPolicyByQuotation = new Map(motorPRes.data.map((p) => [p.quotation_id, p.policy_no || null]));
-
-      // Raw API fields are spread as-is so they line up 1:1 with
-      // FIRE_QUOTATION_COLUMNS/MOTOR_QUOTATION_COLUMNS's dataKeys below.
-      const fp = fpQRes.data.map((q) => ({
-        ...q,
-        line: "Fire & Property",
-        client_name: resolveClientName(q.insurance_case_id),
-        converted_policy_no: fpPolicyByQuotation.get(q.id) ?? null,
-      }));
-      const motor = motorQRes.data.map((q) => ({
-        ...q,
-        line: "Motor Car",
-        client_name: resolveClientName(q.insurance_case_id),
-        converted_policy_no: motorPolicyByQuotation.get(q.id) ?? null,
-      }));
-      setQuotationRecords([...fp, ...motor]);
+      // Shared with the Quotations/Proposal page's table — see
+      // src/lib/quotations.js for the case→policyholder join and the
+      // quotation→policy "converted" lookup this used to do inline.
+      setQuotationRecords(await fetchAllQuotations());
     } catch (err) {
       setQuotationError("Failed to load quotations.");
     } finally {

@@ -121,7 +121,9 @@ class FirePropertySurveyCreate(BaseModel):
     latitude: Optional[Decimal] = None
     longitude: Optional[Decimal] = None
     flood_risk_flag: Optional[bool] = None
-    flood_risk_category: Optional[str] = None
+    flood_risk_category: Optional[str] = None  # combined worst-of-river-flood/storm-surge result
+    river_flood_category: Optional[str] = None
+    storm_surge_category: Optional[str] = None
 
     @field_validator("risk_class")
     @classmethod
@@ -274,6 +276,14 @@ class MotorQuotationCreate(BaseModel):
     deductible: Optional[Decimal] = None
     plate_no: Optional[str] = None
     total_amount_due: Optional[Decimal] = None
+
+    # GIS — usually filled in automatically by the flood-risk lookup service, optional here
+    latitude: Optional[Decimal] = None
+    longitude: Optional[Decimal] = None
+    flood_risk_flag: Optional[bool] = None
+    flood_risk_category: Optional[str] = None  # combined worst-of-river-flood/storm-surge result
+    river_flood_category: Optional[str] = None
+    storm_surge_category: Optional[str] = None
 
 
 class MotorQuotationOut(MotorQuotationCreate):
@@ -633,3 +643,41 @@ class OverviewStats(BaseModel):
     # Rolling 6-month window ending at the current month (not calendar-year
     # aligned), oldest first.
     monthly_line: list[OverviewMonthlyLineEntry]
+
+
+# ------------------------------------------------------------
+# QUOTATIONS / PROPOSAL PAGE STATS
+# ------------------------------------------------------------
+
+class QuotationProposalPieSlice(BaseModel):
+    name: str  # "Quotation" | "Converted Account"
+    value: int
+
+
+class QuotationProposalTrendEntry(BaseModel):
+    label: str  # rolling mode: month abbreviation (e.g. "Apr"); month mode: day-of-month (e.g. "1")
+    quotation_count: int  # total quotations (fire+motor) dated in this bucket
+    converted_count: int  # of those, how many have a linked policy
+
+
+class QuotationProposalStats(BaseModel):
+    date: date  # reference "today"
+
+    # Scoped to range_start/range_end below (rolling window OR the one
+    # selected month) — no longer all-time.
+    total_quotations: int
+    converted_accounts: int
+    conversion_rate: float  # converted_accounts / total_quotations * 100, 0 if total is 0
+
+    fire_pie: list[QuotationProposalPieSlice]
+    motor_pie: list[QuotationProposalPieSlice]
+
+    mode: str  # "rolling" | "month"
+    range_start: date  # inclusive bounds actually used to scope everything above + trend
+    range_end: date
+
+    months: int | None  # echoes the requested rolling window (3/6/12); null in month mode
+    year: int | None  # echoed back only in month mode
+    month: int | None  # echoed back only in month mode
+
+    trend: list[QuotationProposalTrendEntry]  # oldest → newest

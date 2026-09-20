@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.security import get_current_user
 from app import models, schemas
+from app.services.flood_risk import lookup_flood_risk
 
 router = APIRouter(
     prefix="",
@@ -104,7 +105,12 @@ def create_quotation(quotation: schemas.MotorQuotationCreate, db: Session = Depe
     if not vehicle:
         raise HTTPException(status_code=404, detail="Vehicle not found")
 
-    db_quotation = models.MotorQuotation(**quotation.model_dump())
+    quotation_fields = quotation.model_dump()
+    gis_fields = ("latitude", "longitude", "flood_risk_flag", "flood_risk_category")
+    if all(quotation_fields.get(f) is None for f in gis_fields):
+        quotation_fields.update(lookup_flood_risk(quotation_fields.get("address")))
+
+    db_quotation = models.MotorQuotation(**quotation_fields)
     db.add(db_quotation)
     db.commit()
     db.refresh(db_quotation)

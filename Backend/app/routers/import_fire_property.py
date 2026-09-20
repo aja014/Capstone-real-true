@@ -8,6 +8,7 @@ from app.database import get_db
 from app.security import get_current_user
 from app import models, schemas
 from app.routers import import_shared
+from app.services.flood_risk import lookup_flood_risk
 
 router = APIRouter(
     prefix="/import/fire-property",
@@ -456,6 +457,7 @@ def upload_surveys(file: UploadFile = File(...), db: Session = Depends(get_db)):
                 db.refresh(new_case)
 
                 survey_fields = {k: v for k, v in fields.items() if k != "name_of_insured"}
+                survey_fields.update(lookup_flood_risk(fields.get("location_of_risk")))
                 new_survey = models.FirePropertySurvey(
                     insurance_case_id=new_case.id,
                     name_of_insured=fields.get("name_of_insured"),
@@ -900,6 +902,7 @@ def resolve_for_policyholder(db: Session, record: models.ImportRecord, policyhol
     db.refresh(new_case)
 
     survey_fields = {k: v for k, v in fields.items() if k != "name_of_insured"}
+    survey_fields.update(lookup_flood_risk(fields.get("location_of_risk")))
     new_survey = models.FirePropertySurvey(
         insurance_case_id=new_case.id,
         name_of_insured=fields.get("name_of_insured"),
