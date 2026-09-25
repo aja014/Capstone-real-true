@@ -521,6 +521,8 @@ class ImportType(str, Enum):
     fire_property_policy = "fire_property_policy"
     motor_policy = "motor_policy"
     vehicle = "vehicle"
+    motor_claim = "motor_claim"
+    fire_property_claim = "fire_property_claim"
 
 
 class ImportRecordOut(BaseModel):
@@ -641,6 +643,8 @@ class ResolveImportRecord(BaseModel):
     # or (Policy import rows only, once matched_policyholder_id is already set on the
     # record) finalize the policy using this explicitly chosen quotation
     matched_quotation_id: Optional[int] = None
+    # or (Claims import rows only) create the claim against this explicitly chosen policy
+    matched_policy_id: Optional[int] = None
 
 
 class QuotationCandidate(BaseModel):
@@ -648,6 +652,14 @@ class QuotationCandidate(BaseModel):
     quotation_date: Optional[date] = None
     amount: Optional[Decimal] = None
     case_id: int
+
+
+class PolicyCandidate(BaseModel):
+    id: int
+    policy_no: Optional[str] = None
+    insured_name_address: Optional[str] = None
+    period_from: Optional[date] = None
+    period_to: Optional[date] = None
 
 
 # ------------------------------------------------------------

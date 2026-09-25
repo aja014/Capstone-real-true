@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.security import get_current_user
 from app import models, schemas
-from app.routers import import_policyholders, import_fire_property, import_motor, import_vehicle
+from app.routers import import_policyholders, import_fire_property, import_motor, import_vehicle, import_claims
 
 router = APIRouter(
     prefix="/import/batch",
@@ -75,6 +75,26 @@ IMPORT_TYPE_REGISTRY = [
         "column_map": import_vehicle.COLUMN_MAP,
         "upload_fn": import_vehicle.upload_vehicles,
     },
+    # Claims: the two lines share almost every column, so each lists the OTHER
+    # line's fingerprint as excluded_headers (Adjuster -> not Motor; Plate No./
+    # Coverage Type/Shop/Casa -> not Fire). ignored_headers are Maagap's formula/
+    # duplicate columns -- they count as claims headers but are never stored.
+    {
+        "key": models.ImportType.motor_claim,
+        "label": "Motor Claims",
+        "column_map": import_claims.MOTOR_CLAIM_COLUMN_MAP,
+        "upload_fn": import_claims.upload_motor_claims,
+        "ignored_headers": import_claims.IGNORED_HEADERS,
+        "excluded_headers": import_claims.FIRE_ONLY_HEADERS,
+    },
+    {
+        "key": models.ImportType.fire_property_claim,
+        "label": "Fire & Property Claims",
+        "column_map": import_claims.FIRE_CLAIM_COLUMN_MAP,
+        "upload_fn": import_claims.upload_fire_property_claims,
+        "ignored_headers": import_claims.IGNORED_HEADERS,
+        "excluded_headers": import_claims.MOTOR_ONLY_HEADERS,
+    },
 ]
 
 
@@ -113,7 +133,15 @@ def detect_headers(headers: list) -> list[dict]:
     file_headers_norm = {_normalize_header(h) for h in headers}
     candidates = []
     for entry in IMPORT_TYPE_REGISTRY:
-        score, matched_fields = score_against_map(file_headers_norm, entry["column_map"])
+        # Optional per-type keys (only the claims types use them today): a file
+        # carrying another type's excluded_headers can't be this type; ignored_headers
+        # count toward the score but aren't reported as matched fields.
+        if file_headers_norm & entry.get("excluded_headers", set()):
+            score, matched_fields = 0.0, []
+        else:
+            column_map = {**{h: "" for h in entry.get("ignored_headers", ())}, **entry["column_map"]}
+            score, matched_fields = score_against_map(file_headers_norm, column_map)
+            matched_fields = [f for f in matched_fields if f]
         candidates.append({
             "import_type": entry["key"],
             "label": entry["label"],
@@ -192,6 +220,9 @@ PROCESSING_PRIORITY = {
     models.ImportType.fire_property_quotation.value: 2,
     models.ImportType.fire_property_policy.value: 3,
     models.ImportType.motor_policy.value: 3,
+    # A claim links to a policy by Policy No., so policies in the same folder must land first.
+    models.ImportType.motor_claim.value: 4,
+    models.ImportType.fire_property_claim.value: 4,
 }
 
 

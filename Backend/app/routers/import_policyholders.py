@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.security import get_current_user
 from app import models, schemas
-from app.routers import import_fire_property, import_motor, import_vehicle, import_shared
+from app.routers import import_fire_property, import_motor, import_vehicle, import_shared, import_claims
 
 router = APIRouter(
     prefix="/import/policyholders",
@@ -380,6 +380,17 @@ def get_quotation_candidates(record_id: int, db: Session = Depends(get_db)):
     return _LIST_QUOTATION_CANDIDATES[record.import_type](db, record.matched_policyholder_id)
 
 
+@router.get("/records/{record_id}/policy-candidates", response_model=list[schemas.PolicyCandidate])
+def get_policy_candidates(record_id: int, db: Session = Depends(get_db)):
+    record = db.query(models.ImportRecord).filter(models.ImportRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Import record not found")
+    if record.import_type not in import_claims.LINES:
+        raise HTTPException(status_code=400, detail="This import type has no policy candidates")
+
+    return import_claims.list_policy_candidates(db, record)
+
+
 @router.patch("/records/{record_id}/resolve", response_model=schemas.ImportRecordOut)
 def resolve_import_record(
     record_id: int,
@@ -392,6 +403,21 @@ def resolve_import_record(
 
     if record.match_status != models.MatchStatus.needs_review:
         raise HTTPException(status_code=400, detail="Only needs_review records can be resolved")
+
+    # Claims rows — only ever stuck on which policy the claim belongs to, so they're
+    # resolved by picking a policy, never via the policyholder paths below.
+    if record.import_type in import_claims.LINES:
+        if not resolution.matched_policy_id:
+            raise HTTPException(status_code=400, detail="Claims rows are resolved by picking a policy (matched_policy_id)")
+        case_id, policyholder_id, status = import_claims.create_claim_for_policy(db, record, resolution.matched_policy_id)
+        record.matched_case_id = case_id
+        record.matched_policyholder_id = policyholder_id
+        record.match_status = status
+        db.commit()
+        db.refresh(record)
+        return record
+    if resolution.matched_policy_id:
+        raise HTTPException(status_code=400, detail="matched_policy_id only applies to Claims import rows")
 
     # Path A — finalize a Policy row using an explicitly chosen quotation. Only
     # reachable once the policyholder is already resolved (see get_quotation_candidates).

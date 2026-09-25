@@ -14,16 +14,21 @@ router = APIRouter(
 )
 
 
-def check_loss_within_period(date_of_loss, policy):
+def loss_period_error(date_of_loss, policy):
     # Only enforced when all three dates are known; bounds are inclusive.
+    # Shared with the claims importer (import_claims.py), which bypasses this router.
     if date_of_loss is None or policy.period_from is None or policy.period_to is None:
-        return
-    if not (policy.period_from <= date_of_loss <= policy.period_to):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Date of loss {date_of_loss} is outside the policy's coverage period "
-                   f"({policy.period_from} to {policy.period_to}).",
-        )
+        return None
+    if policy.period_from <= date_of_loss <= policy.period_to:
+        return None
+    return (f"Date of loss {date_of_loss} is outside the policy's coverage period "
+            f"({policy.period_from} to {policy.period_to}).")
+
+
+def check_loss_within_period(date_of_loss, policy):
+    error = loss_period_error(date_of_loss, policy)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
 
 
 # ------------------------------------------------------------

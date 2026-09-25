@@ -696,7 +696,8 @@ additive: 4 new tables `motor_claims`, `fire_property_claims`,
    rule, since PATCH re-validates the stored date of loss — an
    out-of-period imported claim would otherwise block unrelated edits.
 
-(Item 1 is DONE — see "Claims API (Phase 2)" below.)
+(Item 1 is DONE — see "Claims API (Phase 2)" below. Items 2 and 3 are DONE —
+see "Claims Importer (Phase 3)" below.)
 
 ## Claims API (Phase 2) — DONE (backend only, no frontend/importer yet)
 2026-09-25, branch `claims-phase1`. New `Backend/app/routers/claims.py`
@@ -755,6 +756,98 @@ movement, then delete claim → policy delete 200 + exactly one archive row;
 by exact id. All 23 tables' row counts matched the pre-change baseline,
 the 7 spot-check endpoints matched it byte for byte, and the existing 401
 checks were unchanged.
+
+## Claims Importer (Phase 3) — DONE (Claims tab / Claims Module pages still mock)
+2026-09-25, branch `claims-phase1`. New `Backend/app/routers/import_claims.py`
+(`/import/claims/motor/upload`, `/import/claims/fire-property/upload`),
+registered in `main.py`. Two new import types `motor_claim` /
+`fire_property_claim` (in BOTH `models.ImportType` and `schemas.ImportType`).
+
+**Schema change (explicitly approved exception)**: `import_records.import_type`
+is a native MySQL ENUM, so the 2 values were appended by hand:
+`ALTER TABLE import_records MODIFY import_type ENUM(<7 existing>,'motor_claim',
+'fire_property_claim') NOT NULL DEFAULT 'policyholder'`. Backup taken first
+(`Desktop\import_records_backup_pre_claims_import_20260925_215241.sql`);
+`SHOW CREATE TABLE` diff showed only that column changed; 251 rows and the
+per-type/status breakdown unchanged. Any future import type needs the same
+ALTER — adding to the Python enum alone makes inserts fail.
+
+**Columns**: the finalized Maagap claims headers (see `_COMMON_COLUMN_MAP`
++ Motor's Plate No./Coverage Type/Shop/Casa, Fire's Adjuster). "PLA Date
+(Date Reported)" and "PLA Date" both → `date_reported`. Optional "Claimant
+Name". Ignored if present: SN, No. of Days (As of Today), Turn-Around-Time,
+a second "Date of Loss" (pandas renames it "Date of Loss.1"), and "Assureds
+Name" (used as `assured` ONLY when the sheet has no "Assured" column).
+"Policy No." links the claim, it isn't stored on it.
+
+**Row rules**:
+- Read with `dtype=str`; `"-"`/`"–"`/`"—"`/blank → NULL (`clean_claim_cell`).
+- A row with nothing in any claims column (Maagap formula padding) is
+  skipped and left out of `total_rows`.
+- Fixed-list values → `schemas.canonical_choice()` (MUST DO item 2);
+  invalid → row fails, error names the field + allowed values.
+- Dates via `pd.to_datetime` (month-first, same as other importers), BUT an
+  unparseable date/amount FAILS the row instead of silently becoming NULL
+  (a silently-NULL date of loss would skip the coverage check). Amounts strip
+  commas, spaces, `₱`, `PHP` then parse as Decimal.
+- Coverage period via `claims.loss_period_error()` (shared with the API's
+  `check_loss_within_period`, same message) on import AND on resolve (MUST DO
+  item 3).
+- Policy link: `LOWER(TRIM(policy_no))` exact match on the line's policy
+  table. 0 or >1 match (or blank) → `needs_review`. Link is Policy No. ONLY —
+  no cross-check of Plate No. vs vehicle or Assured vs insured name
+  (decided by user).
+- Re-upload dedupe: a row is a duplicate (status `matched`, no claim created)
+  if a claim on the SAME policy has the same accuterm_claim_no, assured,
+  claimant_name, date_of_loss, nature_of_loss, claim_type (+ coverage_type,
+  plate_no for Motor); text compared trimmed/case-insensitive, blank == blank.
+  Progress fields are NOT in the key, so an updated re-export is skipped, not
+  applied. Unknown-policy rows re-queue a new needs_review record on re-upload
+  (same as other importers); resolving the copy is caught as a duplicate.
+- Created rows: `import_records` gets `matched_case_id`/`matched_policyholder_id`
+  from policy → quotation → case.
+
+**Needs Review**: `GET /import/policyholders/records/{id}/policy-candidates`
+(all policies of that line, closest Policy No. first) and a new
+`ResolveImportRecord.matched_policy_id` — checked FIRST in
+`resolve_import_record()`; claims rows reject the policyholder paths (400),
+non-claims rows reject `matched_policy_id` (400). `NeedsReviewModal.jsx` has a
+claims branch (policy picker + Confirm + trash). `UploadFileModal.jsx` lists
+both types in all 4 type maps.
+
+**Detection / Folder mode**: registry entries carry 2 optional keys only the
+claims types use — `ignored_headers` (count toward the score, not reported)
+and `excluded_headers` (the OTHER claims line's fingerprint: Adjuster → not
+Motor; Plate No./Coverage Type/Shop/Casa → not Fire). Without exclusions a
+Fire claims file scores ~95 against the Motor map (always ambiguous). A
+minimal claims file with only shared columns is deliberately ambiguous
+(manual pick), same as minimal policy files. `PROCESSING_PRIORITY` 4 for
+both — claims run after policies.
+
+**Open questions left undecided on purpose (data-planning stage; current
+behavior kept)**: (1) Maagap name markers like "… - TP: NAME" in Assured are
+stored verbatim, not parsed; (2) every row is its own claim — no decision on
+which statuses count as losses or rolling up OD+TP rows sharing an Accuterm
+No.; (3) Claim Investigation Result imported verbatim, blank stays NULL (no
+default); (4) re-uploads don't update existing claims' progress/label fields;
+(5) `-1500` parses as negative, `(1,500)` fails the row — meaning of
+negatives unknown.
+
+**Verified**: 41/41 feature checks + Customer Info regression (API-level,
+same 2 calls the Upload modal makes) — detection, field/canonical values,
+failures isolated per row, coverage period on import and resolve, `-` → NULL,
+ignored columns, optional Claimant Name, needs_review resolve/delete, re-upload
+dedupe, folder order (claims file sorted first alphabetically, policy still
+processed first and the claim linked to it), OD+TP as separate rows, 401 on
+new endpoints. Live browser click-through (later, same day) also passed:
+Motor claims file auto-detected as "Motor Claims" → "2 rows — 1 new, 1 needs
+review"; Needs Review policy picker → Confirm → row gone (33 → 32), claim
+created on the picked policy with canonical spellings; Customer Info upload
+via UI → 1 new. The Chrome extension is flaky here (screenshot timeouts;
+ref-clicks on the toolbar buttons don't open the modals — coordinate clicks
+do). All test data cleaned by exact id; 23 table counts, 7
+spot-checks, 401 checks and all 7 existing types' detection results matched
+the pre-change baseline; backend starts cleanly; `npm run build` succeeds.
 
 ## Known Remaining Issues (not yet fixed)
 - No delete endpoint exists yet for `insurance_cases` (quotations got one

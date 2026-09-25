@@ -12,6 +12,8 @@ const IMPORT_TARGETS = [
   { value: "motor", label: "Motor Quotations", endpoint: "/import/motor/quotations/upload" },
   { value: "motor_policy", label: "Motor Policies", endpoint: "/import/motor/policies/upload" },
   { value: "vehicle", label: "Vehicle Information", endpoint: "/import/vehicles/upload" },
+  { value: "motor_claim", label: "Motor Claims", endpoint: "/import/claims/motor/upload" },
+  { value: "fire_property_claim", label: "Fire & Property Claims", endpoint: "/import/claims/fire-property/upload" },
 ];
 
 // Mirrors Backend/app/routers/import_batch.py's IMPORT_TYPE_REGISTRY.
@@ -23,6 +25,8 @@ const BATCH_IMPORT_TYPES = [
   { value: "motor", label: "Motor Quotation" },
   { value: "motor_policy", label: "Motor Policy" },
   { value: "vehicle", label: "Vehicle Information" },
+  { value: "motor_claim", label: "Motor Claims" },
+  { value: "fire_property_claim", label: "Fire & Property Claims" },
 ];
 
 // IMPORT_TARGETS predates the backend's ImportType enum and kept its own
@@ -38,6 +42,8 @@ const DETECTED_TYPE_TO_IMPORT_TARGET = {
   motor: "motor",
   motor_policy: "motor_policy",
   vehicle: "vehicle",
+  motor_claim: "motor_claim",
+  fire_property_claim: "fire_property_claim",
 };
 const IMPORT_TARGET_TO_DETECTED_TYPE = {
   policyholders: "policyholder",
@@ -47,6 +53,8 @@ const IMPORT_TARGET_TO_DETECTED_TYPE = {
   motor: "motor",
   motor_policy: "motor_policy",
   vehicle: "vehicle",
+  motor_claim: "motor_claim",
+  fire_property_claim: "fire_property_claim",
 };
 
 // These 2 importers geocode every row's address for the flood-risk lookup

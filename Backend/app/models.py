@@ -46,6 +46,8 @@ class ImportType(str, enum.Enum):
     fire_property_policy = "fire_property_policy"
     motor_policy = "motor_policy"
     vehicle = "vehicle"                                  # standalone Vehicle Information import
+    motor_claim = "motor_claim"
+    fire_property_claim = "fire_property_claim"
 
 
 # ------------------------------------------------------------

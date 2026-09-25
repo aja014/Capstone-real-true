@@ -8,6 +8,9 @@ const API_BASE_URL = "http://127.0.0.1:8000";
 // existing quotation (no shared ID in the source data to auto-derive it from)
 // rather than linking/creating a policyholder — see quotation-candidates below.
 const POLICY_IMPORT_TYPES = ["fire_property_policy", "motor_policy"];
+// Claims rows are never stuck on a policyholder — only on which policy the claim
+// belongs to (Policy No. blank, unknown, or matching more than one).
+const CLAIM_IMPORT_TYPES = ["motor_claim", "fire_property_claim"];
 
 function formatAmount(amount) {
   if (amount === null || amount === undefined) return "—";
@@ -24,6 +27,8 @@ export default function NeedsReviewModal({ isOpen, onClose, records, loading, po
   const [selectedMatch, setSelectedMatch] = useState({}); // recordId -> policyholder id (string)
   const [selectedQuotation, setSelectedQuotation] = useState({}); // recordId -> quotation id (string)
   const [quotationCandidates, setQuotationCandidates] = useState({}); // recordId -> array | undefined (not fetched yet)
+  const [selectedPolicy, setSelectedPolicy] = useState({}); // recordId -> policy id (string)
+  const [policyCandidates, setPolicyCandidates] = useState({}); // recordId -> array | undefined (not fetched yet)
   const [busyId, setBusyId] = useState(null);
   const [rowError, setRowError] = useState({}); // recordId -> error message
 
@@ -35,6 +40,14 @@ export default function NeedsReviewModal({ isOpen, onClose, records, loading, po
   useEffect(() => {
     if (!isOpen) return;
     records.forEach((r) => {
+      if (CLAIM_IMPORT_TYPES.includes(r.import_type)) {
+        if (policyCandidates[r.id] !== undefined) return;
+        axios
+          .get(`${API_BASE_URL}/import/policyholders/records/${r.id}/policy-candidates`, { headers: authHeaders() })
+          .then((response) => setPolicyCandidates((prev) => ({ ...prev, [r.id]: response.data })))
+          .catch(() => setPolicyCandidates((prev) => ({ ...prev, [r.id]: [] })));
+        return;
+      }
       const needsPicker = POLICY_IMPORT_TYPES.includes(r.import_type) && r.matched_policyholder_id;
       if (!needsPicker || quotationCandidates[r.id] !== undefined) return;
 
@@ -110,6 +123,8 @@ export default function NeedsReviewModal({ isOpen, onClose, records, loading, po
             records.map((r) => {
               const needsPicker = POLICY_IMPORT_TYPES.includes(r.import_type) && r.matched_policyholder_id;
               const candidates = quotationCandidates[r.id];
+              const isClaim = CLAIM_IMPORT_TYPES.includes(r.import_type);
+              const policies = policyCandidates[r.id];
 
               return (
                 <div key={r.id} className="border border-gray-100 rounded-xl p-4">
@@ -124,7 +139,52 @@ export default function NeedsReviewModal({ isOpen, onClose, records, loading, po
                       ))}
                   </div>
 
-                  {needsPicker ? (
+                  {isClaim ? (
+                    policies === undefined ? (
+                      <p className="text-xs text-gray-400">Loading policies...</p>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-2">
+                        {policies.length === 0 ? (
+                          <p className="text-xs text-amber-600">
+                            No policies on file for this line — import the policy first.
+                          </p>
+                        ) : (
+                          <>
+                            <select
+                              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 max-w-[420px]"
+                              value={selectedPolicy[r.id] || ""}
+                              onChange={(e) => setSelectedPolicy((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                            >
+                              <option value="">Select policy...</option>
+                              {policies.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.policy_no || `Policy #${p.id}`} — {(p.insured_name_address || "").slice(0, 40)} ({p.period_from || "?"} to {p.period_to || "?"})
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              disabled={!selectedPolicy[r.id] || busyId === r.id}
+                              onClick={() => resolve(r.id, { matched_policy_id: Number(selectedPolicy[r.id]) })}
+                              className="flex items-center gap-1 text-xs font-medium bg-[#FBBF24] hover:bg-[#f0b30f] disabled:opacity-40 rounded-lg px-3 py-1.5 transition"
+                            >
+                              <Link2 className="w-3.5 h-3.5" /> Confirm
+                            </button>
+                          </>
+                        )}
+                        <button
+                          type="button"
+                          disabled={busyId === r.id}
+                          onClick={() => deleteRecord(r.id)}
+                          title="Discard this row"
+                          className="flex items-center gap-1 text-xs font-medium text-gray-400 hover:text-red-500 disabled:opacity-40 rounded-lg px-2 py-1.5 transition"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                        {busyId === r.id && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
+                      </div>
+                    )
+                  ) : needsPicker ? (
                     candidates === undefined ? (
                       <p className="text-xs text-gray-400">Loading quotation candidates...</p>
                     ) : candidates.length === 0 ? (
