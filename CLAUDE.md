@@ -1112,9 +1112,11 @@ confirmation of the exact row list.
    having enough real data flowing through the system first. GIS/flood-risk
    (Objective 2.1) is DONE (see "GIS Flood-Risk Lookup Service" above) and
    was one of the things this was blocked on.
-2. Frontend display of the new Motor Quotation GIS fields (latitude/
-   longitude/flood_risk_flag/flood_risk_category) — the Quotation tab's
-   `MOTOR_QUOTATION_COLUMNS` was NOT updated this session to add them (out
-   of scope for the backend lookup-service task); Fire/Property's
-   equivalent fields were already surfaced on the Survey Report tab before
-   this session.
+
+Frontend display of the Motor Quotation GIS fields (latitude/longitude/
+flood_risk_flag/flood_risk_category) on the Quotation tab's
+`MOTOR_QUOTATION_COLUMNS` — previously listed here as not yet done — was
+actually completed; re-confirmed live in a full pre-presentation validation
+pass (2026-09-22): the Quotation tab shows real, non-blank Latitude/
+Longitude/Flood Risk Flag/Flood Risk Category values for Motor Car rows
+that have them, matching Fire/Property's Survey Report tab treatment.
