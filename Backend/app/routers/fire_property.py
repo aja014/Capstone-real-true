@@ -209,8 +209,16 @@ def delete_policy(policy_id: int, db: Session = Depends(get_db)):
     if not db_policy:
         raise HTTPException(status_code=404, detail="Policy not found")
 
-    # No claims/renewals implemented yet, so nothing downstream depends on a
-    # policy — unlike policyholders, no blocking condition is needed here.
+    claim_count = db.query(models.FirePropertyClaim).filter(
+        models.FirePropertyClaim.fire_property_policy_id == policy_id
+    ).count()
+    if claim_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete: this policy has {claim_count} claim(s) on file. "
+                   "Remove or reassign those first.",
+        )
+
     snapshot = schemas.FirePropertyPolicyOut.model_validate(db_policy).model_dump(mode="json")
     archived = models.DeletedFirePropertyPolicy(original_id=db_policy.id, data=snapshot)
     db.add(archived)

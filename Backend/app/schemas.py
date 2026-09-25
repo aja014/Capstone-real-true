@@ -474,6 +474,15 @@ class FirePropertyClaimOut(FirePropertyClaimCreate):
         from_attributes = True
 
 
+class MotorClaimUpdate(MotorClaimCreate):
+    # PATCH — every field optional; inherits the canonical_choice validators.
+    motor_policy_id: Optional[int] = None
+
+
+class FirePropertyClaimUpdate(FirePropertyClaimCreate):
+    fire_property_policy_id: Optional[int] = None
+
+
 class DeletedMotorClaimOut(BaseModel):
     id: int
     original_id: int

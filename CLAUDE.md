@@ -692,14 +692,77 @@ additive: 4 new tables `motor_claims`, `fire_property_claims`,
 2. The future claims importer bypasses Pydantic, so it must normalize every
    fixed-list value through `schemas.canonical_choice()` / the option
    constants and store the canonical spelling — never the raw cell text.
+3. The claims importer must also enforce the date-of-loss coverage-period
+   rule, since PATCH re-validates the stored date of loss — an
+   out-of-period imported claim would otherwise block unrelated edits.
+
+(Item 1 is DONE — see "Claims API (Phase 2)" below.)
+
+## Claims API (Phase 2) — DONE (backend only, no frontend/importer yet)
+2026-09-25, branch `claims-phase1`. New `Backend/app/routers/claims.py`
+(`tags=["Claims"]`, router-wide `Depends(get_current_user)`), registered in
+`main.py` after `stats`. No schema/DB changes.
+
+**Endpoints** (Motor shown; Fire/Property is identical on
+`/fire-property/claims...` / `/deleted-fire-property-claims` with
+`fire_property_policy_id`):
+- `POST /motor/claims` (`MotorClaimCreate` → `MotorClaimOut`)
+- `GET /motor/claims` (optional `?motor_policy_id=` filter)
+- `GET /motor/claims/{claim_id}`
+- `PATCH /motor/claims/{claim_id}` (`MotorClaimUpdate` → `MotorClaimOut`)
+- `DELETE /motor/claims/{claim_id}` → `DeletedMotorClaimOut` —
+  unconditional archive-first (nothing depends on a claim)
+- `GET /deleted-motor-claims` — newest first by `deleted_at`
+
+**Validation rules**:
+- Policy must exist → 404 "Policy not found" (create, and PATCH against
+  either the new or the existing policy id). Missing claim → 404 "Claim
+  not found".
+- Fixed-list fields go through `canonical_choice()` (case-insensitive,
+  stored in canonical spelling, e.g. "paid claim" → "Paid Claim"); an
+  invalid value → 422. `MotorClaimUpdate`/`FirePropertyClaimUpdate` in
+  `schemas.py` subclass the Create schemas so they inherit the validators,
+  with the policy id made Optional.
+- Coverage period: `check_loss_within_period()` → 400 "Date of loss X is
+  outside the policy's coverage period (A to B)." Only enforced when
+  `date_of_loss`, `period_from` and `period_to` are all present; bounds
+  inclusive.
+- PATCH semantics: `model_dump(exclude_unset=True)` — unsent fields are
+  untouched, fields sent as null are cleared. Sending the policy id as null
+  → 400 "motor_policy_id cannot be empty" / "fire_property_policy_id cannot
+  be empty". The coverage check runs against the MERGED state (new-or-
+  stored date of loss vs new-or-stored policy), so a PATCH of an unrelated
+  field still fails if the stored date of loss is out of period (hence
+  MUST DO item 3 above).
+- Out schemas stay flat — no `policy_no` or computed aging/TAT fields in
+  the response; join in the frontend.
+
+**Policy-delete 409 fix** (MUST DO item 1): `DELETE /motor/policies/{id}`
+and `DELETE /fire-property/policies/{id}` now count claims on the policy
+right after the 404 check and return 409 "Cannot delete: this policy has N
+claim(s) on file. Remove or reassign those first." instead of hitting the
+RESTRICT FK as a raw 500. Policies with no claims behave exactly as before.
+
+**Verified** (66/66 checks, live `--reload` server, JWT via the app's own
+`create_access_token`): create/list/filter/get on both lines; PATCH
+(`updated_at` moves, `created_at` doesn't, unsent fields untouched, null
+clears); 404/422/400 rejections, all clean with no 500s, and rejected
+requests leave the stored row unchanged; case-insensitive canonicalisation
+(checked in the DB too); delete → archive snapshot + listing; throwaway
+policy chains ("Kilo ClaimTest" / "Lima ClaimTest") → 409 with zero row-count
+movement, then delete claim → policy delete 200 + exactly one archive row;
+401 without a token on all 12 new endpoints. All test rows were cleaned up
+by exact id. All 23 tables' row counts matched the pre-change baseline,
+the 7 spot-check endpoints matched it byte for byte, and the existing 401
+checks were unchanged.
 
 ## Known Remaining Issues (not yet fixed)
 - No delete endpoint exists yet for `insurance_cases` (quotations got one
   in a later session — see Frontend Status's Delete buttons bullet; the
   original gap was surfaced when a leftover test quotation, `FP-Q-3`, had
   to be removed via raw SQL instead of through the API).
-- Claims tab remains fully mock/blocked — no claims backend exists yet
-  (see Study Objective 1.3 above; not new, just reconfirmed this session).
+- Claims tab remains fully mock — the claims backend API now exists (see
+  "Claims API (Phase 2)") but no frontend is wired to it yet.
 
 See "Duplicate usernames in `users`" below for the last previously-tracked
 issue, which is fixed.
