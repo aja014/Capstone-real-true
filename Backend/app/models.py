@@ -226,6 +226,26 @@ class DeletedFirePropertySurvey(Base):
     deleted_by = Column(String(255), nullable=True)
 
 
+class DeletedMotorClaim(Base):
+    __tablename__ = "deleted_motor_claims"
+
+    id = Column(Integer, primary_key=True, index=True)
+    original_id = Column(Integer, nullable=False)
+    data = Column(JSON, nullable=False)
+    deleted_at = Column(DateTime, server_default=func.now())
+    deleted_by = Column(String(255), nullable=True)
+
+
+class DeletedFirePropertyClaim(Base):
+    __tablename__ = "deleted_fire_property_claims"
+
+    id = Column(Integer, primary_key=True, index=True)
+    original_id = Column(Integer, nullable=False)
+    data = Column(JSON, nullable=False)
+    deleted_at = Column(DateTime, server_default=func.now())
+    deleted_by = Column(String(255), nullable=True)
+
+
 # ------------------------------------------------------------
 # FIRE / PROPERTY
 # ------------------------------------------------------------
@@ -436,6 +456,85 @@ class MotorPolicy(Base):
 
 
 # ------------------------------------------------------------
+# CLAIMS (Objective 1.3 — Fraud Detection groundwork)
+# ------------------------------------------------------------
+# Fixed-list fields are String + Pydantic validation (schemas.py), same as
+# risk_class — not SQL ENUM, so a new Maagap value never needs an ALTER.
+# Relationships are one-way (claim -> policy) so the existing policy
+# classes stay untouched. ON DELETE RESTRICT: a policy with claims on file
+# cannot be deleted at the DB level.
+
+class MotorClaim(Base):
+    __tablename__ = "motor_claims"
+
+    id = Column(Integer, primary_key=True, index=True)  # system claim ID
+    motor_policy_id = Column(Integer, ForeignKey("motor_policies.id", ondelete="RESTRICT"), nullable=False)
+
+    accuterm_claim_no = Column(String(100))  # NOT unique — OD + TP rows of one accident share it; CNC may have none
+    assured = Column(String(200))
+    claimant_name = Column(String(200))      # third-party claimant, e.g. "... - TP: MARIO SANTOS"
+    plate_no = Column(String(30))            # may be a third party's plate for TPPD claims
+    date_reported = Column(Date)             # Maagap's "PLA Date"
+    date_of_loss = Column(Date)
+    date_docs_submitted = Column(Date)
+    nature_of_loss = Column(String(50))      # see schemas.MOTOR_NATURE_OF_LOSS_OPTIONS
+    coverage_type = Column(String(50))       # see schemas.MOTOR_COVERAGE_TYPE_OPTIONS
+    claim_type = Column(String(50))          # see schemas.CLAIM_TYPE_OPTIONS
+    updates = Column(Text)
+    date_updated = Column(Date)
+    agent_name = Column(String(150))
+    repair_estimate_amount = Column(DECIMAL(15, 2))
+    loa_received_date = Column(Date)
+    loa_no = Column(String(100))
+    loa_amount = Column(DECIMAL(15, 2))
+    net_liability = Column(DECIMAL(15, 2))
+    shop_casa = Column(String(200))
+    status = Column(String(255))             # free-text progress note
+    billing_date_remarks = Column(Text)      # mixed date/text in source
+    final_status = Column(String(50))        # see schemas.CLAIM_FINAL_STATUS_OPTIONS
+    claim_investigation_result = Column(String(50))  # fraud LABEL for training, not a model prediction
+
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    motor_policy = relationship("MotorPolicy")
+
+
+class FirePropertyClaim(Base):
+    __tablename__ = "fire_property_claims"
+
+    id = Column(Integer, primary_key=True, index=True)  # system claim ID
+    fire_property_policy_id = Column(Integer, ForeignKey("fire_property_policies.id", ondelete="RESTRICT"), nullable=False)
+
+    accuterm_claim_no = Column(String(100))  # NOT unique
+    assured = Column(String(200))
+    claimant_name = Column(String(200))
+    date_reported = Column(Date)             # Maagap's "PLA Date"
+    date_of_loss = Column(Date)
+    date_docs_submitted = Column(Date)
+    nature_of_loss = Column(String(50))      # see schemas.FIRE_NATURE_OF_LOSS_OPTIONS
+    claim_type = Column(String(50))          # see schemas.CLAIM_TYPE_OPTIONS
+    updates = Column(Text)
+    date_updated = Column(Date)
+    agent_name = Column(String(150))
+    repair_estimate_amount = Column(DECIMAL(15, 2))
+    loa_received_date = Column(Date)
+    loa_no = Column(String(100))
+    loa_amount = Column(DECIMAL(15, 2))
+    net_liability = Column(DECIMAL(15, 2))
+    adjuster = Column(String(200))
+    status = Column(String(255))             # free-text progress note
+    billing_date_remarks = Column(Text)      # mixed date/text in source
+    final_status = Column(String(50))        # see schemas.CLAIM_FINAL_STATUS_OPTIONS
+    claim_investigation_result = Column(String(50))  # fraud LABEL for training, not a model prediction
+
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    fire_property_policy = relationship("FirePropertyPolicy")
+
+
+# ------------------------------------------------------------
 # PREDICTIVE RISK (placeholder — model/algorithm not finalized yet)
 # ------------------------------------------------------------
 
@@ -454,7 +553,6 @@ class RiskPrediction(Base):
 
 # ------------------------------------------------------------
 # NOT YET INCLUDED (do not fabricate — build once real data/fields arrive):
-#   - Claim            -> will link to fire_property_policies / motor_policies via policy_no
-#   - FraudAssessment   -> depends on Claim data
+#   - FraudAssessment / model-prediction columns -> later phase (claims tables above hold only the label)
 #   - Renewal           -> will link via renewing_policy_no on the policy tables above
 # ------------------------------------------------------------

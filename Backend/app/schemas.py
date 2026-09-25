@@ -329,6 +329,172 @@ class MotorPolicyOut(MotorPolicyCreate):
 
 
 # ------------------------------------------------------------
+# CLAIMS (Objective 1.3) — option lists are module-level so a future
+# claims importer (which bypasses Pydantic) can reuse the same values
+# ------------------------------------------------------------
+
+MOTOR_NATURE_OF_LOSS_OPTIONS = ("Collision", "Flood", "Theft/Carnapping", "Fire", "Vandalism", "Other")
+FIRE_NATURE_OF_LOSS_OPTIONS = ("Fire", "Flood", "Typhoon", "Earthquake", "Lightning", "Other")
+MOTOR_COVERAGE_TYPE_OPTIONS = ("Own Damage", "Third Party Property Damage", "Third Party Bodily Injury/Death")
+CLAIM_TYPE_OPTIONS = ("Paid Claim", "CNC Issuance")
+CLAIM_FINAL_STATUS_OPTIONS = (
+    "No Docs. Submitted", "Waiting for Evaluation", "Waiting for LOA",
+    "Waiting for Billing", "Waiting for Claim Check", "Closed Claim",
+    "Denied Claim", "CNC Only", "Not Push Through", "With Lacking Docs",
+    "Hold per Client",
+)
+CLAIM_INVESTIGATION_RESULT_OPTIONS = ("Legitimate", "Suspected Fraud", "Confirmed Fraud")
+
+
+def canonical_choice(v, options, field_name):
+    # Same behavior as the risk-assessment validators above: blank passes
+    # through, match is case-insensitive, stored value is the canonical spelling.
+    if v is None or v == "":
+        return v
+    match = next((opt for opt in options if opt.lower() == v.strip().lower()), None)
+    if not match:
+        raise ValueError(f'{field_name} must be one of: {", ".join(options)}')
+    return match
+
+
+class MotorClaimCreate(BaseModel):
+    motor_policy_id: int  # required — a claim must link to the policy it was filed against
+
+    accuterm_claim_no: Optional[str] = None
+    assured: Optional[str] = None
+    claimant_name: Optional[str] = None
+    plate_no: Optional[str] = None
+    date_reported: Optional[date] = None
+    date_of_loss: Optional[date] = None
+    date_docs_submitted: Optional[date] = None
+    nature_of_loss: Optional[str] = None
+    coverage_type: Optional[str] = None
+    claim_type: Optional[str] = None
+    updates: Optional[str] = None
+    date_updated: Optional[date] = None
+    agent_name: Optional[str] = None
+    repair_estimate_amount: Optional[Decimal] = None
+    loa_received_date: Optional[date] = None
+    loa_no: Optional[str] = None
+    loa_amount: Optional[Decimal] = None
+    net_liability: Optional[Decimal] = None
+    shop_casa: Optional[str] = None
+    status: Optional[str] = None
+    billing_date_remarks: Optional[str] = None
+    final_status: Optional[str] = None
+    claim_investigation_result: Optional[str] = None
+
+    @field_validator("nature_of_loss")
+    @classmethod
+    def validate_nature_of_loss(cls, v):
+        return canonical_choice(v, MOTOR_NATURE_OF_LOSS_OPTIONS, "nature_of_loss")
+
+    @field_validator("coverage_type")
+    @classmethod
+    def validate_coverage_type(cls, v):
+        return canonical_choice(v, MOTOR_COVERAGE_TYPE_OPTIONS, "coverage_type")
+
+    @field_validator("claim_type")
+    @classmethod
+    def validate_claim_type(cls, v):
+        return canonical_choice(v, CLAIM_TYPE_OPTIONS, "claim_type")
+
+    @field_validator("final_status")
+    @classmethod
+    def validate_final_status(cls, v):
+        return canonical_choice(v, CLAIM_FINAL_STATUS_OPTIONS, "final_status")
+
+    @field_validator("claim_investigation_result")
+    @classmethod
+    def validate_claim_investigation_result(cls, v):
+        return canonical_choice(v, CLAIM_INVESTIGATION_RESULT_OPTIONS, "claim_investigation_result")
+
+
+class MotorClaimOut(MotorClaimCreate):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class FirePropertyClaimCreate(BaseModel):
+    fire_property_policy_id: int  # required — a claim must link to the policy it was filed against
+
+    accuterm_claim_no: Optional[str] = None
+    assured: Optional[str] = None
+    claimant_name: Optional[str] = None
+    date_reported: Optional[date] = None
+    date_of_loss: Optional[date] = None
+    date_docs_submitted: Optional[date] = None
+    nature_of_loss: Optional[str] = None
+    claim_type: Optional[str] = None
+    updates: Optional[str] = None
+    date_updated: Optional[date] = None
+    agent_name: Optional[str] = None
+    repair_estimate_amount: Optional[Decimal] = None
+    loa_received_date: Optional[date] = None
+    loa_no: Optional[str] = None
+    loa_amount: Optional[Decimal] = None
+    net_liability: Optional[Decimal] = None
+    adjuster: Optional[str] = None
+    status: Optional[str] = None
+    billing_date_remarks: Optional[str] = None
+    final_status: Optional[str] = None
+    claim_investigation_result: Optional[str] = None
+
+    @field_validator("nature_of_loss")
+    @classmethod
+    def validate_nature_of_loss(cls, v):
+        return canonical_choice(v, FIRE_NATURE_OF_LOSS_OPTIONS, "nature_of_loss")
+
+    @field_validator("claim_type")
+    @classmethod
+    def validate_claim_type(cls, v):
+        return canonical_choice(v, CLAIM_TYPE_OPTIONS, "claim_type")
+
+    @field_validator("final_status")
+    @classmethod
+    def validate_final_status(cls, v):
+        return canonical_choice(v, CLAIM_FINAL_STATUS_OPTIONS, "final_status")
+
+    @field_validator("claim_investigation_result")
+    @classmethod
+    def validate_claim_investigation_result(cls, v):
+        return canonical_choice(v, CLAIM_INVESTIGATION_RESULT_OPTIONS, "claim_investigation_result")
+
+
+class FirePropertyClaimOut(FirePropertyClaimCreate):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DeletedMotorClaimOut(BaseModel):
+    id: int
+    original_id: int
+    data: dict[str, Any]
+    deleted_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DeletedFirePropertyClaimOut(BaseModel):
+    id: int
+    original_id: int
+    data: dict[str, Any]
+    deleted_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ------------------------------------------------------------
 # BULK IMPORT & VALIDATION
 # ------------------------------------------------------------
 

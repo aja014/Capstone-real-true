@@ -58,7 +58,9 @@ Study objectives (do not lose these from scope):
 Tables: users, policyholders, insurance_cases, import_records,
 deleted_policyholders, deleted_import_records,
 fire_property_surveys, fire_property_quotations, fire_property_policies,
-vehicles, motor_quotations, motor_policies, risk_predictions.
+vehicles, motor_quotations, motor_policies, risk_predictions,
+motor_claims, fire_property_claims (+ deleted_* archives for both — see
+"Claims tables (Phase 1)").
 
 - `deleted_policyholders` / `deleted_import_records`: archive tables for
   deletes (see "Delete + archive pattern" below). New tables rather than a
@@ -84,8 +86,9 @@ design:
 - Deliberately KEPT `policy_no` / `renewing_policy_no` everywhere — these are
   the anchor fields future claims/renewal data will join against. Do not
   remove these even though claims/renewal aren't implemented yet.
-- NOT YET BUILT (do not fabricate): Claim, FraudAssessment, Renewal tables —
-  wait for real data/field definitions before designing these.
+- NOT YET BUILT (do not fabricate): FraudAssessment, Renewal tables —
+  wait for real data/field definitions before designing these. (Claims
+  tables now exist — see "Claims tables (Phase 1)" below.)
 - `risk_class` is a single character: "a" (concrete) or "b" (concrete &
   wood/light materials) — validated both in Pydantic (manual endpoint) and
   explicitly in the bulk import row parser (which bypasses Pydantic).
@@ -650,6 +653,45 @@ not configurable) and each hazard's individual result kept in its own new
 column (`river_flood_category`, `storm_surge_category`) for future ML use.
 See "GIS Flood-Risk Lookup Service" above for the implementation and
 verification.
+
+## Claims tables (Phase 1) — DONE (tables + schemas only, no endpoints)
+Objective 1.3 groundwork, 2026-09-25, branch `claims-phase1`. Purely
+additive: 4 new tables `motor_claims`, `fire_property_claims`,
+`deleted_motor_claims`, `deleted_fire_property_claims` (created by
+`create_all()`); no existing table, router, or frontend file touched.
+- `motor_claims.motor_policy_id` → `motor_policies.id` and
+  `fire_property_claims.fire_property_policy_id` → `fire_property_policies.id`,
+  both NOT NULL, explicit `ON DELETE RESTRICT`. Relationships are one-way
+  (claim → policy); `MotorPolicy`/`FirePropertyPolicy` classes unchanged.
+- Fire differs from Motor: no `plate_no`, no `coverage_type`, `adjuster`
+  instead of `shop_casa`, its own `nature_of_loss` list.
+- `accuterm_claim_no` is deliberately NOT unique (OD + TP rows of one
+  accident share it; CNC rows may have none).
+- `claim_investigation_result` (Legitimate / Suspected Fraud / Confirmed
+  Fraud) is the human fraud LABEL for training — not a model prediction.
+  Prediction columns come in a later phase, kept separate.
+- Fixed lists are `String(50)` + Pydantic validation (same convention as
+  `risk_class`), not SQL ENUM. Option tuples are module-level constants in
+  `schemas.py` (`MOTOR_NATURE_OF_LOSS_OPTIONS`, `FIRE_NATURE_OF_LOSS_OPTIONS`,
+  `MOTOR_COVERAGE_TYPE_OPTIONS`, `CLAIM_TYPE_OPTIONS`,
+  `CLAIM_FINAL_STATUS_OPTIONS`, `CLAIM_INVESTIGATION_RESULT_OPTIONS`) plus a
+  `canonical_choice()` helper (case-insensitive, stores canonical spelling).
+- `created_at` + `updated_at` (claims are edited over their lifecycle, same
+  as `policyholders`). Not stored, computed later: days-as-of-today, TAT.
+- Schemas: `MotorClaimCreate/Out`, `FirePropertyClaimCreate/Out`,
+  `DeletedMotorClaimOut`, `DeletedFirePropertyClaimOut`. No router registered.
+- Backup taken before this change: `Desktop\insurance_db_backup_pre_claims_20260925_103721.sql`
+  + git checkpoint `5bdcb0f` on `main`. Verified: all 19 pre-existing tables'
+  row counts and raw `SHOW CREATE TABLE` identical before/after; 7 API
+  spot-checks returned byte-identical bodies; 401 checks unchanged.
+
+**MUST DO in later claims phases (agreed with user):**
+1. Before ANY claim row is created, the existing policy DELETE endpoints
+   (`fire_property.py` / `motor_car.py`) must check for claims and return a
+   clean 409 — otherwise the RESTRICT FK makes them fail with a raw 500.
+2. The future claims importer bypasses Pydantic, so it must normalize every
+   fixed-list value through `schemas.canonical_choice()` / the option
+   constants and store the canonical spelling — never the raw cell text.
 
 ## Known Remaining Issues (not yet fixed)
 - No delete endpoint exists yet for `insurance_cases` (quotations got one
