@@ -1016,6 +1016,46 @@ synthetic learning dataset (~850 people / ~1,750 policies / ~490 claims).
   no longer geocode at all via Nominatim — expect some real barangay addresses to
   come back `not_found`.
 
+## Data Prep Change 5 — Reset script — DONE (written, NOT run)
+2026-09-26, branch `data-prep`. **`Backend/scripts/reset_data.sql`** — plain SQL,
+runs in MySQL Workbench or the `mysql` client. Meant to run ONCE, right before the
+synthetic data load, AFTER a full backup
+(`mysqldump -u root -p --single-transaction insurance_db > insurance_db_backup_pre_reset_<date>.sql`).
+TRUNCATE auto-commits — not reversible without that backup. **Never run by an
+assistant without an explicit instruction to run it.**
+- **Clears (TRUNCATE, which also resets auto-increment to 1) — 22 tables**:
+  policyholders, insurance_cases, fire_property_surveys, fire_property_quotations,
+  fire_property_policies, fire_property_claims, vehicles, motor_quotations,
+  motor_policies, motor_claims, import_records, risk_predictions, and all 10
+  `deleted_*` archives. FK checks off only around the truncates.
+- **Keeps**: `geocode_cache` (never cleared) and ONE user — username exactly
+  `Aaron James` (id 10, role manager). All other users are deleted (as of
+  2026-09-26: james 3, aldrin 5, manager 8, test 47, test1 48 — confirmed by the
+  user). `users` has no archive table; `users`' auto-increment is not reset.
+  There is no migration/version table (no Alembic).
+- **Safety**: a guard `SELECT` runs first and raises "Subquery returns more than 1
+  row" (stopping the script) unless exactly one `BINARY username = 'Aaron James'`
+  exists; the users `DELETE` additionally has an `EXISTS` keeper check (deletes
+  nothing if the keeper is missing). `SQL_SAFE_UPDATES` is switched off and
+  restored (Workbench Safe Update Mode would block the users DELETE). Ends with a
+  verification SELECT (every cleared table 0, users 1, geocode_cache count).
+- **Accounts after the reset**: only Aaron James (manager) remains. A manager can
+  create new accounts via Settings → Create Account (`POST /users`, manager-only,
+  403 otherwise), but the new account is ALWAYS role `admin` — no UI/endpoint can
+  create another manager (only SQL can). Nothing in the app is admin-only: the
+  backend has no admin-role checks and the admin role can reach only `/policy`,
+  which managers can also reach.
+- **Maintenance**: any NEW table added later must be added to this script (or
+  deliberately listed as kept).
+- **Verified without running it**: static checks against `SHOW TABLES` (24
+  tables = 22 cleared + geocode_cache kept + users partial; no table missing or
+  duplicated; geocode_cache never truncated/deleted; users only ever DELETEd, never
+  truncated; no DROP/ALTER/UPDATE/INSERT; FK checks re-enabled; guard precedes
+  every destructive statement). The guard's SELECT alone (read-only) returned
+  "OK: keeper user found", and with a wrong name raised error 1242 as designed.
+  All 24 table counts, 12 spot-check endpoints and 10 × 401 checks identical
+  before/after creating the file.
+
 ## ⚠️ Importer-wide: cells containing None / NA / N/A / null are read as BLANK
 pandas' default NA list (`None`, `NA`, `N/A`, `n/a`, `null`, `NULL`, `nan`,
 `NaN`, `#N/A`, ... — confirmed on pandas 3.0.5) converts those exact cell texts
@@ -1464,22 +1504,10 @@ confirmation of the exact row list.
 ## Testing Conventions Established This Session
 - Always test with a FULL DATABASE RESET first for trustworthy results —
   leftover test data from earlier manual testing has caused false results
-  more than once. Reset script:
-  ```sql
-  SET FOREIGN_KEY_CHECKS = 0;
-  TRUNCATE TABLE import_records;
-  TRUNCATE TABLE risk_predictions;
-  TRUNCATE TABLE motor_policies;
-  TRUNCATE TABLE motor_quotations;
-  TRUNCATE TABLE vehicles;
-  TRUNCATE TABLE fire_property_policies;
-  TRUNCATE TABLE fire_property_quotations;
-  TRUNCATE TABLE fire_property_surveys;
-  TRUNCATE TABLE insurance_cases;
-  TRUNCATE TABLE policyholders;
-  SET FOREIGN_KEY_CHECKS = 1;
-  ```
-  (Never touches `users`.)
+  more than once. Reset script: **`Backend/scripts/reset_data.sql`** (see the
+  "Reset script" section below — backup first). The old inline version that
+  used to live here missed the claims tables and every `deleted_*` table, and
+  (unlike the new script) never touched `users`.
 - Prefer building a small realistic Excel test file that deliberately
   targets the specific edge case being tested (exact duplicate, near-
   duplicate with a different-but-related record, a genuinely different
