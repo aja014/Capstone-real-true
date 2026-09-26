@@ -31,6 +31,7 @@ COLUMN_MAP = {
     "plateno": "plate_no",
     "bank": "bank",
     "totalamountdue": "total_amount_due",
+    "suminsured": "sum_insured",
     # Vehicle Description fields
     "model": "model",
     "make": "make",
@@ -55,6 +56,7 @@ MOTOR_POLICY_COLUMN_MAP = {
     "coino": "coi_no",
     "endorsementno": "endorsement_no",
     "totalamountdue": "total_amount_due",
+    "suminsured": "sum_insured",
     "replacingcovernoteno": "replacing_cover_note_no",
     "premiuminvoiceno": "premium_invoice_no",
     "officialreceiptno": "official_receipt_no",
@@ -92,7 +94,7 @@ def row_to_fields(row: pd.Series) -> dict:
             if cleaned is not None:
                 fields[mapped] = cleaned
 
-    for money_field in ("total_amount_due", "deductible"):
+    for money_field in ("total_amount_due", "deductible", "sum_insured"):
         if money_field in fields:
             cleaned = re.sub(r"[^\d.]", "", fields[money_field])
             fields[money_field] = cleaned if cleaned else None
@@ -115,7 +117,7 @@ def row_to_motor_policy_fields(row) -> dict:
             if cleaned is not None:
                 fields[mapped] = cleaned
 
-    for money_field in ("total_amount_due", "deductible"):
+    for money_field in ("total_amount_due", "deductible", "sum_insured"):
         if money_field in fields:
             cleaned = re.sub(r"[^\d.]", "", fields[money_field])
             fields[money_field] = cleaned if cleaned else None
@@ -243,6 +245,7 @@ def upload_motor_quotations(file: UploadFile = File(...), db: Session = Depends(
                         deductible=fields.get("deductible") or None,
                         plate_no=plate_no or None,
                         total_amount_due=fields.get("total_amount_due") or None,
+                        sum_insured=fields.get("sum_insured") or None,
                         **lookup_flood_risk(fields.get("address")),
                     )
                     db.add(new_quotation)
@@ -328,6 +331,7 @@ def upload_motor_quotations(file: UploadFile = File(...), db: Session = Depends(
                     deductible=fields.get("deductible") or None,
                     plate_no=plate_no or None,
                     total_amount_due=fields.get("total_amount_due") or None,
+                    sum_insured=fields.get("sum_insured") or None,
                     **lookup_flood_risk(fields.get("address")),
                 )
                 db.add(new_quotation)
@@ -431,6 +435,7 @@ def resolve_for_policyholder(db: Session, record: models.ImportRecord, policyhol
             deductible=fields.get("deductible") or None,
             plate_no=plate_no or None,
             total_amount_due=fields.get("total_amount_due") or None,
+            sum_insured=fields.get("sum_insured") or None,
             **lookup_flood_risk(fields.get("address")),
         )
         db.add(new_quotation)
@@ -469,6 +474,7 @@ def resolve_for_policyholder(db: Session, record: models.ImportRecord, policyhol
         deductible=fields.get("deductible") or None,
         plate_no=plate_no or None,
         total_amount_due=fields.get("total_amount_due") or None,
+        sum_insured=fields.get("sum_insured") or None,
         **lookup_flood_risk(fields.get("address")),
     )
     db.add(new_quotation)

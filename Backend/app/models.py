@@ -411,6 +411,7 @@ class MotorQuotation(Base):
     deductible = Column(DECIMAL(15, 2))
     plate_no = Column(String(30))
     total_amount_due = Column(DECIMAL(15, 2))
+    sum_insured = Column(DECIMAL(15, 2))
 
     # GIS — populated after geocode + flood-hazard lookup (app/services/flood_risk.py)
     latitude = Column(DECIMAL(10, 7))
@@ -446,6 +447,7 @@ class MotorPolicy(Base):
     coi_no = Column(String(100))
     endorsement_no = Column(String(100))
     total_amount_due = Column(DECIMAL(15, 2))
+    sum_insured = Column(DECIMAL(15, 2))
 
     replacing_cover_note_no = Column(String(100))
     premium_invoice_no = Column(String(100))

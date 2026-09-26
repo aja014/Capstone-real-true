@@ -276,6 +276,7 @@ class MotorQuotationCreate(BaseModel):
     deductible: Optional[Decimal] = None
     plate_no: Optional[str] = None
     total_amount_due: Optional[Decimal] = None
+    sum_insured: Optional[Decimal] = None
 
     # GIS — usually filled in automatically by the flood-risk lookup service, optional here
     latitude: Optional[Decimal] = None
@@ -314,6 +315,7 @@ class MotorPolicyCreate(BaseModel):
     coi_no: Optional[str] = None
     endorsement_no: Optional[str] = None
     total_amount_due: Optional[Decimal] = None
+    sum_insured: Optional[Decimal] = None
     replacing_cover_note_no: Optional[str] = None
     premium_invoice_no: Optional[str] = None
     official_receipt_no: Optional[str] = None

@@ -849,7 +849,45 @@ do). All test data cleaned by exact id; 23 table counts, 7
 spot-checks, 401 checks and all 7 existing types' detection results matched
 the pre-change baseline; backend starts cleanly; `npm run build` succeeds.
 
+## Data Prep Change 1 — Motor Sum Insured — DONE
+2026-09-26, branch `data-prep`. First of 5 approved changes preparing for the
+synthetic learning dataset (~850 people / ~1,750 policies / ~490 claims).
+- **Schema** (manual ALTER, `create_all()` caveat as always; backup first:
+  `Desktop\motor_tables_backup_pre_sum_insured_20260926_150621.sql`, 31 + 27 rows):
+  `ALTER TABLE motor_quotations ADD COLUMN sum_insured DECIMAL(15,2) NULL AFTER total_amount_due`
+  and the same on `motor_policies`. `SHOW CREATE TABLE` diff = only that column.
+  Existing rows stay NULL.
+- `models.py` (`MotorQuotation.sum_insured`, `MotorPolicy.sum_insured`),
+  `schemas.py` (`MotorQuotationCreate`/`MotorPolicyCreate`; Out schemas and
+  deleted-archive snapshots inherit it). There are NO motor Update schemas /
+  PATCH endpoints — the manual POSTs pass `model_dump()` straight through, so
+  they accept the field with no router change.
+- `import_motor.py`: header "Sum Insured" (`suminsured`) in BOTH `COLUMN_MAP`
+  and `MOTOR_POLICY_COLUMN_MAP`, parsed by the existing amount cleanup
+  (`[^\d.]` stripped, so `₱850,000.00` → 850000.00). Added explicitly to all 4
+  `models.MotorQuotation(...)` constructors (upload existing-vehicle/new-vehicle,
+  resolve existing-vehicle/new-vehicle); policies already use `**policy_fields`.
+- `policy.jsx`: "Sum Insured" currency column before Total Amount Due in
+  `MOTOR_QUOTATION_COLUMNS` and `MOTOR_POLICY_COLUMNS` (fetches already spread raw fields).
+- **Detection impact**: "Sum Insured" is now in both policy maps, so it no longer
+  distinguishes Fire vs Motor Policy. No auto-detect outcome changed for any of
+  15 synthetic header sets (all 9 types, full + minimal); only scores moved
+  (e.g. full Fire Policy runner-up Motor 68.4 → 73.7, still auto-detected). A
+  minimal policy file with only shared columns + Sum Insured was already
+  ambiguous before this change (gap 7.1 < 12) and still is.
+- **Verified**: ZZTEST 1-row Motor Quotation + Policy with Sum Insured → 850000.00
+  in DB, API and both tabs (browser, "₱850,000.00"); a pair WITHOUT the header
+  imported exactly as before (NULL, shown "—"). Regression: 23 table counts,
+  12 spot-check endpoints byte-identical (the 2 motor endpoints identical after
+  removing the new `sum_insured: null` key), 10 × 401 checks unchanged,
+  `npm run build` ok. Test rows deleted by exact id after a ZZTEST marker check.
+
 ## Known Remaining Issues (not yet fixed)
+- **Follow-up (Data Prep Change 1)**: the Renewal Ratio table still shows "—"
+  for Motor Sum Insured — `stats.py` (`/stats/renewal-ratio` row builder,
+  `"sum_insured": p.sum_insured if line == "Fire & Property" else None`)
+  hard-codes Motor to None. Left unchanged on purpose; switch to
+  `p.sum_insured` for both lines when wanted.
 - No delete endpoint exists yet for `insurance_cases` (quotations got one
   in a later session — see Frontend Status's Delete buttons bullet; the
   original gap was surfaced when a leftover test quotation, `FP-Q-3`, had
