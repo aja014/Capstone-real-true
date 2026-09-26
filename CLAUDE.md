@@ -882,6 +882,52 @@ synthetic learning dataset (~850 people / ~1,750 policies / ~490 claims).
   removing the new `sum_insured: null` key), 10 × 401 checks unchanged,
   `npm run build` ok. Test rows deleted by exact id after a ZZTEST marker check.
 
+## Data Prep Change 2 — Protection Facilities upload column (Fire Survey) — DONE
+2026-09-26, branch `data-prep`. No DB change (the JSON column already existed).
+- Before this, nothing in the system defined facility names: no manual Survey
+  form exists, the schema accepts any JSON object, 0/22 live surveys had a value,
+  and the only real example (a deleted survey) was a flat key→bool checklist
+  `{"fire_alarm": false, "sprinklers": true, "fire_extinguisher": true}`.
+- `schemas.py`: `PROTECTION_FACILITY_OPTIONS` (32 display names → keys, taken
+  from Maagap's real Survey Report paper form; keeps the 3 existing keys
+  `sprinklers`, `fire_alarm`, `fire_extinguisher`) + `PROTECTION_FACILITY_ALIASES`
+  (only "Sprinkler", "Sprinklers", "Fire Alarm", "CCTV").
+- `import_fire_property.py`: header "Protection Facilities" in `SURVEY_COLUMN_MAP`;
+  `parse_protection_facilities()` called from `row_to_survey_fields()` (so the
+  needs-review resolve path gets it too). Cell = comma-separated names (names
+  contain "/" but never commas), matched case/whitespace-insensitively with
+  spaces around "/" ignored. Stores the FULL checklist — all 32 keys true/false —
+  so "surveyed, not present" (false) differs from "not recorded" (NULL).
+  "None" → all 32 false. Blank cell / no column → NULL, unchanged. Unknown name
+  → row fails listing every allowed name; "None" mixed with names → row fails.
+  MySQL's JSON type re-sorts object keys on storage (content identical).
+- **pandas "None" gotcha, fixed for this column only**: pandas' default NA list
+  turns the literal text `None` into NaN (even with `dtype=str`), so "None" was
+  arriving as blank. `_keep_literal_protection_facilities()` in `upload_surveys`
+  re-reads the sheet with `keep_default_na=False, na_values=[""]` and replaces
+  ONLY the Protection Facilities column; every other Survey column keeps today's
+  parsing. The folder/batch path calls the same `upload_surveys`, so it's covered;
+  raw_data now keeps "None", so resolve re-parses it correctly.
+- The manual create endpoint is unchanged (still accepts any JSON object).
+- **Verified**: row with aliases/mixed case/"Fire Breaks / Doors" → 32 keys,
+  exactly the 4 expected true; "None" → 32 false (single-file .xlsx, folder
+  upload via `/import/batch/upload`, and .csv); blank cell and a file without the
+  column → NULL; "Fire Blanket" and "None, Automatic Sprinklers" failed with clear
+  messages without affecting other rows; stored raw_data "None" re-parses to all
+  false (resolve path). Regression: 23 counts, 12 spot-check endpoints byte-
+  identical, 10 × 401 unchanged, all detection outcomes unchanged (only the
+  full-Survey sample's runner-up score moved 5.1 → 5.0). Test rows deleted by
+  exact id after a ZZTEST marker check.
+
+## ⚠️ Importer-wide: cells containing None / NA / N/A / null are read as BLANK
+pandas' default NA list (`None`, `NA`, `N/A`, `n/a`, `null`, `NULL`, `nan`,
+`NaN`, `#N/A`, ... — confirmed on pandas 3.0.5) converts those exact cell texts
+to NaN in EVERY importer, including the ones reading with `dtype=str`
+(Customer Info, Claims). Such a cell is stored as NULL, not as the text. Only
+exception: the Survey "Protection Facilities" column (see Change 2). Data
+generators / real exports must never use these words as meaningful values
+(e.g. write Loss Record "No loss record", not "None").
+
 ## Known Remaining Issues (not yet fixed)
 - **Follow-up (Data Prep Change 1)**: the Renewal Ratio table still shows "—"
   for Motor Sum Insured — `stats.py` (`/stats/renewal-ratio` row builder,

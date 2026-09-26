@@ -73,6 +73,7 @@ SURVEY_COLUMN_MAP = {
 
     "overallriskassessment": "overall_risk_assessment",
     "surveyorriskacceptability": "surveyor_risk_acceptability",
+    "protectionfacilities": "protection_facilities",
 }
 
 FIRE_QUOTATION_COLUMN_MAP = {
@@ -150,6 +151,60 @@ def _validate_choice(value: str, choices: tuple, context: str, output_lower: boo
     return match.lower() if output_lower else match
 
 
+def _normalize_facility_name(name: str) -> str:
+    # Case/whitespace-insensitive, and "Fire Breaks / Doors" == "Fire Breaks/Doors".
+    return re.sub(r"\s*/\s*", "/", re.sub(r"\s+", " ", name.strip().lower()))
+
+
+_FACILITY_LOOKUP = {
+    _normalize_facility_name(label): key
+    for label, key in {**schemas.PROTECTION_FACILITY_OPTIONS, **schemas.PROTECTION_FACILITY_ALIASES}.items()
+}
+
+
+def parse_protection_facilities(value: str):
+    """
+    "Fire Extinguisher, Automatic Sprinklers" -> the FULL checklist, every key
+    true/false (so "surveyed, no sprinkler" is False, not missing). "None" -> every
+    key False. Unknown names, or "None" mixed with other names, fail the row --
+    same approach as risk_class. A cell with no names at all returns None (field
+    left unset, same as a blank cell).
+    """
+    names = [n.strip() for n in value.split(",") if n.strip()]
+    if not names:
+        return None
+    normalized = [_normalize_facility_name(n) for n in names]
+    all_keys = schemas.PROTECTION_FACILITY_OPTIONS.values()
+
+    if "none" in normalized:
+        if len(set(normalized)) > 1:
+            raise ValueError('Protection Facilities: "None" cannot be combined with other facilities')
+        return {key: False for key in all_keys}
+
+    unknown = [n for n, norm in zip(names, normalized) if norm not in _FACILITY_LOOKUP]
+    if unknown:
+        raise ValueError(
+            f'Protection Facilities: unknown facility "{unknown[0]}". Allowed: '
+            f'{", ".join(schemas.PROTECTION_FACILITY_OPTIONS)}, or None'
+        )
+    present = {_FACILITY_LOOKUP[norm] for norm in normalized}
+    return {key: key in present for key in all_keys}
+
+
+def _keep_literal_protection_facilities(df, file):
+    """pandas' default NA list turns the text "None" into a blank cell, which would
+    make "None" (= no facilities, all False) indistinguishable from "not recorded".
+    Re-read the sheet with that list switched off and take ONLY this column from it,
+    so every other Survey column keeps today's exact parsing."""
+    col = next((c for c in df.columns if normalize_header(c) == "protectionfacilities"), None)
+    if col is None:
+        return
+    file.file.seek(0)
+    reader = pd.read_csv if file.filename.lower().endswith(".csv") else pd.read_excel
+    raw = reader(file.file, keep_default_na=False, na_values=[""])
+    df[col] = raw[col]
+
+
 def row_to_survey_fields(row: pd.Series) -> dict:
     fields = {}
     for col, value in row.items():
@@ -183,6 +238,12 @@ def row_to_survey_fields(row: pd.Series) -> dict:
         fields["surveyor_risk_acceptability"] = _validate_choice(
             fields["surveyor_risk_acceptability"], ("Accept", "Decline", "Key Consideration"), "surveyor_risk_acceptability"
         )
+    if "protection_facilities" in fields:
+        parsed = parse_protection_facilities(fields["protection_facilities"])
+        if parsed is None:
+            fields.pop("protection_facilities")
+        else:
+            fields["protection_facilities"] = parsed
 
     # Perils/Hazard Assessment ratings — RATINGS ONLY (see SURVEY_COLUMN_MAP
     # above). Any peril__<key>/hazard__<key> placeholder present gets folded
@@ -326,6 +387,7 @@ def upload_surveys(file: UploadFile = File(...), db: Session = Depends(get_db)):
 
     try:
         df = pd.read_csv(file.file) if file.filename.lower().endswith(".csv") else pd.read_excel(file.file)
+        _keep_literal_protection_facilities(df, file)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not read file: {e}")
 

@@ -347,6 +347,52 @@ CLAIM_FINAL_STATUS_OPTIONS = (
 )
 CLAIM_INVESTIGATION_RESULT_OPTIONS = ("Legitimate", "Suspected Fraud", "Confirmed Fraud")
 
+# Protection Facilities checklist — display name -> JSON key, exactly as on Maagap's
+# Survey Report paper form. The 3 keys already used before this list existed
+# (sprinklers, fire_alarm, fire_extinguisher) are kept. Used by the Survey bulk
+# importer; the manual create endpoint still accepts any JSON object.
+PROTECTION_FACILITY_OPTIONS = {
+    "Risk Management/Safety/Security Units": "risk_management_units",
+    "Plant Safety": "plant_safety",
+    "Flood Control": "flood_control",
+    "Security Control": "security_control",
+    "Access to Plant/Site": "access_to_site",
+    "Automatic Sprinklers": "sprinklers",
+    "Internal Hydrants": "internal_hydrants",
+    "External Hydrants": "external_hydrants",
+    "Fire Alarm System": "fire_alarm",
+    "Smoke Detector": "smoke_detector",
+    "Heat Detector": "heat_detector",
+    "Fire Extinguisher": "fire_extinguisher",
+    "Fire Brigade": "fire_brigade",
+    "Fire Breaks/Doors": "fire_breaks_doors",
+    "Fire Truck": "fire_truck",
+    "Fire Pump": "fire_pump",
+    "Jockey Pump": "jockey_pump",
+    "Public/Private Fire Fighting": "public_private_fire_fighting",
+    "Security Guards": "security_guards",
+    "Hot Works Permit": "hot_works_permit",
+    "Water Supply": "water_supply",
+    "Power Supply": "power_supply",
+    "Generator Set": "generator_set",
+    "Telecommunications": "telecommunications",
+    "CCTV/Monitor/Recording": "cctv",
+    "Sniffing Dogs": "sniffing_dogs",
+    "Metal Detectors/Frisking": "metal_detectors_frisking",
+    "Fire Fighting Appliances Inspection": "fire_fighting_appliances_inspection",
+    "Perimeter Fence": "perimeter_fence",
+    "Police/Armed Force": "police_armed_force",
+    "Redundancies/BCP/DRP": "redundancies_bcp_drp",
+    "Others": "others",
+}
+# Extra accepted spellings (only the ones Maagap listed).
+PROTECTION_FACILITY_ALIASES = {
+    "Sprinkler": "sprinklers",
+    "Sprinklers": "sprinklers",
+    "Fire Alarm": "fire_alarm",
+    "CCTV": "cctv",
+}
+
 
 def canonical_choice(v, options, field_name):
     # Same behavior as the risk-assessment validators above: blank passes
