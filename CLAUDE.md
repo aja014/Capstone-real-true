@@ -1056,6 +1056,55 @@ assistant without an explicit instruction to run it.**
   All 24 table counts, 12 spot-check endpoints and 10 × 401 checks identical
   before/after creating the file.
 
+## Data Prep Step 3 — Address pool — DONE (check run; no data generated)
+2026-09-26, branch `data-prep`. Folder `data_prep/` (repo root):
+`address_pool_candidates.csv` (530 barangay-level addresses from the user, all 24
+towns), `check_address_pool.py` (the checker), `address_pool_verified.csv` (the
+result, one row per candidate). Logs `check_run.log` / `check_errors.log` are not
+committed. No application code changed; the only DB writes went to `geocode_cache`
+(through `lookup_flood_risk`).
+- Run from `Backend/`: `./venv/Scripts/python ../data_prep/check_address_pool.py`
+  (resumable: skips candidate_ids already in the output; transient errors aren't
+  written, so a re-run retries them). `--summary` just re-prints the summary.
+- Per candidate: 1 Nominatim request (system params + `addressdetails=1`, same
+  User-Agent and 1 req/s throttle) → keep only if found, in Bulacan, town
+  matches (accepted variants: "X City" ~ "X" for Malolos, Meycauayan, Baliwag,
+  San Jose del Monte), and not town-level (barangay name, fuzzy ≥85, appears in
+  a barangay-level field or display_name) → real `lookup_flood_risk()` → its
+  coordinates must equal step 1's exactly.
+- **Result**: 179 kept / 351 dropped (not found 265, town-level only 52,
+  coordinate mismatch 25 — two requests returned points metres apart, wrong
+  town 8, outside Bulacan 1). Kept by category: High 48 (5 of them High only
+  because of storm surge, all in Obando), Medium 49, Low 31, none 51. Towns
+  with <5 kept: Paombong 0 (all 14 not found), Pulilan 1, Bustos 2, DRT 2,
+  Guiguinto 2, Norzagaray 2, Balagtas 3, Plaridel 3, San Rafael 3, Angat 4.
+  11 groups (22 kept rows) share identical coordinates; ~19 kept rows landed on
+  a neighbouring barangay's hall (passed only via display_name) — both listed
+  in the step-3 report, NOT auto-dropped. `geocode_cache`: 204 rows (179 kept +
+  25 mismatches), all `found`.
+- Several SJDM candidates matched a numbered sub-barangay (Santa Cruz → Santa
+  Cruz II, San Rafael → I, San Martin → I/IV, Fatima → V, Bagong Buhay → I).
+- **Round 2 (user decisions)**, `--revise` then `--second-pass` (log
+  `check_run_pass2.log`); CSV gained a `note` column. Dropped: 19 "other
+  barangay hall", 5 "ambiguous sub-barangay" (SJDM), Tambobong "misspelled
+  candidate", 11 remaining "shared coordinates". Rescued the 24 other coordinate
+  mismatches as kept with lookup_flood_risk's (cached) coords/GIS, note
+  "rescued: check point differed by X m" (10 of them moved >100 m, up to 2.1 km).
+  Second pass: every "not found"/"town-level only" row retried once WITHOUT the
+  word "Barangay" ("Atlag, Malolos City, Bulacan, Philippines"); 296 kept, the
+  address column holds that exact string, note "second pass format". The
+  no-"Barangay" format resolves to the barangay feature itself far more often.
+- **Round 3 (user decisions)**: dropped the 10 rescues that moved >100 m
+  (C078, C093, C164, C248, C262, C334, C343, C360, C453, C525 — reason "rescue
+  moved over 100 m"; two of them had landed on another candidate's point, one
+  in a different town). Kept C242 Sapang Bulak and C346 Binakod: our text is the
+  official spelling, only OSM's differs ("Sapang Bulac", "Binacod").
+- **Final**: 454 kept / 76 dropped; no two kept rows share coordinates. Every
+  town ≥5 kept (lowest: Doña Remedios Trinidad 6). Kept by category: High 145
+  (15 High only because of storm surge), Medium 114, Low 74, none 121.
+  `geocode_cache`: 500 rows, all `found` (includes the dropped rescues' lookups —
+  harmless).
+
 ## ⚠️ Importer-wide: cells containing None / NA / N/A / null are read as BLANK
 pandas' default NA list (`None`, `NA`, `N/A`, `n/a`, `null`, `NULL`, `nan`,
 `NaN`, `#N/A`, ... — confirmed on pandas 3.0.5) converts those exact cell texts
