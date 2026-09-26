@@ -334,6 +334,16 @@ def get_overview(db: Session = Depends(get_db)):
 
     quotations_offered = len(fire_quotations_month) + len(motor_quotations_month)
 
+    # Filed Claims card: same "this month" basis as quotations_offered --
+    # claims (both lines) whose date_reported falls in the current month.
+    filed_claims = db.query(models.MotorClaim).filter(
+        models.MotorClaim.date_reported >= month_start,
+        models.MotorClaim.date_reported <= month_end,
+    ).count() + db.query(models.FirePropertyClaim).filter(
+        models.FirePropertyClaim.date_reported >= month_start,
+        models.FirePropertyClaim.date_reported <= month_end,
+    ).count()
+
     # Quotation vs. Converted Accounts pie: rolling 3-month window ending at
     # the current month (not calendar-year aligned), same rolling-window
     # philosophy as monthly_line's 6-month window below — deliberately a
@@ -404,6 +414,7 @@ def get_overview(db: Session = Depends(get_db)):
         "gross_premium_written": gross_premium_written,
         "policies_made": policies_made,
         "quotations_offered": quotations_offered,
+        "filed_claims": filed_claims,
         "quotation_pie": quotation_pie,
         "quotation_pie_label": quotation_pie_label,
         "yearly_bar": yearly_bar,
@@ -532,5 +543,99 @@ def get_quotation_proposal_stats(
         "months": None if use_month_mode else months,
         "year": year,
         "month": month,
+        "trend": trend,
+    }
+
+
+# ------------------------------------------------------------
+# CLAIMS MODULE PAGE (KPI cards + investigation pie + monthly trend -- the
+# page's claims TABLE reuses the per-claim REST endpoints, joined in
+# Frontend/src/lib/claims.js)
+# ------------------------------------------------------------
+
+# Final statuses that mean the claim is finished; everything else is still open.
+FINISHED_FINAL_STATUSES = {"Closed Claim", "Denied Claim", "CNC Only", "Not Push Through"}
+OPEN_FINAL_STATUSES = set(schemas.CLAIM_FINAL_STATUS_OPTIONS) - FINISHED_FINAL_STATUSES
+assert FINISHED_FINAL_STATUSES <= set(schemas.CLAIM_FINAL_STATUS_OPTIONS)
+
+CNC_CLAIM_TYPE = "CNC Issuance"
+FRAUD_LABELS = {"Suspected Fraud", "Confirmed Fraud"}
+
+
+@router.get("/claims", response_model=schemas.ClaimsStats)
+def get_claims_stats(
+    # Same hand-validated 3/6/12 rolling window as /quotation-proposal.
+    months: int = Query(6),
+    db: Session = Depends(get_db),
+):
+    if months not in (3, 6, 12):
+        months = 6
+    today = date_type.today()
+    start_year, start_month = _shift_month(today.year, today.month, -(months - 1))
+    range_start, _ = _month_bounds(start_year, start_month)
+    _, range_end = _month_bounds(today.year, today.month)
+
+    def filed_in_range(model):
+        return db.query(model).filter(
+            model.date_reported >= range_start,
+            model.date_reported <= range_end,
+        ).all()
+
+    motor = filed_in_range(models.MotorClaim)
+    fire = filed_in_range(models.FirePropertyClaim)
+    claims = motor + fire
+
+    # Investigation result: CNC Issuance rows are never investigated for fraud,
+    # so they're left out of the pie, the rate and "not yet investigated".
+    investigable = [c for c in claims if c.claim_type != CNC_CLAIM_TYPE]
+    result_counts = {label: 0 for label in schemas.CLAIM_INVESTIGATION_RESULT_OPTIONS}
+    not_yet_investigated = 0
+    for c in investigable:
+        if c.claim_investigation_result in result_counts:
+            result_counts[c.claim_investigation_result] += 1
+        else:
+            not_yet_investigated += 1
+    investigated = sum(result_counts.values())
+    fraud_count = result_counts["Suspected Fraud"] + result_counts["Confirmed Fraud"]
+
+    trend = []
+    for delta in range(-(months - 1), 1):
+        y, m = _shift_month(today.year, today.month, delta)
+        in_month = lambda c: c.date_reported.year == y and c.date_reported.month == m  # noqa: E731
+        trend.append({
+            "label": MONTH_ABBR[m - 1],
+            "year": y,
+            "month": m,
+            "motor_count": sum(1 for c in motor if in_month(c)),
+            "fire_count": sum(1 for c in fire if in_month(c)),
+            "fraud_labelled_count": sum(
+                1 for c in investigable if in_month(c) and c.claim_investigation_result in FRAUD_LABELS
+            ),
+        })
+
+    return {
+        "date": today,
+        "months": months,
+        "range_start": range_start,
+        "range_end": range_end,
+        "period_label": f"Past {months} Months",
+        "total_claims": len(claims),
+        "motor_claims": len(motor),
+        "fire_claims": len(fire),
+        "open_claims": sum(1 for c in claims if c.final_status in OPEN_FINAL_STATUSES),
+        "closed_claims": sum(1 for c in claims if c.final_status == "Closed Claim"),
+        "total_net_liability": sum((c.net_liability or 0) for c in claims),
+        "legitimate": result_counts["Legitimate"],
+        "suspected_fraud": result_counts["Suspected Fraud"],
+        "confirmed_fraud": result_counts["Confirmed Fraud"],
+        "not_yet_investigated": not_yet_investigated,
+        "cnc_excluded": len(claims) - len(investigable),
+        "fraud_rate": (fraud_count / investigated * 100) if investigated else None,
+        "investigation_pie": [
+            {"name": "Legitimate", "value": result_counts["Legitimate"]},
+            {"name": "Suspected Fraud", "value": result_counts["Suspected Fraud"]},
+            {"name": "Confirmed Fraud", "value": result_counts["Confirmed Fraud"]},
+            {"name": "Not Yet Investigated", "value": not_yet_investigated},
+        ],
         "trend": trend,
     }

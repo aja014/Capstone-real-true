@@ -314,7 +314,8 @@ export function PolicyTable({
 }
 
 // ── MiniPie ───────────────────────────────────────────────────────────────────
-export function MiniPie({ title, data, colors, sub }) {
+// `note` (optional) is a small caption under the chart -- e.g. what's excluded.
+export function MiniPie({ title, data, colors, sub, note }) {
   // All-zero total (e.g. zero quotations this month): Recharts can't
   // compute slice angles from an all-zero pie and draws nothing, leaving a
   // blank gap. Swap in a neutral placeholder circle sized to match the real
@@ -375,6 +376,7 @@ export function MiniPie({ title, data, colors, sub }) {
           ))}
         </div>
       </div>
+      {note && <p className="text-gray-400 text-[10px] mt-2">{note}</p>}
     </div>
   );
 }

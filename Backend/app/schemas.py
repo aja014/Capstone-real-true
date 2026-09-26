@@ -870,6 +870,7 @@ class OverviewStats(BaseModel):
     gross_premium_written: Decimal
     policies_made: int
     quotations_offered: int
+    filed_claims: int  # claims (both lines) with date_reported in the current month
 
     # Rolling 3-month window ending at the current month (not calendar-year
     # aligned) — split by whether a policy has since been attached
@@ -923,3 +924,44 @@ class QuotationProposalStats(BaseModel):
     month: int | None  # echoed back only in month mode
 
     trend: list[QuotationProposalTrendEntry]  # oldest → newest
+
+
+# ------------------------------------------------------------
+# CLAIMS MODULE PAGE STATS
+# Every figure is scoped to claims FILED (date_reported) in range_start..range_end.
+# Each claim row counts once (OD + TP rows of one accident are separate rows).
+# ------------------------------------------------------------
+
+class ClaimsTrendEntry(BaseModel):
+    label: str  # month abbreviation, e.g. "Apr"
+    year: int
+    month: int
+    motor_count: int
+    fire_count: int
+    fraud_labelled_count: int  # Suspected + Confirmed Fraud (human investigation label), CNC excluded
+
+
+class ClaimsStats(BaseModel):
+    date: date  # reference "today"
+    months: int  # 3 | 6 | 12 (anything else -> 6)
+    range_start: date  # first day of the oldest month in the window
+    range_end: date  # last day of the current month
+    period_label: str  # e.g. "Past 6 Months"
+
+    total_claims: int
+    motor_claims: int
+    fire_claims: int
+    open_claims: int  # final_status not one of Closed / Denied / CNC Only / Not Push Through
+    closed_claims: int  # final_status == "Closed Claim"
+    total_net_liability: Decimal
+
+    # Investigation result -- CNC Issuance rows are excluded (not investigated for fraud).
+    legitimate: int
+    suspected_fraud: int
+    confirmed_fraud: int
+    not_yet_investigated: int
+    cnc_excluded: int  # CNC Issuance rows left out of the four counts above
+    fraud_rate: Optional[float]  # (suspected + confirmed) / investigated * 100; null if none investigated
+    investigation_pie: list[OverviewPieSlice]
+
+    trend: list[ClaimsTrendEntry]  # oldest -> newest

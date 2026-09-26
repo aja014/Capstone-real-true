@@ -141,9 +141,11 @@ export default function Overview() {
             value={loading ? "…" : String(stats?.quotations_offered ?? 0)}
             label="Total Quotation Offered"
           />
+          {/* Same basis as Total Quotation Offered: claims (both lines) whose
+              Date Reported falls in the current month. */}
           <StatCard
-            sub={sub}
-            value="—"
+            sub={loading ? "…" : `This Month (${stats?.month_label ?? ""})`}
+            value={loading ? "…" : String(stats?.filed_claims ?? 0)}
             label="Filed Claims"
           />
         </div>

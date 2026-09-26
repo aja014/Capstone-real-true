@@ -6,6 +6,8 @@ import UploadModal from "../components/UploadFileModal";
 import NeedsReviewModal from "../components/NeedsReviewModal";
 import { FullCalendarPicker } from "../components/DatePicker";
 import { fetchAllQuotations } from "../lib/quotations";
+import { fetchAllClaims } from "../lib/claims";
+import { InvestigationResultCell, FraudWarningCell } from "../components/ClaimsShared";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -14,7 +16,7 @@ const API_BASE_URL = "http://127.0.0.1:8000";
 const statCards = [
   { label: "Total Policies", value: null, type: "Policy" }, // filled in dynamically at render time
   { label: "Total Quotation", value: null, type: "Quotation" },
-  { label: "Total Claims", value: "421", type: "Claims" },
+  { label: "Total Claims", value: null, type: "Claims" },
   { label: "Total Client Information", value: null, type: "Client Information" },
   { label: "Total Survey Report", value: null, type: "Survey Report" },
   { label: "Total Vehicle Information", value: null, type: "Vehicle Information" },
@@ -81,21 +83,6 @@ function extractDateParts(value) {
   return { month: d.getUTCMonth() + 1, day: d.getUTCDate(), year: d.getUTCFullYear() };
 }
 
-const claimsData = [
-  { claim: "CLM-3001", policy: "POL-1012", client: "Ricardo Santiago", loss: "02/15/2026", reported: "02/16/2026", line: "Motor Car", type: "Collision", reserve: "₱65,000", paid: "₱65,000", status: "Paid", fraud: "No" },
-  { claim: "CLM-3002", policy: "POL-1013", client: "Sofia Ramirez", loss: "02/20/2026", reported: "02/21/2026", line: "Fire & Property", type: "Fire", reserve: "₱1,800,000", paid: "₱0", status: "Investigating", fraud: "Yes" },
-  { claim: "CLM-3003", policy: "POL-1001", client: "Juan Dela Cruz", loss: "01/28/2026", reported: "01/29/2026", line: "Motor Car", type: "Own Damage", reserve: "₱22,500", paid: "₱20,000", status: "Paid", fraud: "No" },
-  { claim: "CLM-3004", policy: "POL-1014", client: "Carmen Flores", loss: "03/05/2026", reported: "03/06/2026", line: "Fire & Property", type: "Typhoon Damage", reserve: "₱950,000", paid: "₱0", status: "Approved", fraud: "No" },
-  { claim: "CLM-3005", policy: "POL-1007", client: "Dennis Reyes", loss: "02/25/2026", reported: "02/26/2026", line: "Motor Car", type: "Theft", reserve: "₱920,000", paid: "₱0", status: "Investigating", fraud: "Yes" },
-  { claim: "CLM-3006", policy: "POL-1015", client: "Elena Cruz", loss: "03/01/2026", reported: "03/02/2026", line: "Motor Car", type: "Collision", reserve: "₱48,000", paid: "₱45,000", status: "Paid", fraud: "No" },
-  { claim: "CLM-3007", policy: "POL-1016", client: "Leonor Rivera", loss: "03/10/2026", reported: "03/11/2026", line: "Fire & Property", type: "Flood", reserve: "₱620,000", paid: "₱0", status: "Investigating", fraud: "No" },
-  { claim: "CLM-3008", policy: "POL-1003", client: "Roberto Gomez", loss: "02/05/2026", reported: "02/06/2026", line: "Fire & Property", type: "Fire", reserve: "₱2,200,000", paid: "₱0", status: "Paid", fraud: "No" },
-  { claim: "CLM-3009", policy: "POL-1017", client: "Melchora Aquino", loss: "03/18/2026", reported: "03/19/2026", line: "Fire & Property", type: "Earthquake", reserve: "₱3,500,000", paid: "₱0", status: "Reported", fraud: "No" },
-  { claim: "CLM-3010", policy: "POL-1010", client: "Sofia Ramirez", loss: "03/20/2026", reported: "03/21/2026", line: "Motor Car", type: "Accident", reserve: "₱38,000", paid: "₱38,000", status: "Paid", fraud: "No" },
-  { claim: "CLM-3011", policy: "POL-1011", client: "Ricardo Santiago", loss: "03/22/2026", reported: "03/23/2026", line: "Fire & Property", type: "Vandalism", reserve: "₱410,000", paid: "₱0", status: "Investigating", fraud: "Yes" },
-  { claim: "CLM-3012", policy: "POL-1005", client: "Lina Mercado", loss: "03/25/2026", reported: "03/26/2026", line: "Fire & Property", type: "Fire", reserve: "₱1,550,000", paid: "₱0", status: "Approved", fraud: "No" },
-];
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function Dropdown({ label, options, value, onChange }) {
   const [open, setOpen] = useState(false);
@@ -157,29 +144,6 @@ function JsonModal({ title, value, onClose }) {
         </pre>
       </div>
     </div>
-  );
-}
-
-function ClaimsTable({ rows }) {
-  return (
-    <table className="w-full text-xs text-center">
-      <thead><tr className="border-b border-gray-100">
-        {["Claim Number", "Policy Number", "Client Name", "Date of Loss", "Date Reported", "Policy Line", "Claim Type", "Reserve Amount", "Paid Amount", "Status", "Fraud Flag"].map(h =>
-          <th key={h} className="py-3 px-2 text-gray-700 font-bold whitespace-nowrap">{h}</th>)}
-      </tr></thead>
-      <tbody>{rows.map((r, i) => (
-        <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 transition">
-          <td className="py-3 px-2">{r.claim}</td><td className="py-3 px-2">{r.policy}</td>
-          <td className="py-3 px-2">{r.client}</td><td className="py-3 px-2">{r.loss}</td>
-          <td className="py-3 px-2">{r.reported}</td><td className="py-3 px-2">{r.line}</td>
-          <td className="py-3 px-2">{r.type}</td><td className="py-3 px-2">{r.reserve}</td>
-          <td className="py-3 px-2">{r.paid}</td><td className="py-3 px-2">{r.status}</td>
-          <td className="py-3 px-2">
-            <span className={`font-semibold ${r.fraud === "Yes" ? "text-red-500" : "text-gray-500"}`}>{r.fraud}</span>
-          </td>
-        </tr>
-      ))}</tbody>
-    </table>
   );
 }
 
@@ -361,6 +325,54 @@ const MOTOR_QUOTATION_COLUMNS = [
 // Longitude/Flood Risk Flag/Flood Risk Category are real columns that
 // happen to be null for every row until GIS (Objective 2.1) is built —
 // they render as — via the same formatOrDash path as any other empty field.
+// Claims tab — every real field on MotorClaimOut / FirePropertyClaimOut, plus
+// Policy No. / Client Name joined in lib/claims.js (Client Name = the resolved
+// policyholder, independent of the literal "Assured" text). Motor-only: Plate No.,
+// Coverage Type, Shop/Casa; Fire-only: Adjuster. Claim Investigation Result is the
+// real human label ("Not applicable (CNC)" for CNC Issuance rows); Fraud Warning
+// is a "Pending" placeholder until the fraud model exists ("—" for CNC rows).
+const investigationColumn = {
+  id: "investigation_display", dataKey: "investigation_display", header: "Claim Investigation Result",
+  width: "min-w-[190px]", render: (r) => <InvestigationResultCell value={r.investigation_display} />,
+};
+const fraudWarningColumn = {
+  id: "fraud_warning", dataKey: "fraud_warning", header: "Fraud Warning",
+  width: "min-w-[120px]", render: (r) => <FraudWarningCell value={r.fraud_warning} />,
+};
+const claimColumns = (isMotor) => [
+  { id: "id", dataKey: "id", header: "Claim ID", width: "min-w-[80px]" },
+  { id: "policy_no", dataKey: "policy_no", header: "Policy No.", width: "min-w-[160px]" },
+  { id: "client_name", dataKey: "client_name", header: "Client Name", width: "min-w-[200px]", align: "text-left" },
+  { id: "accuterm_claim_no", dataKey: "accuterm_claim_no", header: "Accuterm Claim No.", width: "min-w-[150px]" },
+  { id: "assured", dataKey: "assured", header: "Assured", width: "min-w-[200px]", align: "text-left" },
+  { id: "claimant_name", dataKey: "claimant_name", header: "Claimant Name", width: "min-w-[200px]", align: "text-left" },
+  ...(isMotor ? [{ id: "plate_no", dataKey: "plate_no", header: "Plate No.", width: "min-w-[100px]" }] : []),
+  { id: "date_reported", dataKey: "date_reported", header: "Date Reported", type: "date", width: "min-w-[120px]" },
+  { id: "date_of_loss", dataKey: "date_of_loss", header: "Date of Loss", type: "date", width: "min-w-[120px]" },
+  { id: "date_docs_submitted", dataKey: "date_docs_submitted", header: "Date Docs Submitted", type: "date", width: "min-w-[150px]" },
+  { id: "nature_of_loss", dataKey: "nature_of_loss", header: "Nature of Loss", width: "min-w-[130px]" },
+  ...(isMotor ? [{ id: "coverage_type", dataKey: "coverage_type", header: "Coverage Type", width: "min-w-[200px]" }] : []),
+  { id: "claim_type", dataKey: "claim_type", header: "Claim Type", width: "min-w-[110px]" },
+  { id: "updates", dataKey: "updates", header: "Updates", width: "min-w-[240px]", align: "text-left" },
+  { id: "date_updated", dataKey: "date_updated", header: "Date Updated", type: "date", width: "min-w-[120px]" },
+  { id: "agent_name", dataKey: "agent_name", header: "Agent", width: "min-w-[110px]" },
+  { id: "repair_estimate_amount", dataKey: "repair_estimate_amount", header: "Repair Estimate", type: "currency", width: "min-w-[140px]" },
+  { id: "loa_received_date", dataKey: "loa_received_date", header: "LOA Received Date", type: "date", width: "min-w-[140px]" },
+  { id: "loa_no", dataKey: "loa_no", header: "LOA No.", width: "min-w-[120px]" },
+  { id: "loa_amount", dataKey: "loa_amount", header: "LOA Amount", type: "currency", width: "min-w-[130px]" },
+  { id: "net_liability", dataKey: "net_liability", header: "Net Liability", type: "currency", width: "min-w-[130px]" },
+  isMotor
+    ? { id: "shop_casa", dataKey: "shop_casa", header: "Shop/Casa", width: "min-w-[200px]", align: "text-left" }
+    : { id: "adjuster", dataKey: "adjuster", header: "Adjuster", width: "min-w-[200px]", align: "text-left" },
+  { id: "status", dataKey: "status", header: "Status", width: "min-w-[130px]" },
+  { id: "billing_date_remarks", dataKey: "billing_date_remarks", header: "Billing Date / Remarks", width: "min-w-[180px]", align: "text-left" },
+  { id: "final_status", dataKey: "final_status", header: "Final Status", width: "min-w-[160px]" },
+  investigationColumn,
+  fraudWarningColumn,
+];
+const MOTOR_CLAIM_COLUMNS = claimColumns(true);
+const FIRE_CLAIM_COLUMNS = claimColumns(false);
+
 const SURVEY_COLUMNS = [
   { id: "id", dataKey: "id", header: "Survey ID", width: "min-w-[90px]" },
   { id: "insurance_case_id", dataKey: "insurance_case_id", header: "Case ID", width: "min-w-[90px]" },
@@ -410,7 +422,9 @@ function GenericPolicyTable({ columns, rows, onDelete, onViewJson, deleteLabel =
         <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 transition">
           {columns.map(col => (
             <td key={col.id} className={`py-3 px-3 whitespace-nowrap ${col.width} ${col.align || ""}`}>
-              {col.type === "json"
+              {col.render
+                ? col.render(r)
+                : col.type === "json"
                 ? <JsonViewButton value={r[col.dataKey]} title={col.header} onView={onViewJson} />
                 : formatCell(r[col.dataKey], col.type)}
             </td>
@@ -480,7 +494,7 @@ function VehicleTable({ rows, onDelete }) {
 const DATE_FIELD_MAP = {
   "Policy": "issue_date",
   "Quotation": "quotation_date",
-  "Claims": "loss",
+  "Claims": "date_of_loss",
   // Same caveat as Vehicle Information below (created_at is an import
   // timestamp, not a real business date — the survey has no dedicated
   // date field) — but the filter already worked against it before this
@@ -493,14 +507,13 @@ const DATE_FIELD_MAP = {
 
 // Which bulk importer the Upload button should default to for the active
 // tab. The user can still switch it inside the modal — Quotation mixes data
-// from both lines, so there's no single correct guess for it. Policy's
-// default is resolved separately below (via policyLine), since it depends
-// on which of the two line sub-filters is currently selected.
+// from both lines, so there's no single correct guess for it. Policy's and
+// Claims' defaults are resolved separately below (via policyLine/claimsLine),
+// since they depend on which of the two line sub-filters is currently selected.
 const IMPORT_TARGET_BY_TYPE = {
   "Client Information": "policyholders",
   "Survey Report": "fire-property",
   "Quotation": "motor",
-  "Claims": "policyholders",
   "Vehicle Information": "vehicle",
 };
 
@@ -804,6 +817,44 @@ export default function PolicyHolderInformation() {
   // A bulk import can touch policyholders, cases, surveys, vehicles, and
   // quotations depending on which importer ran — refresh everything rather
   // than guessing which tabs are affected.
+  // Claims tab — both lines fetched together (lib/claims.js does the
+  // claim → policy → quotation → case → policyholder join); claimsLine picks
+  // which of the two column sets is showing, same idea as policyLine.
+  const [claimsLine, setClaimsLine] = useState("Fire & Property");
+  const [motorClaimRecords, setMotorClaimRecords] = useState([]);
+  const [fireClaimRecords, setFireClaimRecords] = useState([]);
+  const [claimsLoading, setClaimsLoading] = useState(true);
+  const [claimsError, setClaimsError] = useState(null);
+
+  const fetchClaims = useCallback(async () => {
+    setClaimsLoading(true);
+    setClaimsError(null);
+    try {
+      const { motor, fire } = await fetchAllClaims();
+      setMotorClaimRecords(motor);
+      setFireClaimRecords(fire);
+    } catch {
+      setClaimsError("Failed to load claims.");
+    } finally {
+      setClaimsLoading(false);
+    }
+  }, []);
+
+  const deleteClaim = useCallback(async (row) => {
+    const label = row.accuterm_claim_no ? `claim ${row.accuterm_claim_no} (#${row.id})` : `claim #${row.id}`;
+    if (!window.confirm(`Delete ${label}? This moves the record to the deleted archive.`)) return;
+    const path = row.line === "Motor Car" ? "motor/claims" : "fire-property/claims";
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(`${API_BASE_URL}/${path}/${row.id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      fetchClaims();
+    } catch (err) {
+      alert(err.response?.data?.detail || "Failed to delete this claim.");
+    }
+  }, [fetchClaims]);
+
   const refreshAllData = useCallback(() => {
     fetchClients();
     fetchNeedsReview();
@@ -812,7 +863,8 @@ export default function PolicyHolderInformation() {
     fetchQuotations();
     fetchSurveys();
     fetchVehicles();
-  }, [fetchClients, fetchNeedsReview, fetchFirePropertyPolicies, fetchMotorPolicies, fetchQuotations, fetchSurveys, fetchVehicles]);
+    fetchClaims();
+  }, [fetchClients, fetchNeedsReview, fetchFirePropertyPolicies, fetchMotorPolicies, fetchQuotations, fetchSurveys, fetchVehicles, fetchClaims]);
 
   const deletePolicyholder = useCallback(async (row) => {
     if (!window.confirm(`Delete client "${clientDisplayName(row)}"? This moves the record to the deleted archive.`)) return;
@@ -891,7 +943,8 @@ export default function PolicyHolderInformation() {
     fetchQuotations();
     fetchSurveys();
     fetchVehicles();
-  }, [fetchClients, fetchNeedsReview, fetchFirePropertyPolicies, fetchMotorPolicies, fetchQuotations, fetchSurveys, fetchVehicles]);
+    fetchClaims();
+  }, [fetchClients, fetchNeedsReview, fetchFirePropertyPolicies, fetchMotorPolicies, fetchQuotations, fetchSurveys, fetchVehicles, fetchClaims]);
 
   // Policy is one tab again, but still backed by two entirely separate
   // column sets/fetches — policyLine picks which one is currently showing.
@@ -908,10 +961,14 @@ export default function PolicyHolderInformation() {
   const quotationColumns = isMotorQuotationLine ? MOTOR_QUOTATION_COLUMNS : FIRE_QUOTATION_COLUMNS;
   const deleteQuotationForLine = isMotorQuotationLine ? deleteMotorQuotation : deleteFirePropertyQuotation;
 
+  const isMotorClaimsLine = claimsLine === "Motor Car";
+  const claimRecords = isMotorClaimsLine ? motorClaimRecords : fireClaimRecords;
+  const claimColumnsForLine = isMotorClaimsLine ? MOTOR_CLAIM_COLUMNS : FIRE_CLAIM_COLUMNS;
+
   const DATA_MAP = {
     "Policy": policyRecords,
     "Quotation": quotationRecords,
-    "Claims": claimsData,
+    "Claims": claimRecords,
     "Client Information": clientRecords,
     "Survey Report": surveyRecords,
     "Vehicle Information": vehicleRecords,
@@ -920,7 +977,7 @@ export default function PolicyHolderInformation() {
   const LOADING_MAP = {
     "Policy": policyLoading,
     "Quotation": quotationLoading,
-    "Claims": false,
+    "Claims": claimsLoading,
     "Client Information": clientLoading,
     "Survey Report": surveyLoading,
     "Vehicle Information": vehicleLoading,
@@ -929,7 +986,7 @@ export default function PolicyHolderInformation() {
   const ERROR_MAP = {
     "Policy": policyError,
     "Quotation": quotationError,
-    "Claims": null,
+    "Claims": claimsError,
     "Client Information": clientError,
     "Survey Report": surveyError,
     "Vehicle Information": vehicleError,
@@ -944,11 +1001,12 @@ export default function PolicyHolderInformation() {
     if (c.label === "Total Policies") return { ...c, value: totalPoliciesLoading ? "…" : String(totalPolicyCount) };
     if (c.label === "Total Quotation") return { ...c, value: quotationLoading ? "…" : String(quotationRecords.length) };
     if (c.label === "Total Survey Report") return { ...c, value: surveyLoading ? "…" : String(surveyRecords.length) };
+    if (c.label === "Total Claims") return { ...c, value: claimsLoading ? "…" : String(motorClaimRecords.length + fireClaimRecords.length) };
     if (c.label === "Total Vehicle Information") return { ...c, value: vehicleLoading ? "…" : String(vehicleRecords.length) };
     return c;
   });
 
-  const handleTypeChange = (t) => { setType(t); setPage(1); setSearch(""); setLineFilter("Fire & Property"); setPolicyLine("Fire & Property"); setFromDate(null); };
+  const handleTypeChange = (t) => { setType(t); setPage(1); setSearch(""); setLineFilter("Fire & Property"); setPolicyLine("Fire & Property"); setClaimsLine("Fire & Property"); setFromDate(null); };
   const handleSearch = (v) => { setSearch(v); setPage(1); };
 
   // Insurance-line filter only makes sense where rows mix both lines.
@@ -956,6 +1014,7 @@ export default function PolicyHolderInformation() {
   // Policy's own line switch — same idea, but selects between two entirely
   // separate column sets/fetches rather than filtering rows within one array.
   const showPolicyLineFilter = type === "Policy";
+  const showClaimsLineFilter = type === "Claims";
 
   // Filter by search + month then paginate
   const allRows = DATA_MAP[type] || [];
@@ -994,10 +1053,12 @@ export default function PolicyHolderInformation() {
   const safePage = Math.min(page, totalPages);
   const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
-  // Policy's importer default depends on which line sub-filter is active,
-  // rather than a single static entry in IMPORT_TARGET_BY_TYPE.
+  // Policy's and Claims' importer defaults depend on which line sub-filter is
+  // active, rather than a single static entry in IMPORT_TARGET_BY_TYPE.
   const uploadTarget = type === "Policy"
     ? (isMotorLine ? "motor_policy" : "fire_property_policy")
+    : type === "Claims"
+    ? (isMotorClaimsLine ? "motor_claim" : "fire_property_claim")
     : (IMPORT_TARGET_BY_TYPE[type] || "policyholders");
 
   return (
@@ -1061,6 +1122,15 @@ export default function PolicyHolderInformation() {
               />
             )}
 
+            {showClaimsLineFilter && (
+              <Dropdown
+                label="Insurance Line"
+                options={LINE_ONLY_OPTIONS}
+                value={claimsLine}
+                onChange={(v) => { setClaimsLine(v); setPage(1); }}
+              />
+            )}
+
             {/* Month filter — */}
 
             {DATE_FIELD_MAP[type] !== null && (
@@ -1106,7 +1176,14 @@ export default function PolicyHolderInformation() {
                     deleteLabel="Delete quotation"
                   />
                 )}
-                {type === "Claims" && <ClaimsTable rows={pageRows} />}
+                {type === "Claims" && (
+                  <GenericPolicyTable
+                    columns={claimColumnsForLine}
+                    rows={pageRows}
+                    onDelete={deleteClaim}
+                    deleteLabel="Delete claim"
+                  />
+                )}
                 {type === "Client Information" && <ClientTable rows={pageRows} onDelete={deletePolicyholder} />}
                 {type === "Survey Report" && (
                   <GenericPolicyTable

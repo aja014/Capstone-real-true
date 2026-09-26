@@ -757,7 +757,7 @@ by exact id. All 23 tables' row counts matched the pre-change baseline,
 the 7 spot-check endpoints matched it byte for byte, and the existing 401
 checks were unchanged.
 
-## Claims Importer (Phase 3) — DONE (Claims tab / Claims Module pages still mock)
+## Claims Importer (Phase 3) — DONE (frontend wired later — see Claims Phase 4)
 2026-09-25, branch `claims-phase1`. New `Backend/app/routers/import_claims.py`
 (`/import/claims/motor/upload`, `/import/claims/fire-property/upload`),
 registered in `main.py`. Two new import types `motor_claim` /
@@ -848,6 +848,75 @@ ref-clicks on the toolbar buttons don't open the modals — coordinate clicks
 do). All test data cleaned by exact id; 23 table counts, 7
 spot-checks, 401 checks and all 7 existing types' detection results matched
 the pre-change baseline; backend starts cleanly; `npm run build` succeeds.
+
+## Claims Phase 4 — Frontend (real data) — DONE
+2026-09-27, branch `claims-frontend` (created from `data-prep`). No DB change.
+Replaces all claims mock data in 3 places.
+- **Definitions used everywhere**: "filed" = `date_reported`; each claim ROW counts
+  once (OD + TP rows of one accident are separate rows, same as the importer).
+  Open = `final_status` NOT in {Closed Claim, Denied Claim, CNC Only, Not Push
+  Through} (`stats.FINISHED_FINAL_STATUSES` / `OPEN_FINAL_STATUSES`, built from
+  `schemas.CLAIM_FINAL_STATUS_OPTIONS`). **CNC Issuance rows are excluded** from the
+  investigation pie, the fraud rate, the fraud trend line and the "Not yet
+  investigated" filter (all 33 CNC rows have a blank label).
+- **Backend (read-only additions)**: `GET /stats/claims?months=3|6|12` (anything
+  else → 6; same rolling window helpers as `/stats/quotation-proposal`) →
+  `schemas.ClaimsStats` (`range_start/range_end`, `period_label`, `total_claims`,
+  `motor_claims`, `fire_claims`, `open_claims`, `closed_claims`,
+  `total_net_liability`, `legitimate`, `suspected_fraud`, `confirmed_fraud`,
+  `not_yet_investigated`, `cnc_excluded`, `fraud_rate` (null if nothing
+  investigated), `investigation_pie`, `trend[]` with `motor_count`/`fire_count`/
+  `fraud_labelled_count`). All of it scoped to claims filed in the window.
+  `/stats/overview` gained `filed_claims` (both lines, `date_reported` in the current
+  month) — its response is otherwise byte-identical.
+- **`lib/claims.js` `fetchAllClaims()`**: the claim → policy → quotation → case →
+  policyholder join (same pattern as `lib/quotations.js`), used by both pages. Adds
+  `line`, `policy_no`, `client_name` (resolved policyholder, independent of the
+  literal `assured`), `investigation_display` ("Not applicable (CNC)" for CNC rows),
+  `fraud_warning` ("Pending"; null → "—" for CNC). `components/ClaimsShared.jsx`:
+  `InvestigationResultCell` (Legitimate gray, Suspected amber, Confirmed red) and
+  `FraudWarningCell` (gray "Pending").
+- **Policy Holder Info → Claims tab**: Insurance Line switcher (Fire & Property
+  default / Motor Car, like Policy), every real claim field via `GenericPolicyTable`
+  (Motor 27 columns incl. Plate No., Coverage Type, Shop/Casa; Fire 25 with Adjuster),
+  date filter on Date of Loss, Delete (archive-first DELETE), Upload defaults to the
+  line's claims importer, "Total Claims" card = real count (441, was a hard-coded
+  421). `GenericPolicyTable` gained an optional per-column `render(row)`.
+- **Claims Module page** (`claims.jsx`, rewritten): Past 3/6/12 Months dropdown
+  (default 6) drives 4 cards — Total, Open, Closed (= filed in period AND now Closed
+  Claim), Total Net Liability — all captioned "Filed Past N Months"; stacked
+  Motor/Fire "Filed Claims per Month" bars + "Investigated as Fraud (human label)"
+  line; "Claim Investigation Result" pie with the CNC-excluded note (`MiniPie` gained
+  an optional `note` prop); Fraud Rate card = (Suspected + Confirmed) ÷ investigated.
+  Table = all 441 claims (NOT limited by the period; says so), newest filed first,
+  filters: month (Date Reported), Policy Line, Final Status, Investigation Result
+  (incl. "Not yet investigated"), search (policy no., client, assured, accuterm no.).
+  The old mock "Fraud Flag"/"Fraud Flagged"/"Approved"/"Paid" elements are gone —
+  no prediction is shown anywhere; "Fraud Warning" stays "Pending" until the Naive
+  Bayes model exists.
+- **Overview "Filed Claims"**: `filed_claims`, captioned "This Month (September
+  2026)" — same basis/caption as Total Quotation Offered.
+- **Verified**: `/stats/claims` for 3/6/12 months and `filed_claims` = independent
+  SQL on every field, trend month and pie slice (6 months: 67 filed, 32 open, 22
+  closed, ₱13,272,613.23, pie 44/2/5/11, rate 13.7%, 5 CNC excluded; Overview 8);
+  the `fetchAllClaims()` join for all 441 rows (policy no., client, investigation
+  display, fraud warning) = a SQL join, same SHA-256. Browser (no console errors):
+  Overview card 8; Claims tab card 441, Fire/Motor columns, 12/44 pages, search, CNC
+  row → "Not applicable (CNC)" / "—", date filter = SQL, empty state; Claims page
+  cards/rate/note for all 3 periods, bar/pie labels = API, table filters = SQL
+  (Motor 351, Fire 90, Closed 306, Not yet investigated 23 with no CNC rows, Confirmed
+  23, Motor + Hold per Client 7, Sep 2026 = 8 / Fire 3, search 2), empty state.
+  Regression: 24 table counts, 11 spot-check hashes identical, `/stats/overview`
+  identical once `filed_claims` is removed, 10 × 401 + `/stats/claims` 401, detection
+  unchanged, `npm run build` ok. Lint: no new errors beyond the existing
+  fetch-in-`useEffect` pattern the other pages already use.
+- **Found, not fixed**: a stacked Recharts `Bar`'s built-in `label` shows the running
+  total on the upper segment, not its own count — fixed on the Claims page with an
+  explicit `LabelList`, but Quotations/Proposal's trend chart still has it (its
+  "Not Yet Converted" segment is labelled with the month's total). The Upload modal's
+  default importer for the Claims tab wasn't checked in the browser (the type
+  selector only appears after a file is picked); it uses the same mechanism as the
+  Policy tab.
 
 ## Data Prep Change 1 — Motor Sum Insured — DONE
 2026-09-26, branch `data-prep`. First of 5 approved changes preparing for the
@@ -1177,7 +1246,8 @@ dataset (seed 20260926); all earlier dev/test business data is gone.
   Renewal Ratio (daily 3 expiring; MTD 69.8%; YTD 52.19% — lower than the
   generator's ~71% because 138 not-yet-expired Pending policies are in the YTD
   denominator), Quotations/Proposal (6 months: 372 quotations, 291 converted, 78%).
-  Overview's Filed Claims card and the Claims page are still placeholders/mock.
+  Overview's Filed Claims card and the Claims page were still mock at this point
+  (wired in Claims Phase 4).
 
 ## Data Prep Step 5 — v2 dataset loaded — DONE
 2026-09-27, branch `data-prep`. The dev DB now holds the fuller v2 synthetic dataset
@@ -1260,8 +1330,6 @@ generators / real exports must never use these words as meaningful values
   in a later session — see Frontend Status's Delete buttons bullet; the
   original gap was surfaced when a leftover test quotation, `FP-Q-3`, had
   to be removed via raw SQL instead of through the API).
-- Claims tab remains fully mock — the claims backend API now exists (see
-  "Claims API (Phase 2)") but no frontend is wired to it yet.
 
 See "Duplicate usernames in `users`" below for the last previously-tracked
 issue, which is fixed.
@@ -1459,8 +1527,7 @@ confirmation of the exact row list.
     could show a quotation belonging to a sibling vehicle on the same
     case — now correctly grouped by `vehicle_id`, the direct FK
     `MotorQuotation` actually has.
-  - **Claims tab**: still mock `claimsData` — correctly blocked, no claims
-    backend exists (see Study Objectives 1.3/scope notes above).
+  - **Claims tab**: DONE — real data, see "Claims Phase 4 — Frontend".
   - `components/UploadFileModal.jsx`: DONE, two modes. **Single file**
     (original): drag-drop + an importer-select dropdown covering only the
     original 3 types (Policyholders/Fire-Property Surveys/Motor

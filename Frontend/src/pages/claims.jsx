@@ -1,230 +1,266 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import axios from "axios";
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, Legend,
+  ResponsiveContainer, Legend, LabelList,
 } from "recharts";
-import { ChevronDown, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import Sidebar from "../components/sidebar";
-import { FullCalendarPicker } from "../components/DatePicker";
+import { MonthYearPicker } from "../components/DatePicker";
+import { Dropdown, StatCard, MiniPie, formatCurrencyPH, formatDateSlash } from "../components/PolicyDistributionShared";
+import { InvestigationResultCell, FraudWarningCell } from "../components/ClaimsShared";
+import { fetchAllClaims, investigationFilterValue, NOT_YET_INVESTIGATED } from "../lib/claims";
 
-const chartData = [
-  { month: "Oct", filed: 8, fraud: 0 },
-  { month: "Nov", filed: 9, fraud: 0.5 },
-  { month: "Dec", filed: 7, fraud: 1 },
-  { month: "Jan", filed: 8, fraud: 2 },
-  { month: "Feb", filed: 6, fraud: 3 },
-  { month: "March", filed: 10, fraud: 4 },
+const API_BASE_URL = "http://127.0.0.1:8000";
+const PAGE_SIZE = 8;
+const PERIOD_TO_MONTHS = { "Past 6 Months": 6, "Past 3 Months": 3, "Past 12 Months": 12 };
+const PIE_COLORS = ["#6366f1", "#f59e0b", "#ef4444", "#d1d5db"];
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
 ];
-const pieData = [{ name: "Motor & Car", value: 3 }, { name: "Fire & Property", value: 1 }];
-const PIE_COLORS = ["#b91c1c", "#ef4444"];
-
-const ALL_CLAIMS = [
-  // March 2026
-  { month: "March 2026", claim: "CLM-2001", policy: "POL-1001", client: "Juan Dela Cruz", loss: "03/10/2026", reported: "03/11/2026", line: "Motor Car", type: "Collision", reserve: "₱45,000", paid: "₱45,000", status: "Paid", fraud: "No" },
-  { month: "March 2026", claim: "CLM-2002", policy: "POL-1002", client: "Maria Santos", loss: "03/10/2026", reported: "03/11/2026", line: "Motor Car", type: "Theft", reserve: "₱1,200,000", paid: "₱0", status: "Investigating", fraud: "Yes" },
-  { month: "March 2026", claim: "CLM-2003", policy: "POL-1003", client: "Emily Fernandez", loss: "03/10/2026", reported: "03/11/2026", line: "Fire & Property", type: "Fire", reserve: "₱2,500,000", paid: "₱0", status: "Approved", fraud: "No" },
-  { month: "March 2026", claim: "CLM-2004", policy: "POL-1004", client: "Juan Dela Cruz", loss: "03/10/2026", reported: "03/11/2026", line: "Motor Car", type: "Own Damage", reserve: "₱28,000", paid: "₱28,000", status: "Paid", fraud: "No" },
-  { month: "March 2026", claim: "CLM-2005", policy: "POL-1005", client: "Dennis Reyes", loss: "03/10/2026", reported: "03/11/2026", line: "Fire & Property", type: "Typhoon Damage", reserve: "₱3,500,000", paid: "₱0", status: "Investigating", fraud: "Yes" },
-  { month: "March 2026", claim: "CLM-2006", policy: "POL-1006", client: "Lina Mercado", loss: "03/10/2026", reported: "03/11/2026", line: "Motor Car", type: "Accident", reserve: "₱45,000", paid: "₱45,000", status: "Paid", fraud: "No" },
-  { month: "March 2026", claim: "CLM-2007", policy: "POL-1007", client: "Sofia Ramirez", loss: "03/12/2026", reported: "03/13/2026", line: "Fire & Property", type: "Fire", reserve: "₱1,800,000", paid: "₱0", status: "Investigating", fraud: "Yes" },
-  { month: "March 2026", claim: "CLM-2008", policy: "POL-1008", client: "Ricardo Santiago", loss: "03/14/2026", reported: "03/15/2026", line: "Motor Car", type: "Collision", reserve: "₱65,000", paid: "₱65,000", status: "Paid", fraud: "No" },
-  // February 2026
-  { month: "February 2026", claim: "CLM-2009", policy: "POL-1009", client: "Carmen Flores", loss: "02/16/2026", reported: "02/17/2026", line: "Fire & Property", type: "Flood", reserve: "₱900,000", paid: "₱0", status: "Approved", fraud: "No" },
-  { month: "February 2026", claim: "CLM-2010", policy: "POL-1010", client: "Miguel Torres", loss: "02/18/2026", reported: "02/19/2026", line: "Motor Car", type: "Theft", reserve: "₱780,000", paid: "₱0", status: "Investigating", fraud: "Yes" },
-  { month: "February 2026", claim: "CLM-2011", policy: "POL-1011", client: "Elena Cruz", loss: "02/20/2026", reported: "02/21/2026", line: "Fire & Property", type: "Earthquake", reserve: "₱2,100,000", paid: "₱0", status: "Reported", fraud: "No" },
-  { month: "February 2026", claim: "CLM-2012", policy: "POL-1012", client: "Leonor Rivera", loss: "02/22/2026", reported: "02/23/2026", line: "Motor Car", type: "Own Damage", reserve: "₱32,000", paid: "₱30,000", status: "Paid", fraud: "No" },
-  // January 2026
-  { month: "January 2026", claim: "CLM-2013", policy: "POL-1013", client: "Antonio Reyes", loss: "01/05/2026", reported: "01/06/2026", line: "Motor Car", type: "Collision", reserve: "₱55,000", paid: "₱55,000", status: "Paid", fraud: "No" },
-  { month: "January 2026", claim: "CLM-2014", policy: "POL-1014", client: "Roberto Gomez", loss: "01/10/2026", reported: "01/11/2026", line: "Fire & Property", type: "Fire", reserve: "₱3,000,000", paid: "₱0", status: "Investigating", fraud: "Yes" },
-  { month: "January 2026", claim: "CLM-2015", policy: "POL-1015", client: "Manuel Chua", loss: "01/18/2026", reported: "01/19/2026", line: "Motor Car", type: "Theft", reserve: "₱950,000", paid: "₱0", status: "Approved", fraud: "No" },
+const FINAL_STATUS_OPTIONS = [
+  "No Docs. Submitted", "Waiting for Evaluation", "Waiting for LOA",
+  "Waiting for Billing", "Waiting for Claim Check", "Closed Claim",
+  "Denied Claim", "CNC Only", "Not Push Through", "With Lacking Docs",
+  "Hold per Client",
+];
+const INVESTIGATION_OPTIONS = [
+  "Investigation Result: All", "Legitimate", "Suspected Fraud", "Confirmed Fraud", NOT_YET_INVESTIGATED,
 ];
 
-const PAGE_SIZE = 6;
-
-function Dropdown({ label, options, value, onChange }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="relative">
-      <button onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2 text-xs font-medium text-gray-700 hover:border-gray-400 transition whitespace-nowrap">
-        {value || label} <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
-      </button>
-      {open && options && (
-        <div className="absolute top-full mt-1 left-0 z-20 bg-white border border-gray-100 rounded-xl shadow-lg min-w-[150px]">
-          {options.map(opt => (
-            <button key={opt} onClick={() => { onChange?.(opt); setOpen(false); }}
-              className={`block w-full text-left px-4 py-2 text-xs hover:bg-yellow-50 transition ${(value || label) === opt ? "font-bold text-black" : "text-gray-600"}`}>
-              {opt}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+function authHeaders() {
+  const token = localStorage.getItem("token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-function StatCard({ value, label }) {
-  return (
-    <div className="bg-white rounded-2xl px-5 py-4 shadow-sm flex flex-col justify-between min-h-[110px]">
-      <p className="text-gray-400 text-xs">As of March 2026</p>
-      <p className="text-black font-black text-5xl leading-none my-2">{value}</p>
-      <p className="text-gray-500 text-xs">{label}</p>
-    </div>
-  );
-}
-
+// Claims Module. Cards, trend chart, investigation pie and fraud rate all come
+// from GET /stats/claims and share one basis: claims FILED (Date Reported) in
+// the selected Past 3/6/12 Months window. The table below lists every claim
+// (both lines, joined in lib/claims.js) with its own filters -- it is NOT
+// limited by the period dropdown. "Fraud Warning" is a placeholder until the
+// fraud model exists; "Claim Investigation Result" is the real human label.
 export default function Claims() {
+  const [period, setPeriod] = useState("Past 6 Months");
+  const [stats, setStats] = useState(null);
+  const [statsError, setStatsError] = useState(null);
+
+  const [claims, setClaims] = useState([]);
+  const [claimsLoading, setClaimsLoading] = useState(true);
+  const [claimsError, setClaimsError] = useState(null);
+
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
-  const [fromDate, setFromDate] = useState(null);
+  const [month, setMonth] = useState(null);
   const [lineFilter, setLine] = useState("Policy Line: All");
-  const [fraudFilter, setFraud] = useState("Fraud Flag: All");
+  const [statusFilter, setStatus] = useState("Final Status: All");
+  const [investigationFilter, setInvestigation] = useState("Investigation Result: All");
 
-  const selectedMonth = fromDate ? fromDate.getMonth() + 1 : null;
-  const selectedDay = fromDate ? fromDate.getDate() : null;
-  const selectedYear = fromDate ? fromDate.getFullYear() : null;
-
-  const filtered = ALL_CLAIMS.filter(r => {
-    const matchLine = lineFilter === "Policy Line: All" || r.line === lineFilter;
-    const matchFraud = fraudFilter === "Fraud Flag: All" || r.fraud === fraudFilter;
-    const matchSearch = r.policy.toLowerCase().includes(search.toLowerCase()) ||
-      r.client.toLowerCase().includes(search.toLowerCase());
-
-    let matchDate = true;
-    if (fromDate && r.loss) {
-      const [mm, dd, yyyy] = r.loss.split("/").map(Number);
-      matchDate = mm === selectedMonth && dd === selectedDay && yyyy === selectedYear;
+  const fetchStats = useCallback(async (months) => {
+    setStatsError(null);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/stats/claims`, { params: { months }, headers: authHeaders() });
+      setStats(res.data);
+    } catch {
+      setStatsError("Failed to load claims stats.");
     }
+  }, []);
 
-    return matchLine && matchFraud && matchSearch && matchDate;
+  useEffect(() => { fetchStats(PERIOD_TO_MONTHS[period] ?? 6); }, [period, fetchStats]);
+
+  useEffect(() => {
+    (async () => {
+      setClaimsLoading(true);
+      setClaimsError(null);
+      try {
+        const { motor, fire } = await fetchAllClaims();
+        // Newest filing first.
+        setClaims([...motor, ...fire].sort((a, b) => (b.date_reported || "").localeCompare(a.date_reported || "")));
+      } catch {
+        setClaimsError("Failed to load claims.");
+      } finally {
+        setClaimsLoading(false);
+      }
+    })();
+  }, []);
+
+  const periodLabel = stats?.period_label ?? period;
+
+  // Stacked Motor/Fire bars sum to the real monthly total; the line is the
+  // human "Investigated as Fraud" label (Suspected + Confirmed), not a prediction.
+  const trendData = (stats?.trend ?? []).map((t) => ({
+    label: t.label,
+    motor_count: t.motor_count,
+    fire_count: t.fire_count,
+    fraud_labelled_count: t.fraud_labelled_count,
+  }));
+
+  const filtered = claims.filter((r) => {
+    let matchMonth = true;
+    if (month) {
+      const [y, m] = (r.date_reported || "").split("-").map(Number);
+      matchMonth = y === month.getFullYear() && m === month.getMonth() + 1;
+    }
+    const matchLine = lineFilter === "Policy Line: All" || r.line === lineFilter;
+    const matchStatus = statusFilter === "Final Status: All" || r.final_status === statusFilter;
+    const matchInvestigation = investigationFilter === "Investigation Result: All"
+      || investigationFilterValue(r) === investigationFilter;
+    const searchText = search.toLowerCase();
+    const matchSearch = searchText === "" || [r.policy_no, r.client_name, r.assured, r.accuterm_claim_no]
+      .some((v) => String(v ?? "").toLowerCase().includes(searchText));
+    return matchMonth && matchLine && matchStatus && matchInvestigation && matchSearch;
   });
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-
   const handleFilterChange = (setter) => (val) => { setter(val); setPage(1); };
+  const anyFilter = month || search || lineFilter !== "Policy Line: All"
+    || statusFilter !== "Final Status: All" || investigationFilter !== "Investigation Result: All";
+
+  const fraudRateLabel = !stats ? "…" : stats.fraud_rate === null ? "—" : `${stats.fraud_rate.toFixed(1)}%`;
 
   return (
     <div className="min-h-screen bg-yellow-400 p-4 sm:p-6 flex gap-4">
       <div className="hidden md:flex flex-shrink-0"><Sidebar activeItem="Claims" /></div>
       <div className="flex-1 flex flex-col gap-4 min-w-0">
+        {statsError && <p className="text-xs text-red-600 bg-white/70 rounded-lg px-3 py-2">{statsError}</p>}
 
+        {/* All four cards: claims filed (Date Reported) in the selected period. */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard value="15" label="Total Claims" />
-          <StatCard value="4" label="Fraud Flagged Claims" />
-          <StatCard value="4" label="Approved Claims" />
-          <StatCard value="4" label="Paid Claims" />
+          <StatCard sub={`Filed ${periodLabel}`} value={stats ? stats.total_claims : "…"} label="Total Claims" />
+          <StatCard sub={`Filed ${periodLabel}`} value={stats ? stats.open_claims : "…"} label="Open Claims" />
+          <StatCard sub={`Filed ${periodLabel}`} value={stats ? stats.closed_claims : "…"} label="Closed Claims" />
+          <StatCard sub={`Filed ${periodLabel}`}
+            value={stats ? formatCurrencyPH(stats.total_net_liability, false) : "…"} label="Total Net Liability" />
         </div>
 
         <div className="flex gap-4">
-          <div className="flex-1 flex flex-col justify-center bg-white rounded-2xl p-5 shadow-sm min-w-0">
-            <h2 className="font-bold text-black text-sm mb-4">
-              Total Filed Claims vs. Fraud Flag Trend{" "}
-              <span className="text-gray-400 font-normal">(Past 6 Months)</span>
-            </h2>
-            <ResponsiveContainer width="100%" height={300}>
-              <ComposedChart data={chartData}>
+          <div className="flex-1 bg-white rounded-2xl p-5 shadow-sm flex flex-col gap-3 min-w-0">
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-black text-sm">
+                Filed Claims per Month <span className="text-gray-400 font-normal">(by Date Reported)</span>
+              </h2>
+              <Dropdown label="Past 6 Months" options={Object.keys(PERIOD_TO_MONTHS)} value={period} onChange={setPeriod} />
+            </div>
+            <ResponsiveContainer width="100%" height={270}>
+              <ComposedChart data={trendData} barCategoryGap="30%">
                 <CartesianGrid vertical={false} stroke="#f3f4f6" />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} domain={[0, 10]}
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false}
                   label={{ value: "count", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: "#9ca3af" } }} />
                 <Tooltip contentStyle={{ borderRadius: 10, border: "none", fontSize: 12 }} />
-                <Legend wrapperStyle={{ fontSize: 11 }} formatter={v => v === "filed" ? "Filed Claims" : "Flagged Fraud Claims"} />
-                <Bar dataKey="filed" name="filed" fill="#a5b4fc" radius={[4, 4, 0, 0]}
-                  label={{ position: "center", fontSize: 10, fill: "#fff", fontWeight: 700 }} />
-                <Line dataKey="fraud" name="fraud" stroke="#f87171" strokeWidth={2} dot={{ r: 4, fill: "#f87171" }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                {/* Explicit LabelList per segment: a stacked Bar's built-in label shows the
+                    running total (Motor + Fire) on the upper segment, not its own count. */}
+                <Bar dataKey="motor_count" name="Motor & Car" stackId="a" fill="#6366f1">
+                  <LabelList dataKey="motor_count" position="center" formatter={(v) => v || ""}
+                    style={{ fontSize: 10, fill: "#fff", fontWeight: 700 }} />
+                </Bar>
+                <Bar dataKey="fire_count" name="Fire & Property" stackId="a" fill="#a5b4fc" radius={[4, 4, 0, 0]}>
+                  <LabelList dataKey="fire_count" position="center" formatter={(v) => v || ""}
+                    style={{ fontSize: 10, fill: "#fff", fontWeight: 700 }} />
+                </Bar>
+                <Line dataKey="fraud_labelled_count" name="Investigated as Fraud (human label)"
+                  stroke="#ef4444" strokeWidth={2} dot={{ r: 4, fill: "#ef4444" }} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
           <div className="flex flex-col gap-3 w-64 flex-shrink-0">
-            <div className="bg-white rounded-2xl p-4 shadow-sm flex-1">
-              <h2 className="font-bold text-black text-sm text-center mb-1">Pending Flagged Fraud Claims</h2>
-              <p className="text-gray-400 text-[10px] text-center mb-2">(As of March 2026)</p>
-              <ResponsiveContainer width="100%" height={150}>
-                <PieChart>
-                  <Pie data={pieData} dataKey="value" cx="50%" cy="50%" outerRadius={60} labelLine={false}
-                    label={({ cx, cy, midAngle, innerRadius, outerRadius, value }) => {
-                      const RADIAN = Math.PI / 180;
-                      const r = innerRadius + (outerRadius - innerRadius) * 0.5;
-                      return <text x={cx + r * Math.cos(-midAngle * RADIAN)} y={cy + r * Math.sin(-midAngle * RADIAN)}
-                        fill="#fff" textAnchor="middle" dominantBaseline="central" fontSize={13} fontWeight={700}>{value}</text>;
-                    }}>
-                    {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i]} />)}
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="flex flex-col gap-1.5 mt-2">
-                {pieData.map((d, i) => (
-                  <div key={d.name} className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: PIE_COLORS[i] }} />
-                    <span className="text-xs text-gray-600">{d.name}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <MiniPie
+              title="Claim Investigation Result"
+              data={stats?.investigation_pie ?? []}
+              colors={PIE_COLORS}
+              sub={`Filed ${periodLabel}`}
+              note={stats ? `CNC Issuance rows are excluded (${stats.cnc_excluded} in this period).` : null}
+            />
             <div className="bg-white rounded-2xl p-4 shadow-sm">
-              <p className="text-black font-bold text-sm">Fraud Flag Rate</p>
-              <p className="text-gray-400 text-[10px]">As of March 2026</p>
-              <p className="text-black font-black text-4xl mt-2">40.0%</p>
+              <p className="text-black font-bold text-sm">Fraud Rate</p>
+              <p className="text-gray-400 text-[10px]">Filed {periodLabel} · investigated claims, CNC excluded</p>
+              <p className="text-black font-black text-4xl mt-2">{fraudRateLabel}</p>
+              <p className="text-gray-400 text-[10px] mt-1">(Suspected + Confirmed Fraud) ÷ investigated × 100</p>
             </div>
           </div>
         </div>
 
         <div className="bg-white rounded-2xl p-5 shadow-sm">
+          <p className="text-gray-400 text-[10px] mb-2">All claims, both lines — not limited by the period above.</p>
           <div className="flex flex-wrap gap-2 mb-4 items-center">
-            <FullCalendarPicker
-              value={fromDate}
-              onChange={(date) => { setFromDate(date); setPage(1); }}
-            />
-            <Dropdown label="Policy Line: All" options={["Policy Line: All", "Motor Car", "Fire & Property"]} value={lineFilter} onChange={handleFilterChange(setLine)} />
-            <Dropdown label="Fraud Flag: All" options={["Fraud Flag: All", "Yes", "No"]} value={fraudFilter} onChange={handleFilterChange(setFraud)} />
+            <div className="flex items-center gap-2">
+              {month && (
+                <button
+                  type="button"
+                  onClick={() => handleFilterChange(setMonth)(null)}
+                  className="flex items-center cursor-pointer gap-1.5 bg-violet-50 border border-violet-200 text-violet-600 text-xs font-semibold px-3 py-1.5 rounded-xl hover:bg-violet-50 hover:border-violet-200 hover:text-violet-500 transition"
+                >
+                  Show All Months
+                </button>
+              )}
+              <MonthYearPicker value={month} onChange={handleFilterChange(setMonth)} />
+            </div>
+            <Dropdown label="Policy Line: All" options={["Policy Line: All", "Motor Car", "Fire & Property"]}
+              value={lineFilter} onChange={handleFilterChange(setLine)} />
+            <Dropdown label="Final Status: All" options={["Final Status: All", ...FINAL_STATUS_OPTIONS]}
+              value={statusFilter} onChange={handleFilterChange(setStatus)} />
+            <Dropdown label="Investigation Result: All" options={INVESTIGATION_OPTIONS}
+              value={investigationFilter} onChange={handleFilterChange(setInvestigation)} />
             <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2">
               <Search className="w-3.5 h-3.5 text-gray-400" />
-              <input className="text-xs outline-none text-gray-600 w-36" placeholder="Search Policy Number"
-                value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+              <input className="text-xs outline-none text-gray-600 w-44" placeholder="Search policy, client, claim no."
+                value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
             </div>
-            {fromDate && (
-              <span className="text-xs text-gray-400">{filtered.length} result{filtered.length !== 1 ? "s" : ""}</span>
+            {anyFilter && (
+              <span className="text-xs text-gray-400">
+                {filtered.length} result{filtered.length !== 1 ? "s" : ""}
+                {month ? ` · reported in ${MONTH_NAMES[month.getMonth()]} ${month.getFullYear()}` : ""}
+              </span>
             )}
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs text-center">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  {["Claim Number", "Policy Number", "Client Name", "Date of Loss", "Date Reported", "Policy Line", "Claim Type", "Reserve Amount", "Paid Amount", "Status", "Fraud Flag"].map(h => (
-                    <th key={h} className="py-2 px-1.5 text-gray-500 font-semibold whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {pageRows.map((r, i) => (
-                  <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 transition">
-                    <td className="py-2.5 px-1.5">{r.claim}</td>
-                    <td className="py-2.5 px-1.5">{r.policy}</td>
-                    <td className="py-2.5 px-1.5">{r.client}</td>
-                    <td className="py-2.5 px-1.5">{r.loss}</td>
-                    <td className="py-2.5 px-1.5">{r.reported}</td>
-                    <td className="py-2.5 px-1.5">{r.line}</td>
-                    <td className="py-2.5 px-1.5">{r.type}</td>
-                    <td className="py-2.5 px-1.5">{r.reserve}</td>
-                    <td className="py-2.5 px-1.5">{r.paid}</td>
-                    <td className="py-2.5 px-1.5">{r.status}</td>
-                    <td className="py-2.5 px-1.5">
-                      <span className={`font-semibold ${r.fraud === "Yes" ? "text-red-500" : "text-gray-500"}`}>{r.fraud}</span>
-                    </td>
-                  </tr>
-                ))}
-                {pageRows.length === 0 && (
-                  <tr><td colSpan={11} className="py-6 text-gray-400 text-xs">No records found.</td></tr>
-                )}
-              </tbody>
-            </table>
+            {claimsLoading
+              ? <p className="text-center py-8 text-gray-400 text-xs">Loading claims...</p>
+              : claimsError
+              ? <p className="text-center py-8 text-red-400 text-xs">{claimsError}</p>
+              : (
+                <table className="min-w-max w-full text-xs text-center">
+                  <thead>
+                    <tr className="border-b border-gray-100">
+                      {["Claim ID", "Accuterm Claim No.", "Policy No.", "Client Name", "Policy Line", "Date of Loss",
+                        "Date Reported", "Nature of Loss", "Claim Type", "Net Liability", "Final Status",
+                        "Claim Investigation Result", "Fraud Warning"].map((h) => (
+                        <th key={h} className="py-2 px-2 text-gray-500 font-semibold whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pageRows.map((r) => (
+                      <tr key={`${r.line}-${r.id}`} className="border-b border-gray-50 hover:bg-gray-50 transition">
+                        <td className="py-2.5 px-2">{r.id}</td>
+                        <td className="py-2.5 px-2 whitespace-nowrap">{r.accuterm_claim_no ?? "—"}</td>
+                        <td className="py-2.5 px-2 whitespace-nowrap">{r.policy_no ?? "—"}</td>
+                        <td className="py-2.5 px-2 whitespace-nowrap text-left">{r.client_name ?? "—"}</td>
+                        <td className="py-2.5 px-2 whitespace-nowrap">{r.line}</td>
+                        <td className="py-2.5 px-2">{formatDateSlash(r.date_of_loss)}</td>
+                        <td className="py-2.5 px-2">{formatDateSlash(r.date_reported)}</td>
+                        <td className="py-2.5 px-2 whitespace-nowrap">{r.nature_of_loss ?? "—"}</td>
+                        <td className="py-2.5 px-2 whitespace-nowrap">{r.claim_type ?? "—"}</td>
+                        <td className="py-2.5 px-2 whitespace-nowrap">{formatCurrencyPH(r.net_liability)}</td>
+                        <td className="py-2.5 px-2 whitespace-nowrap">{r.final_status ?? "—"}</td>
+                        <td className="py-2.5 px-2 whitespace-nowrap"><InvestigationResultCell value={r.investigation_display} /></td>
+                        <td className="py-2.5 px-2"><FraudWarningCell value={r.fraud_warning} /></td>
+                      </tr>
+                    ))}
+                    {pageRows.length === 0 && (
+                      <tr><td colSpan={13} className="py-6 text-gray-400 text-xs">No records found.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              )}
           </div>
           <div className="flex justify-end items-center gap-2 mt-3 text-xs text-gray-500">
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={safePage === 1} className="disabled:opacity-30">«</button>
+            <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage === 1} className="disabled:opacity-30">«</button>
             <span>{safePage} / {totalPages}</span>
-            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={safePage === totalPages} className="disabled:opacity-30">»</button>
+            <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage === totalPages} className="disabled:opacity-30">»</button>
           </div>
         </div>
       </div>
