@@ -1105,6 +1105,40 @@ committed. No application code changed; the only DB writes went to `geocode_cach
   `geocode_cache`: 500 rows, all `found` (includes the dropped rescues' lookups —
   harmless).
 
+## Data Prep Step 4 — Synthetic dataset loaded — DONE
+2026-09-26, branch `data-prep`. The dev DB now holds ONLY the synthetic learning
+dataset (seed 20260926); all earlier dev/test business data is gone.
+- Package: `data_prep/synthetic/firemap_synthetic_data/` (`upload_files/` 8 xlsx,
+  `generator/` generate.py + validate.py + address pool copy, `validation_report.md`
+  — 38/38 of its own checks passed).
+- Pre-flight (`data_prep/preflight_step4.py`, read-only): every header maps; all 8
+  files auto-detect except `6_motor_policies` (ambiguous vs Fire Policy, 100 vs
+  90.9 — needs a manual pick in folder mode; single-file upload unaffected); every
+  address in files 1–4 already in `geocode_cache`; importer-matching simulation:
+  file 1 = 1,129 new (max pair score 64.0), files 2–6 match their person ≥90 on
+  every row.
+- Backup before reset: `Desktop\insurance_db_backup_pre_synthetic_load_20260926_230951.sql`
+  (274,714 bytes). Then `Backend/scripts/reset_data.sql` (22 tables → 0, users = Aaron
+  James only, geocode_cache 500 kept).
+- Load (`data_prep/load_step4.py`, single-file endpoints, in order 1→8): every file
+  0 needs review, 0 failed. Times: 21s, 71s, 161s, 19s, 17s, 21s, 8s, 2s.
+- Counts after load (all = expected): policyholders 1,129; insurance_cases 1,224
+  (481 fire + 743 motor); fire_property_surveys 481; vehicles 743; motor_quotations
+  1,450; fire_property_quotations 1,032; fire_property_policies 876; motor_policies
+  1,139; motor_claims 351; fire_property_claims 90; import_records 6,548, all
+  `unmatched` (created), 0 needs_review; users 1; geocode_cache still 500 (zero
+  Nominatim calls). No fire case without a survey, no quotation with 2 policies.
+- GIS: all 1,931 surveys + motor quotations have coordinates, and every stored
+  lat/lng + category/river/storm-surge value equals `address_pool_verified.csv`.
+  Spot-checked 3 random policies per line via the API (policy → quotation → case →
+  person, survey/quotation GIS) — all consistent.
+- Dashboards (browser, no console errors): Overview (Sept 2026: 50 policies,
+  ₱1,092,348.33 GWP, 66 quotations; pie 143/44), Distribution (MTD 50, YTD 417),
+  Renewal Ratio (daily 3 expiring; MTD 69.8%; YTD 52.19% — lower than the
+  generator's ~71% because 138 not-yet-expired Pending policies are in the YTD
+  denominator), Quotations/Proposal (6 months: 372 quotations, 291 converted, 78%).
+  Overview's Filed Claims card and the Claims page are still placeholders/mock.
+
 ## ⚠️ Importer-wide: cells containing None / NA / N/A / null are read as BLANK
 pandas' default NA list (`None`, `NA`, `N/A`, `n/a`, `null`, `NULL`, `nan`,
 `NaN`, `#N/A`, ... — confirmed on pandas 3.0.5) converts those exact cell texts
