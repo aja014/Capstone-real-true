@@ -593,6 +593,11 @@ class ImportRowError(BaseModel):
     error: str
 
 
+class ImportRowWarning(BaseModel):
+    source_row: Optional[int] = None
+    warning: str
+
+
 class ImportSummary(BaseModel):
     source_file: str
     total_rows: int
@@ -602,6 +607,8 @@ class ImportSummary(BaseModel):
     failed: int = 0
     import_record_ids: list[int]
     errors: list[ImportRowError] = []
+    # Row imported, but something looked off (e.g. Occupancy - Total != sum of parts).
+    warnings: list[ImportRowWarning] = []
 
 
 class DeletedPolicyholderOut(BaseModel):

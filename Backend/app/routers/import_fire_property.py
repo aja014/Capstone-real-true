@@ -1,4 +1,6 @@
 import re
+from decimal import Decimal, InvalidOperation
+
 import pandas as pd
 from rapidfuzz import fuzz
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
@@ -77,7 +79,33 @@ SURVEY_COLUMN_MAP = {
     "overallriskassessment": "overall_risk_assessment",
     "surveyorriskacceptability": "surveyor_risk_acceptability",
     "protectionfacilities": "protection_facilities",
+
+    # Main Occupancy breakdown (peso amounts) and Boundaries (text) from the paper
+    # Survey Report. Prefixed headers ("Occupancy - Others", not "Others") so they
+    # never collide with the "Others" peril. Placeholders, folded into the
+    # occupancy_breakdown / boundaries JSON in row_to_survey_fields() below.
+    "occupancybuilding": "occupancy__building",
+    "occupancymainoccupancy": "occupancy__main_occupancy",
+    "occupancystocks": "occupancy__stocks",
+    "occupancyme": "occupancy__me",
+    "occupancyfff": "occupancy__fff",
+    "occupancybilop": "occupancy__bi_lop",
+    "occupancyothers": "occupancy__others",
+    "occupancytotal": "occupancy__total",
+    "boundaryfront": "boundary__front",
+    "boundaryright": "boundary__right",
+    "boundaryleft": "boundary__left",
+    "boundaryrear": "boundary__rear",
+    "boundarysketch": "boundary__sketch",
 }
+
+# JSON key -> upload header, for error/warning messages.
+OCCUPANCY_HEADERS = {
+    "building": "Occupancy - Building", "main_occupancy": "Occupancy - Main Occupancy",
+    "stocks": "Occupancy - Stocks", "me": "Occupancy - M/E", "fff": "Occupancy - FFF",
+    "bi_lop": "Occupancy - BI/LOP", "others": "Occupancy - Others", "total": "Occupancy - Total",
+}
+OCCUPANCY_TOTAL_TOLERANCE = Decimal("1")
 
 FIRE_QUOTATION_COLUMN_MAP = {
     "date": "quotation_date",
@@ -208,6 +236,32 @@ def _keep_literal_protection_facilities(df, file):
     df[col] = raw[col]
 
 
+def _parse_occupancy_amount(key: str, value: str):
+    """Same cleanup as maximum_amount_subject (strip "Php", "₱", commas, spaces), but an
+    unusable value FAILS the row instead of silently becoming NULL. Stored as a plain
+    JSON number -- int when whole (matches the schema example {"building": 1000000})."""
+    cleaned = re.sub(r"[^\d.]", "", value)
+    try:
+        amount = Decimal(cleaned).quantize(Decimal("0.01"))
+    except InvalidOperation:
+        raise ValueError(f'{OCCUPANCY_HEADERS[key]}: "{value}" is not a valid amount')
+    return int(amount) if amount == amount.to_integral_value() else float(amount)
+
+
+def occupancy_total_warning(fields: dict):
+    """Occupancy - Total is stored as given; if it's more than 1 peso off the sum of
+    the other filled parts, return a warning message (the row still imports)."""
+    occ = fields.get("occupancy_breakdown") or {}
+    parts = [Decimal(str(v)) for k, v in occ.items() if k != "total"]
+    if "total" not in occ or not parts:
+        return None
+    total, parts_sum = Decimal(str(occ["total"])), sum(parts)
+    if abs(total - parts_sum) > OCCUPANCY_TOTAL_TOLERANCE:
+        return (f"Occupancy - Total {total:,.2f} differs from the sum of the other parts "
+                f"{parts_sum:,.2f}; imported as given")
+    return None
+
+
 def row_to_survey_fields(row: pd.Series) -> dict:
     fields = {}
     for col, value in row.items():
@@ -276,6 +330,20 @@ def row_to_survey_fields(row: pd.Series) -> dict:
         fields["perils_assessment"] = perils_assessment
     if hazard_assessment:
         fields["hazard_assessment"] = hazard_assessment
+
+    # Occupancy breakdown (amounts) / Boundaries (text): blank cells are simply left
+    # out; a group with nothing filled stays unset (NULL), same as before.
+    occupancy_breakdown, boundaries = {}, {}
+    for key in list(fields.keys()):
+        if key.startswith("occupancy__"):
+            sub = key[len("occupancy__"):]
+            occupancy_breakdown[sub] = _parse_occupancy_amount(sub, fields.pop(key))
+        elif key.startswith("boundary__"):
+            boundaries[key[len("boundary__"):]] = fields.pop(key)
+    if occupancy_breakdown:
+        fields["occupancy_breakdown"] = occupancy_breakdown
+    if boundaries:
+        fields["boundaries"] = boundaries
 
     return fields
 
@@ -411,6 +479,7 @@ def upload_surveys(file: UploadFile = File(...), db: Session = Depends(get_db)):
     failed_count = 0
     import_record_ids = []
     errors = []
+    warnings = []
 
     for idx, row in df.iterrows():
         source_row = idx + 2
@@ -553,6 +622,9 @@ def upload_surveys(file: UploadFile = File(...), db: Session = Depends(get_db)):
                 matched_count += 1
             else:
                 unmatched_created_count += 1
+                warning = occupancy_total_warning(fields)
+                if warning:
+                    warnings.append(schemas.ImportRowWarning(source_row=source_row, warning=warning))
 
         except Exception as e:
             # One bad row should never take down the whole upload. Undo
@@ -571,6 +643,7 @@ def upload_surveys(file: UploadFile = File(...), db: Session = Depends(get_db)):
         failed=failed_count,
         import_record_ids=import_record_ids,
         errors=errors,
+        warnings=warnings,
     )
 
 

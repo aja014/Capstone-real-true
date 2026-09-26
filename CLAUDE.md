@@ -1056,6 +1056,46 @@ assistant without an explicit instruction to run it.**
   All 24 table counts, 12 spot-check endpoints and 10 × 401 checks identical
   before/after creating the file.
 
+## Data Prep Change 6 — Occupancy Breakdown + Boundaries upload columns (Fire Survey) — DONE
+2026-09-27, branch `data-prep`. No DB change (both JSON columns already existed).
+- Shape: nothing defined it beyond the `schemas.py` examples (`{"building": 1000000,
+  "stocks": 200000}`, `{"front": ..., "right": ..., "left": ..., "rear": ...}`), so:
+  `occupancy_breakdown` keys `building, main_occupancy, stocks, me, fff, bi_lop, others,
+  total` (plain JSON numbers — int when whole, else 2 decimals); `boundaries` keys
+  `front, right, left, rear, sketch` (text).
+- Headers (in `SURVEY_COLUMN_MAP`, prefixed so "Occupancy - Others" can't collide with
+  the "Others" peril): "Occupancy - Building", "Occupancy - Main Occupancy",
+  "Occupancy - Stocks", "Occupancy - M/E", "Occupancy - FFF", "Occupancy - BI/LOP",
+  "Occupancy - Others", "Occupancy - Total", "Boundary - Front", "Boundary - Right",
+  "Boundary - Left", "Boundary - Rear", "Boundary - Sketch". Same `occupancy__` /
+  `boundary__` placeholder pattern as perils/hazards, folded into the JSON in
+  `row_to_survey_fields()` — so the needs-review resolve path and folder uploads get it
+  automatically. All 13 normalized keys are unique across every importer map.
+- Amounts: same cleanup as Maximum Amount Subject (strip everything but digits and
+  "."), but an unusable value FAILS the row (`Occupancy - Stocks: "abc" is not a valid
+  amount`) instead of silently becoming NULL. As with Maximum Amount Subject, "-500"
+  becomes 500. Blank cells are left out; a group with nothing filled stays NULL.
+  pandas' NA words ("None", "N/A", …) count as blank here too.
+- "Occupancy - Total" is stored as given. If it is more than ₱1 off the sum of the
+  other filled parts, the row still imports and a warning is returned. New
+  `schemas.ImportRowWarning` + `ImportSummary.warnings` (default `[]`, so every
+  importer's upload response now has `"warnings": []`). Only rows that create a survey
+  get it; the resolve path can't return warnings. API-only — the Upload modal doesn't
+  show warnings (user's choice).
+- **Verified** (18/18, `data_prep/test_change6.py`, ZZTEST rows via the real
+  endpoints): all 13 filled → exact JSON; partial → only filled keys; columns present
+  but blank → both NULL; file without the columns → both NULL, `warnings: []`; "abc" →
+  row fails with that message, other rows unaffected; Total mismatch → imported +
+  warning; folder upload (`/import/batch/detect` + `/upload`) → auto-detected Fire
+  Survey, same JSON; resolve path (rolled-back direct call) → same JSON; browser:
+  Survey Report tab View buttons show both fields, no console errors. Regression
+  (`data_prep/regression_snapshot.py`, baseline taken before the code change): 24
+  table counts, 12 spot-check endpoint hashes, 10 × 401 and 17 detection results
+  (8 synthetic files + a minimal header set per type) all identical after cleanup. 6
+  ZZTEST policyholders/cases/surveys/import_records deleted by exact id with plain SQL
+  (no archive rows). Auto-increment ids 1130–1135 (policyholders), 1225–1230 (cases),
+  482–487 (surveys) and 6549–6554 (import_records) are now skipped.
+
 ## Data Prep Step 3 — Address pool — DONE (check run; no data generated)
 2026-09-26, branch `data-prep`. Folder `data_prep/` (repo root):
 `address_pool_candidates.csv` (530 barangay-level addresses from the user, all 24
@@ -1138,6 +1178,25 @@ dataset (seed 20260926); all earlier dev/test business data is gone.
   generator's ~71% because 138 not-yet-expired Pending policies are in the YTD
   denominator), Quotations/Proposal (6 months: 372 quotations, 291 converted, 78%).
   Overview's Filed Claims card and the Claims page are still placeholders/mock.
+
+## How to restore the synthetic-dataset backup
+Backup of the freshly loaded synthetic dataset (2026-09-26, `mysqldump
+--single-transaction --routines insurance_db`, 7,342,129 bytes):
+`Desktop\insurance_db_backup_loaded_20260926_233342.sql`. Proven to
+restore: loaded into a temp DB `insurance_db_restoretest`, all 24 tables' row counts
+matched `insurance_db`, temp DB dropped. The dump has no `CREATE DATABASE`/`USE`
+line, so it restores into whatever database you name; each table is
+`DROP TABLE IF EXISTS` + recreated (a table that isn't in the dump is left alone).
+Stop the backend (uvicorn) first so nothing writes during the restore.
+- **Command line** (works in PowerShell and cmd; asks for the MySQL password):
+  ```
+  & "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -p insurance_db -e "source C:/Users/aaron/OneDrive/Desktop/insurance_db_backup_loaded_20260926_233342.sql"
+  ```
+  (in cmd, drop the leading `& ` and keep the quoted path.)
+- **MySQL Workbench**: Server → Data Import → "Import from Self-Contained File" →
+  pick the `.sql` file → "Default Target Schema": `insurance_db` → Import Progress
+  tab → Start Import. Afterwards refresh the schema and check a few counts, e.g.
+  `SELECT COUNT(*) FROM policyholders;` → 1,129.
 
 ## ⚠️ Importer-wide: cells containing None / NA / N/A / null are read as BLANK
 pandas' default NA list (`None`, `NA`, `N/A`, `n/a`, `null`, `NULL`, `nan`,
