@@ -23,6 +23,9 @@ router = APIRouter(
 MATCH_THRESHOLD = 90
 REVIEW_THRESHOLD = 70
 SURVEY_DUPLICATE_THRESHOLD = 85  # how similar location_of_risk must be to call it the same property
+# Fire Quotation -> case, for a policyholder with 2+ fire cases: the best-matching
+# case must also lead the runner-up by this much, else fall back to a new case.
+LOCATION_MATCH_MARGIN = 8
 
 
 SURVEY_COLUMN_MAP = {
@@ -575,15 +578,51 @@ def upload_surveys(file: UploadFile = File(...), db: Session = Depends(get_db)):
 # FIRE & PROPERTY QUOTATIONS
 # ------------------------------------------------------------
 
+def _match_fire_case_by_location(db: Session, cases: list, location_of_risk):
+    """
+    For a policyholder with 2+ fire_property cases: compare the quotation's Location
+    of Risk with the LATEST Survey (highest id) of each case, using the same
+    lowercase + token_sort_ratio the Survey duplicate check uses. Returns the case
+    only if it scores >= SURVEY_DUPLICATE_THRESHOLD and leads the runner-up by
+    LOCATION_MATCH_MARGIN; otherwise None (caller keeps today's new-case behavior).
+    A case with no survey scores 0 and is never picked.
+    """
+    candidate_loc = (location_of_risk or "").lower()
+    if not candidate_loc:
+        return None
+
+    latest_survey_by_case = {}
+    for survey in db.query(models.FirePropertySurvey).filter(
+        models.FirePropertySurvey.insurance_case_id.in_([c.id for c in cases])
+    ).all():
+        current = latest_survey_by_case.get(survey.insurance_case_id)
+        if current is None or survey.id > current.id:
+            latest_survey_by_case[survey.insurance_case_id] = survey
+
+    scored = []
+    for case in cases:
+        survey = latest_survey_by_case.get(case.id)
+        existing_loc = (survey.location_of_risk or "").lower() if survey else ""
+        score = fuzz.token_sort_ratio(candidate_loc, existing_loc) if existing_loc else 0
+        scored.append((score, case))
+    scored.sort(key=lambda s: s[0], reverse=True)
+
+    best_score, best_case = scored[0]
+    runner_up_score = scored[1][0] if len(scored) > 1 else 0
+    if best_score >= SURVEY_DUPLICATE_THRESHOLD and best_score - runner_up_score >= LOCATION_MATCH_MARGIN:
+        return best_case
+    return None
+
+
 def _resolve_or_create_fire_quotation(db: Session, policyholder_id: int, fields: dict):
     """
     Shared by the main upload loop below and resolve_fire_quotation_for_policyholder
     (the needs-review resolve path), so both stay in sync automatically.
-    Deliberately does NOT disambiguate among multiple existing cases by location (the
-    survey importer does that) -- mirrors Motor's existing precedent of never
-    disambiguating among a policyholder's cases that way: exactly one existing
-    fire_property case -> reuse it (with an exact-duplicate check); zero or 2+ -> create
-    a new case.
+    Exactly one existing fire_property case -> reuse it. 2+ -> reuse the case whose
+    latest Survey location clearly matches this quotation's Location of Risk (see
+    _match_fire_case_by_location), so the quotation gets that property's Survey/GIS.
+    A reused case gets the exact-duplicate check (same date + total_premium). Zero
+    cases, or 2+ with no clear location match -> create a new case (unchanged).
     """
     existing_cases = (
         db.query(models.InsuranceCase)
@@ -600,8 +639,13 @@ def _resolve_or_create_fire_quotation(db: Session, policyholder_id: int, fields:
         except (TypeError, ValueError):
             return False
 
+    case = None
     if len(existing_cases) == 1:
         case = existing_cases[0]
+    elif len(existing_cases) >= 2:
+        case = _match_fire_case_by_location(db, existing_cases, fields.get("location_of_risk"))
+
+    if case is not None:
         existing_quotations = db.query(models.FirePropertyQuotation).filter(
             models.FirePropertyQuotation.insurance_case_id == case.id
         ).all()

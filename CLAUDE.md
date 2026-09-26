@@ -919,6 +919,47 @@ synthetic learning dataset (~850 people / ~1,750 policies / ~490 claims).
   full-Survey sample's runner-up score moved 5.1 → 5.0). Test rows deleted by
   exact id after a ZZTEST marker check.
 
+## Data Prep Change 3 — Fire Quotation picks the right property — DONE
+2026-09-26, branch `data-prep`. No DB / frontend change.
+- Problem: a Fire Quotation for a policyholder with 2+ fire cases always created a
+  new, survey-less case → no GIS for that quotation.
+- `import_fire_property.py`: new `_match_fire_case_by_location()` +
+  `LOCATION_MATCH_MARGIN = 8`, used by `_resolve_or_create_fire_quotation()` ONLY
+  when the person has 2+ fire cases. Compares the quotation's Location of Risk
+  with the LATEST Survey (highest id) of each case using the Survey duplicate
+  check's exact normalization/scorer (`.lower()` + `fuzz.token_sort_ratio`).
+  Picks a case only if best >= 85 (`SURVEY_DUPLICATE_THRESHOLD`) AND best −
+  runner-up >= 8; a case with no survey scores 0. Otherwise today's behavior
+  exactly (new case, no duplicate check). A picked case gets the existing
+  duplicate check (same quotation_date + total_premium) inside that case.
+  0 or 1 fire case: unchanged.
+- The needs-review resolve path (`resolve_fire_quotation_for_policyholder`) and
+  folder uploads call the same function, so they follow the same rule.
+- Margin 8 (not 10) chosen from measured scores: two different barangays in the
+  same town already score up to 83.5; "123 Rizal St., Barangay Longos, …" vs the
+  "Barangay Longos, …" survey scores 87.2 with an 8.2-point lead (would fall back
+  at margin 10).
+- ⚠️ **Data rule**: write a Fire Quotation's Location of Risk EXACTLY like its
+  Survey's. Abbreviations don't match — "Brgy. Longos, Malolos City, Bulacan" vs
+  "Barangay Longos, Malolos City, Bulacan, Philippines" scores only 79.1, so the
+  quotation falls back to a new case with no Survey/GIS.
+- **Verified** (real geocoded ZZTEST fixtures): 2-property person (Longos,
+  Panghulo surveys → 2 cases): exact-Longos quotation → Longos case,
+  Panghulo → Panghulo case, street-prefixed Longos → Longos case, unrelated
+  Norzagaray → new case with no survey (today's behavior); re-uploading the first
+  quotation → `matched`, no new row; 1-property person with an unrelated address
+  → reused their single case (unchanged); resolve path (rolled-back direct call)
+  picked the Panghulo case. Browser GIS modal (Quotations/Proposal page) showed
+  the matching property's map + category for each, and "not yet available" for
+  the unrelated one. Regression: 23 counts, 12 spot-check endpoints byte-
+  identical, 10 × 401 unchanged, detection unchanged. Test rows deleted by exact
+  id after a ZZTEST marker check.
+- Side notes found while testing (not changed): "Barangay Longos, Malolos City"
+  now classifies High (older notes above say Medium — likely the later 50m
+  boundary buffer). The GIS modal's subtitle says "Within a mapped 100-year
+  flood hazard zone" even when the headline category comes from storm surge
+  (e.g. Panghulo) — pre-existing wording in `FloodRiskModal.jsx`.
+
 ## ⚠️ Importer-wide: cells containing None / NA / N/A / null are read as BLANK
 pandas' default NA list (`None`, `NA`, `N/A`, `n/a`, `null`, `NULL`, `nan`,
 `NaN`, `#N/A`, ... — confirmed on pandas 3.0.5) converts those exact cell texts
