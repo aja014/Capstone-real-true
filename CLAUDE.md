@@ -1179,24 +1179,61 @@ dataset (seed 20260926); all earlier dev/test business data is gone.
   denominator), Quotations/Proposal (6 months: 372 quotations, 291 converted, 78%).
   Overview's Filed Claims card and the Claims page are still placeholders/mock.
 
-## How to restore the synthetic-dataset backup
-Backup of the freshly loaded synthetic dataset (2026-09-26, `mysqldump
---single-transaction --routines insurance_db`, 7,342,129 bytes):
-`Desktop\insurance_db_backup_loaded_20260926_233342.sql`. Proven to
-restore: loaded into a temp DB `insurance_db_restoretest`, all 24 tables' row counts
-matched `insurance_db`, temp DB dropped. The dump has no `CREATE DATABASE`/`USE`
-line, so it restores into whatever database you name; each table is
+## Data Prep Step 5 — v2 dataset loaded — DONE
+2026-09-27, branch `data-prep`. The dev DB now holds the fuller v2 synthetic dataset
+(replaces the Step 4 v1 load; same people/policies/claims, more columns filled).
+- Package: `data_prep/synthetic_v2/firemap_synthetic_data_v2/` (unzipped one folder
+  deeper than the brief said; `validation_report.md` = 40/40). Only files 1 and 2
+  changed: file 1 adds Complete Name of Spouse, Permanent Address, Residence Phone
+  Number, Employer, TIN, SSS No. (+ Email Address values changed); file 2 adds the 12
+  missing perils, District No./Block No., Current Block Accumulation, Zone, T.I., the 8
+  "Occupancy - …" and 5 "Boundary - …" columns (v1 columns' values unchanged). Files
+  3–8 have identical cell content to v1 — they differ byte-wise ONLY in the xlsx
+  `docProps/core.xml` created/modified timestamp (14:45 vs 15:59 UTC).
+- Pre-flight (read-only): no ignored headers; files 1/2 auto-detect (100 vs runner-up
+  3.5 / 3.8); every row parses with the importers' own parsers, 0 Occupancy-Total
+  warnings; all addresses cached; matching simulation clean (same as Step 4).
+- Backup before reset: `Desktop\insurance_db_backup_pre_v2_load_20260927_002649.sql`
+  (the v1 state). Reset verified (22 tables 0, users 1, geocode_cache 500).
+- Load (`data_prep/load_step4.py --dir …/synthetic_v2/…/upload_files`, now also stops
+  on warnings; log `data_prep/load_step5.log`): every file 0 needs review, 0 failed,
+  0 warnings. Counts identical to Step 4 (policyholders 1,129; cases 1,224 = 481 fire +
+  743 motor; surveys 481; vehicles 743; motor quotations 1,450; fire quotations 1,032;
+  fire policies 876; motor policies 1,139; motor claims 351; fire claims 90;
+  import_records 6,548, 0 needs_review; geocode_cache still 500 → zero Nominatim calls).
+- Client Info blanks: spouse 456 (= every Single 334 + Widowed 79 + Separated 43; 0 of
+  673 Married), residence phone 756, email 182, employer 71, TIN 145, SSS 370; every
+  other column 0.
+- Surveys (481): District/Block, Current Block Accumulation, Zone, T.I. 0 blank;
+  occupancy_breakdown and boundaries on all 481 (boundaries always 5 keys; occupancy
+  3–8 keys — building, fff, total always present, the other parts only where the
+  generator filled them; every total = sum of parts); perils_assessment 18 perils on
+  every row; hazard 6; protection 32. Browser: Survey #1's five View buttons open
+  Occupancy Breakdown (6 keys), Boundaries (5), Protection Facilities (32), Perils (18),
+  Hazard (6); no console errors.
+
+## How to restore the presentation backup (v2 dataset)
+Backup of the freshly loaded v2 synthetic dataset (2026-09-27, `mysqldump
+--single-transaction --routines insurance_db`, 8,788,942 bytes):
+`Desktop\insurance_db_backup_loaded_v2_20260927_003529.sql`. Proven to restore:
+loaded into a temp DB `insurance_db_restoretest`, all 24 tables' row counts matched
+`insurance_db` (and the v2 columns came through: 481 surveys with 18 perils +
+occupancy + boundaries, 984 TINs), temp DB dropped. The dump has no `CREATE
+DATABASE`/`USE` line, so it restores into whatever database you name; each table is
 `DROP TABLE IF EXISTS` + recreated (a table that isn't in the dump is left alone).
 Stop the backend (uvicorn) first so nothing writes during the restore.
 - **Command line** (works in PowerShell and cmd; asks for the MySQL password):
   ```
-  & "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -p insurance_db -e "source C:/Users/aaron/OneDrive/Desktop/insurance_db_backup_loaded_20260926_233342.sql"
+  & "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -p insurance_db -e "source C:/Users/aaron/OneDrive/Desktop/insurance_db_backup_loaded_v2_20260927_003529.sql"
   ```
   (in cmd, drop the leading `& ` and keep the quoted path.)
 - **MySQL Workbench**: Server → Data Import → "Import from Self-Contained File" →
   pick the `.sql` file → "Default Target Schema": `insurance_db` → Import Progress
   tab → Start Import. Afterwards refresh the schema and check a few counts, e.g.
   `SELECT COUNT(*) FROM policyholders;` → 1,129.
+- Older backups (not the presentation state): `insurance_db_backup_loaded_20260926_233342.sql`
+  = the v1 load (Step 4); `insurance_db_backup_pre_v2_load_20260927_002649.sql` = the
+  same v1 state taken right before the v2 reset.
 
 ## ⚠️ Importer-wide: cells containing None / NA / N/A / null are read as BLANK
 pandas' default NA list (`None`, `NA`, `N/A`, `n/a`, `null`, `NULL`, `nan`,

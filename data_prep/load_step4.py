@@ -1,9 +1,9 @@
 """Data Prep Step 4, Part B -- upload the 8 synthetic files one at a time through the
 real single-file import endpoints (same ones the Upload modal uses), in order.
-Stops before the next file if a file has any needs_review or failed rows.
+Stops before the next file if a file has any needs_review, failed rows or warnings.
 
 Run from Backend/ (dev server must be up on :8000):
-    ./venv/Scripts/python -u ../data_prep/load_step4.py
+    ./venv/Scripts/python -u ../data_prep/load_step4.py [START_AT] [--dir UPLOAD_FOLDER]
 """
 
 import sys
@@ -32,6 +32,13 @@ ORDER = [
     ("8_fire_property_claims.xlsx", "/import/claims/fire-property/upload"),
 ]
 
+# --dir picks another package (e.g. v2); default is the Step 4 (v1) package.
+if "--dir" in sys.argv:
+    i = sys.argv.index("--dir")
+    UPLOADS = Path(sys.argv[i + 1]).resolve()
+    del sys.argv[i:i + 2]
+print(f"upload folder: {UPLOADS}", flush=True)
+
 # Allows resuming after a stop: python load_step4.py 3  -> starts at file 3.
 start_at = int(sys.argv[1]) if len(sys.argv) > 1 else 1
 
@@ -49,8 +56,10 @@ for n, (name, endpoint) in enumerate(ORDER, 1):
         sys.exit(1)
     s = r.json()
     print(f"    {secs:.0f}s  rows {s['total_rows']}  new {s['unmatched_created']}  matched {s['matched']}  "
-          f"needs_review {s['needs_review']}  failed {s['failed']}", flush=True)
-    if s["needs_review"] or s["failed"]:
+          f"needs_review {s['needs_review']}  failed {s['failed']}  warnings {len(s.get('warnings', []))}", flush=True)
+    if s["needs_review"] or s["failed"] or s.get("warnings"):
+        for w in s.get("warnings", [])[:10]:
+            print(f"    WARNING row {w['source_row']}: {w['warning']}", flush=True)
         for e in s["errors"][:10]:
             print(f"    FAILED row {e['source_row']}: {e['error']}", flush=True)
         if s["needs_review"]:
