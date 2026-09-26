@@ -61,6 +61,7 @@ point does trip GEOS on the raw geometry.
 import threading
 import time
 import math
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -68,6 +69,9 @@ import numpy as np
 import shapely
 import requests
 from shapely import Point, from_wkb, prepare
+from sqlalchemy import text
+
+from app.database import engine
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 # Nominatim usage policy asks for an identifying User-Agent and no more than
@@ -142,8 +146,10 @@ def _throttle():
         _last_request_time = time.monotonic()
 
 
-def _geocode(address: str) -> Optional[tuple[float, float]]:
-    """Returns (lat, lng) for `address`, or None on any miss/error. Never raises."""
+def _geocode_remote(address: str) -> tuple[str, Optional[tuple[float, float]]]:
+    """One Nominatim request. Returns ("found", (lat, lng)), ("not_found", None) for a
+    definite empty answer, or ("error", None) for anything else (network error,
+    timeout, non-200, bad JSON) -- only the first two are ever cached. Never raises."""
     _throttle()
     try:
         response = requests.get(
@@ -155,10 +161,69 @@ def _geocode(address: str) -> Optional[tuple[float, float]]:
         response.raise_for_status()
         results = response.json()
         if not results:
-            return None
-        return float(results[0]["lat"]), float(results[0]["lon"])
+            return "not_found", None
+        return "found", (float(results[0]["lat"]), float(results[0]["lon"]))
+    except Exception:
+        return "error", None
+
+
+def _normalize_address(address: str) -> str:
+    # Conservative on purpose: case and whitespace only, so two genuinely different
+    # addresses never share a cached result.
+    return re.sub(r"\s+", " ", address.strip().lower())
+
+
+def _cache_get(key: str):
+    """(status, coords) from geocode_cache, or None on a miss or any DB problem."""
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT status, latitude, longitude FROM geocode_cache WHERE normalized_address = :k"),
+                {"k": key},
+            ).first()
     except Exception:
         return None
+    if row is None:
+        return None
+    if row.status == "found" and row.latitude is not None and row.longitude is not None:
+        return "found", (float(row.latitude), float(row.longitude))
+    if row.status == "not_found":
+        return "not_found", None
+    return None
+
+
+def _cache_put(key: str, status: str, coords) -> None:
+    """Own short transaction, independent of the caller's row transaction. Never raises."""
+    if len(key) > 255:
+        return
+    lat, lng = coords if coords else (None, None)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO geocode_cache (normalized_address, latitude, longitude, status) "
+                    "VALUES (:k, :lat, :lng, :s) "
+                    "ON DUPLICATE KEY UPDATE normalized_address = normalized_address"
+                ),
+                {"k": key, "lat": lat, "lng": lng, "s": status},
+            )
+    except Exception:
+        pass
+
+
+def _geocode(address: str) -> Optional[tuple[float, float]]:
+    """Returns (lat, lng) for `address`, or None on any miss/error. Never raises.
+    Checks geocode_cache first -- a hit skips both the network request and the 1s
+    throttle. Caches found results and definite "no result" answers only; errors
+    and timeouts are never cached, so they stay retriable."""
+    key = _normalize_address(address)
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached[1]
+    status, coords = _geocode_remote(address)
+    if status in ("found", "not_found"):
+        _cache_put(key, status, coords)
+    return coords
 
 
 def _load_zones(path: Path, field_name: str) -> list:

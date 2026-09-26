@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, String, Text, Date, DateTime, Boolean,
-    DECIMAL, ForeignKey, JSON, Enum, func
+    DECIMAL, Double, ForeignKey, JSON, Enum, func
 )
 from sqlalchemy.orm import relationship
 from app.database import Base
@@ -536,6 +536,26 @@ class FirePropertyClaim(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     fire_property_policy = relationship("FirePropertyPolicy")
+
+
+# ------------------------------------------------------------
+# GEOCODE CACHE (address memory for services/flood_risk.py)
+# ------------------------------------------------------------
+# Only the Nominatim answer is cached (found coordinates, or a definite "no
+# result"); hazard classification still runs on every lookup. Kept by the reset
+# script. utf8mb4_bin so two addresses differing only by an accent never share a
+# row (the DB default collation is accent-insensitive). DOUBLE (not DECIMAL) so a
+# cache hit returns the exact float the original network call produced.
+
+class GeocodeCache(Base):
+    __tablename__ = "geocode_cache"
+
+    id = Column(Integer, primary_key=True)
+    normalized_address = Column(String(255, collation="utf8mb4_bin"), nullable=False, unique=True)
+    latitude = Column(Double)
+    longitude = Column(Double)
+    status = Column(String(20), nullable=False)  # found | not_found
+    created_at = Column(DateTime, server_default=func.now())
 
 
 # ------------------------------------------------------------

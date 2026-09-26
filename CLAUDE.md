@@ -960,6 +960,62 @@ synthetic learning dataset (~850 people / ~1,750 policies / ~490 claims).
   flood hazard zone" even when the headline category comes from storm surge
   (e.g. Panghulo) — pre-existing wording in `FloodRiskModal.jsx`.
 
+## Data Prep Change 4 — Address memory (`geocode_cache`) — DONE
+2026-09-26, branch `data-prep`. Cuts repeat Nominatim calls during large imports
+(renewal-year Motor Quotations re-geocode the same address every year).
+- **New table** `geocode_cache` (created by `create_all()`, no existing table
+  touched): `id`, `normalized_address VARCHAR(255) utf8mb4_bin NOT NULL UNIQUE`,
+  `latitude DOUBLE`, `longitude DOUBLE`, `status VARCHAR(20)` (`found` |
+  `not_found`), `created_at`. `utf8mb4_bin` because the DB default collation is
+  accent-insensitive ("Peñafrancia" would collide with "Penafrancia"). DOUBLE
+  (not DECIMAL) so a hit returns the exact float the original request produced →
+  byte-identical GIS output. Model: `models.GeocodeCache`. KEEP it in resets.
+- `services/flood_risk.py`: `_geocode()` now checks the cache first; a hit skips
+  the network request AND the 1s throttle (the throttle lives in
+  `_geocode_remote()`). Caches only HTTP-200 answers: `found` (≥1 result) and
+  `not_found` (empty list). Exceptions, timeouts, non-200 (incl. 429/5xx) and bad
+  JSON are NEVER cached — they stay retriable. Key = lowercase + trim + collapse
+  whitespace (nothing else; "Brgy." ≠ "Barangay"). The network query is still
+  sent as `address.strip()`, unchanged. Cache reads/writes use their own short
+  `engine` connection (independent of the importer's row transaction, so a cached
+  result survives a failed row); any cache/DB error silently falls back to the
+  network; concurrent inserts are `ON DUPLICATE KEY UPDATE` no-ops; keys >255
+  chars skip caching. Hazard classification (river flood, storm surge SSA3, 50m
+  buffer) still runs on EVERY call from the coordinates. All 6 call sites benefit
+  with no call-site change (they all go through `lookup_flood_risk()`).
+- **Force a fresh lookup for an address** (e.g. an old `not_found` after fixing
+  the address data, or after Nominatim/OSM improves): delete its cache row —
+  the next lookup goes to the network and re-caches the new answer:
+  ```sql
+  SELECT id, normalized_address, status FROM geocode_cache
+   WHERE normalized_address = LOWER(TRIM('Barangay Niugan, Angat, Bulacan, Philippines'));
+  DELETE FROM geocode_cache WHERE id = <id from the SELECT>;
+  -- or clear every definite miss at once:
+  DELETE FROM geocode_cache WHERE status = 'not_found';
+  ```
+  (The key is lowercase with whitespace collapsed; `LOWER(TRIM(...))` matches
+  whenever the address has no double spaces inside.) Existing Survey/Quotation
+  rows keep their stored GIS values — deleting a cache row doesn't recompute them.
+- **Verified** (14 checks, in-process with a counting wrapper on `requests.get`):
+  4 reference addresses (Longos = High river, Panghulo = High storm surge,
+  Bigte/Norzagaray = found but outside every zone, Niugan/Angat = real
+  not_found) → first call 1 request, second call 0 requests, both byte-identical
+  to the pre-change output recorded before the code was applied; case/whitespace
+  variant = hit; ZZTEST unfindable address cached as `not_found` and reused;
+  simulated timeout and HTTP 500 → all-null, NOT cached, retried on the next call;
+  live Motor Quotation upload with the same address on 2 rows → identical GIS on
+  both, one cache row. Cached geocode step ≈ 2ms. One timing check "failed" for
+  an unrelated reason: the unchanged classification step occasionally spikes to
+  ~1.2s (seen on a hit with 0 network calls, intermittent, not cache-related).
+  Regression: 23 existing counts unchanged (+ new `geocode_cache`), 12 spot-check
+  endpoints byte-identical, 10 × 401 unchanged. Cache test rows deleted only after
+  confirming the table held exactly the ids the test created (it started empty);
+  other test rows by exact id after a ZZTEST marker check.
+- Found while testing: "Barangay Niugan, Angat" and "Barangay San Roque, Angat"
+  (both confirmed-safe controls in the Hazard Boundary Buffer investigation above)
+  no longer geocode at all via Nominatim — expect some real barangay addresses to
+  come back `not_found`.
+
 ## ⚠️ Importer-wide: cells containing None / NA / N/A / null are read as BLANK
 pandas' default NA list (`None`, `NA`, `N/A`, `n/a`, `null`, `NULL`, `nan`,
 `NaN`, `#N/A`, ... — confirmed on pandas 3.0.5) converts those exact cell texts
@@ -975,6 +1031,12 @@ generators / real exports must never use these words as meaningful values
   `"sum_insured": p.sum_insured if line == "Fire & Property" else None`)
   hard-codes Motor to None. Left unchanged on purpose; switch to
   `p.sum_insured` for both lines when wanted.
+- **Follow-up (Data Prep Change 3)**: `FloodRiskModal.jsx`'s subtitle always says
+  "Within a mapped 100-year flood hazard zone", even when the headline category
+  comes from storm surge (e.g. Panghulo, Obando: river None / storm surge High).
+  It should say storm surge in that case — the breakdown is available as
+  `river_flood_category` / `storm_surge_category` (on Survey / Motor Quotation;
+  Fire quotations borrow them from the case's Survey). Not fixed yet.
 - No delete endpoint exists yet for `insurance_cases` (quotations got one
   in a later session — see Frontend Status's Delete buttons bullet; the
   original gap was surfaced when a leftover test quotation, `FP-Q-3`, had
