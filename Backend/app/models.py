@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, String, Text, Date, DateTime, Boolean,
-    DECIMAL, Double, ForeignKey, JSON, Enum, func
+    DECIMAL, Double, ForeignKey, JSON, Enum, UniqueConstraint, func
 )
 from sqlalchemy.orm import relationship
 from app.database import Base
@@ -110,7 +110,6 @@ class InsuranceCase(Base):
     fire_property_quotations = relationship("FirePropertyQuotation", back_populates="insurance_case")
     vehicles = relationship("Vehicle", back_populates="insurance_case")
     motor_quotations = relationship("MotorQuotation", back_populates="insurance_case")
-    risk_predictions = relationship("RiskPrediction", back_populates="insurance_case")
 
 
 class ImportRecord(Base):
@@ -559,24 +558,48 @@ class GeocodeCache(Base):
 
 
 # ------------------------------------------------------------
-# PREDICTIVE RISK (placeholder — model/algorithm not finalized yet)
+# PREDICTIVE MODELS (app/ml/) — saved models and their predictions. Predictions live
+# here, never in the business tables: a real field (e.g. claim_investigation_result)
+# is never overwritten by a model.
 # ------------------------------------------------------------
 
-class RiskPrediction(Base):
-    __tablename__ = "risk_predictions"
+class MLModel(Base):
+    __tablename__ = "ml_models"
+    __table_args__ = (UniqueConstraint("model_name", "version", name="uq_ml_models_name_version"),)
 
     id = Column(Integer, primary_key=True, index=True)
-    insurance_case_id = Column(Integer, ForeignKey("insurance_cases.id"), nullable=False)
-    line_type = Column(Enum(LineType), nullable=False)
-    claim_probability = Column(DECIMAL(5, 4))  # e.g. 0.1234 = 12.34%
-    model_version = Column(String(50))
+    model_name = Column(String(30), nullable=False, index=True)  # motor_lr | fire_lr | fraud_nb
+    version = Column(Integer, nullable=False)                    # 1, 2, 3 ... per model_name
+    status = Column(String(20), nullable=False)                  # active | superseded | failed
+    trained_at = Column(DateTime, nullable=False)
+    data_as_of = Column(Date, nullable=False)                    # "today" for the ended-policy rule
+    train_rows = Column(Integer)
+    test_rows = Column(Integer)
+    positive_rows = Column(Integer)                              # counted-loss policies / fraud claims
+    parameters = Column(JSON)   # weights + encoder (LR) or priors + counts + likelihoods (NB)
+    metrics = Column(JSON)      # test scores, confusion matrix, 5-fold CV, ROC AUC, top clues
+    thresholds = Column(JSON)   # LR {"medium_from", "high_from"}; NB {"fraud_cutoff"}
+    report_path = Column(String(255))
+    error = Column(Text)        # failed runs only
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class MLPrediction(Base):
+    __tablename__ = "ml_predictions"
+    __table_args__ = (UniqueConstraint("target_type", "target_id", name="uq_ml_predictions_target"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    model_id = Column(Integer, ForeignKey("ml_models.id"), nullable=False)
+    target_type = Column(String(30), nullable=False)  # motor_quotation | fire_quotation | motor_claim | fire_claim
+    target_id = Column(Integer, nullable=False)
+    probability = Column(DECIMAL(6, 5), nullable=False)  # P(claim) or P(Fraud)
+    label = Column(String(30), nullable=False)           # Low/Medium/High, or Fraud/Legitimate
     predicted_at = Column(DateTime, server_default=func.now())
 
-    insurance_case = relationship("InsuranceCase", back_populates="risk_predictions")
+    model = relationship("MLModel")
 
 
 # ------------------------------------------------------------
 # NOT YET INCLUDED (do not fabricate — build once real data/fields arrive):
-#   - FraudAssessment / model-prediction columns -> later phase (claims tables above hold only the label)
 #   - Renewal           -> will link via renewing_policy_no on the policy tables above
 # ------------------------------------------------------------

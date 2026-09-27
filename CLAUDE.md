@@ -25,7 +25,9 @@ Study objectives (do not lose these from scope):
 - Backend: Python FastAPI + SQLAlchemy ORM + Pydantic schemas + bcrypt
 - Database: MySQL (via pymysql), dev server at http://127.0.0.1:8000
 - Frontend dev server: http://localhost:5173 (Vite default)
-- ML/GIS: not yet started
+- GIS: DONE (see "GIS Flood-Risk Lookup Service"). ML: our own numpy Logistic
+  Regression + Naive Bayes in `Backend/app/ml/` (see "Models Phase 1"); scikit-learn
+  only in tests (`Backend/requirements-dev.txt`)
 
 ## Critical Architecture Decisions (do not relitigate these)
 - **Insurance Case concept**: internal, system-generated grouping —
@@ -58,9 +60,10 @@ Study objectives (do not lose these from scope):
 Tables: users, policyholders, insurance_cases, import_records,
 deleted_policyholders, deleted_import_records,
 fire_property_surveys, fire_property_quotations, fire_property_policies,
-vehicles, motor_quotations, motor_policies, risk_predictions,
+vehicles, motor_quotations, motor_policies,
 motor_claims, fire_property_claims (+ deleted_* archives for both — see
-"Claims tables (Phase 1)").
+"Claims tables (Phase 1)"), geocode_cache, ml_models, ml_predictions (see
+"Models Phase 1"; they replaced the old, never-used `risk_predictions`).
 
 - `deleted_policyholders` / `deleted_import_records`: archive tables for
   deletes (see "Delete + archive pattern" below). New tables rather than a
@@ -86,9 +89,10 @@ design:
 - Deliberately KEPT `policy_no` / `renewing_policy_no` everywhere — these are
   the anchor fields future claims/renewal data will join against. Do not
   remove these even though claims/renewal aren't implemented yet.
-- NOT YET BUILT (do not fabricate): FraudAssessment, Renewal tables —
+- NOT YET BUILT (do not fabricate): Renewal tables —
   wait for real data/field definitions before designing these. (Claims
-  tables now exist — see "Claims tables (Phase 1)" below.)
+  tables now exist — see "Claims tables (Phase 1)" below; fraud predictions
+  go in `ml_predictions`, see "Models Phase 1".)
 - `risk_class` is a single character: "a" (concrete) or "b" (concrete &
   wood/light materials) — validated both in Pydantic (manual endpoint) and
   explicitly in the bulk import row parser (which bypasses Pydantic).
@@ -949,6 +953,97 @@ Replaces all claims mock data in 3 places.
   nothing imported). Its manual picker lists both claims types but starts blank on
   every tab (detection-first design).
 
+## Models Phase 1 — ML core, storage, training, reports — DONE (no UI, no auto-retrain yet)
+2026-09-27, branch `claims-frontend`. Objectives 1.2 (Predictive Risk, Motor + Fire) and
+1.3 (Fraud). Three models, **written by us in numpy** following
+`docs/Algorithm_Walkthrough_LogisticRegression_NaiveBayes.docx` and
+`docs/Naive_Bayes_Paper_Section.docx` (step names/wording used in code and reports).
+scikit-learn is used ONLY in `Backend/tests/ml/` to cross-check.
+- **Code** `Backend/app/ml/`: `logistic_regression.py` (Steps 3–6: z = Σw·x + b → sigmoid →
+  full-batch gradient descent on log-loss; lr 0.5, stop when loss changes < 1e-12, cap
+  50,000 epochs, L2 λ = 0.01 on weights not bias), `naive_bayes.py` (prior × per-clue
+  likelihoods, Laplace alpha = 1, higher score wins, normalized confidence),
+  `features.py` (Steps 1–2 + all data/leakage rules), `metrics.py` (stratified 75/25 split
+  and stratified 5-fold CV, seed 42; accuracy/precision/recall/F1/confusion; ROC AUC by
+  ranks with ties = ½), `training.py` (train → evaluate → CV → save → report;
+  `python -m app.ml.training` from `Backend/` trains all three), `report.py`.
+- **Labels/rows**: LR row = an issued policy whose `period_to` < data date, described by
+  ITS QUOTATION (+ vehicle / case survey). Positive = ≥1 Paid Claim with Final Status in
+  Closed Claim / Waiting for LOA / Waiting for Billing / Waiting for Claim Check. NB row =
+  Paid Claim (never CNC) with a Claim Investigation Result; Suspected + Confirmed = Fraud.
+  Current data (as of 2026-09-27): Motor 833 rows / 172 losses; Fire 621 / 57;
+  NB 385 / 49 (+23 Paid Claims not yet investigated).
+- **Features** — Motor: flood category (quotation address), classification, make, body
+  type, color (control), vehicle age (quotation year − `vehicles.model`, clipped ≥ 0), log
+  sum insured, deductible, prior counted loss. Fire: survey flood category (worst of
+  river/storm surge), quotation occupancy, survey overall risk assessment, log total sum
+  insured, count of the 8 fire-protection items in `protection_facilities`, survey
+  `risk_class` = b, survey `loss_record` starts "With loss history", prior counted loss.
+  Categories one-hot (categories seen in training; unseen → all 0), numbers z-scored on
+  the training rows (missing → training mean). Flood NULL with coordinates = "None"
+  (outside every zone); no coordinates = "Unknown". `flood_risk_flag` not used (it only
+  repeats "category not empty").
+- **Leakage rules** (tested): nothing read from policy tables for LR features (Fire's
+  construction comes from the SURVEY's `risk_class`). "Prior counted loss" = the most
+  recent EARLIER policy on the same vehicle (Motor) / insurance case (Fire) had a counted
+  loss REPORTED BEFORE this quotation date — derived from history, not
+  `renewing_policy_no` (policy-only field, and 200 Motor / 139 Fire values point to
+  pre-dataset policies). NB clues never use final status, LOA, net liability or the
+  investigation result; "earlier claims" counts only claims reported before this one.
+- **NB clues (fixed bins)**: coverage start→loss (0–15 / 16–30 / >30 days), loss→report
+  (0–7 / 8–30 / >30), estimate ÷ sum insured (<0.50 / 0.50–0.69 / ≥0.70 / Unknown), same
+  policyholder's Paid Claims reported in the prior 365 days (0 / 1 / 2+), loss→expiry
+  (≤30 / >30), nature of loss, coverage type (+ "N/A (Fire)"), New/Renewal
+  (`renewing_policy_no`), report→documents (≤30 / >30 / Not yet submitted), line.
+- **Unseen-value rule (NB)**: a clue value never seen in ANY training claim is left out
+  of the product (no evidence). Needed because 18 of the 23 uninvestigated claims have
+  "Not yet submitted" docs + "Unknown" estimate, values no investigated claim has;
+  smoothing alone made them ~6× "fraud-like" (Fraud is the smaller class).
+- **Adjustable fraud cutoff**: `training.NB_FRAUD_CUTOFF` (default 0.5 = the documents'
+  "higher score wins"), stored per model in `ml_models.thresholds.fraud_cutoff`; the
+  fraud report compares 0.5/0.4/0.3/0.2 on the same 5 CV folds.
+- **Risk levels (LR)**: Low < training loss rate ≤ Medium < 2 × that rate ≤ High, stored
+  in `thresholds` (v1: Motor 0.21/0.41, Fire 0.09/0.18). Test/CV "predicted loss" =
+  Medium or High; reports also show the 0.5 cutoff and the always-"no" baseline.
+- **Storage**: `risk_predictions` (0 rows, never used, keyed by case) was DROPPED after a
+  full backup (`Desktop\insurance_db_backup_pre_ml_phase1_20260927_161009.sql`, 24
+  tables). New (by `create_all()`): `ml_models` (model_name motor_lr/fire_lr/fraud_nb,
+  version, status active/superseded/failed, trained_at, data_as_of, row counts,
+  parameters/metrics/thresholds JSON, report_path, error; unique name+version) and
+  `ml_predictions` (model_id FK, target_type motor_quotation/fire_quotation/motor_claim/
+  fire_claim, target_id, probability DECIMAL(6,5), label, predicted_at; unique
+  target_type+target_id) — empty until Phase 2. Predictions never touch business
+  tables. The stored model is the one trained on the 75% (its test scores belong to it).
+  A failed run = a `failed` row with the error; the active model is untouched;
+  `train_model()` never raises (it rolls back its session — use a dedicated session).
+- **Reports**: `model_reports/<data date>_<model>_v<N>.md` at the repo root (gitignored),
+  one per training: data, the documents' steps, test results + confusion matrix, 5-fold
+  CV mean ± SD (accuracy, precision, recall, ROC AUC), LR loss rate by risk level + top
+  weights + Motor color control check, NB cutoff table + strongest clues, and a
+  synthetic-data note (the generator used these same drivers/red flags).
+- **v1 (ml_models ids 17–19; 1–16 were used up by rolled-back test runs)**:
+  Motor test acc 61.5% / prec 28.7% / rec 58.1% / AUC 0.615, CV acc 62.8 ± 3.4%,
+  rec 48.3 ± 12.1%, AUC 0.595 ± 0.078; loss rate Low 14.9% / Medium 26.1% / High 38.9%;
+  color weights −0.24…+0.41 (Black is the 2nd-largest weight — noise, reported as such).
+  Fire test 65.2% / 13.0% / 50.0% / AUC 0.612, CV acc 59.7 ± 3.8%, rec 68.5 ± 9.6%,
+  AUC 0.660 ± 0.067 (only 3 test rows reach High). Fraud NB test 88.5% / 55.6% / 41.7% /
+  AUC 0.877, CV acc 86.2 ± 4.1%, rec 24.2 ± 16.5%, AUC 0.759 ± 0.064; cutoff 0.3 → CV
+  prec 44.6%, rec 38.9%; 0.2 → 37.6% / 47.1%.
+- **Tests** (33, `Backend/tests/`, all pass): walkthrough sigmoid example (w 1, 0.5; b −4
+  → 0.119/0.622/0.378/0.953/0.818) and paper fraud example (alpha 0 → 0.167 vs 0.042 →
+  80%); LR = sklearn (C = 1/(λn)) on random + real Motor/Fire data (weights < 1e-3,
+  probabilities < 1e-4); NB = sklearn CategoricalNB (< 1e-9); split/folds/scores/AUC =
+  sklearn; counts; prior-loss = independent SQL on every quotation + the late-reported
+  cases are 0; no policy-stage sources; NB clue values/sources; earlier-claims recount;
+  full training saves + reports; retrain supersedes and is deterministic; forced failure
+  and not-enough-data → `failed` row, active kept, no exception.
+- **Regression**: snapshot identical except the intended table changes (−risk_predictions,
+  +ml_models 3 rows, +ml_predictions 0): 12 spot-check hashes, 10 × 401, detection.
+- `Backend/requirements.txt` + `numpy==2.5.2`; new `requirements-dev.txt` (pytest 9.1.1,
+  scikit-learn 1.9.1, installed in the venv). Reset script clears both ml tables.
+- **Paper notes**: the walkthrough doesn't mention the L2 penalty, Laplace smoothing, the
+  unseen-value rule or the risk-level thresholds — each needs one sentence in Chapter 3/4.
+
 ## Data Prep Change 1 — Motor Sum Insured — DONE
 2026-09-26, branch `data-prep`. First of 5 approved changes preparing for the
 synthetic learning dataset (~850 people / ~1,750 policies / ~490 claims).
@@ -1124,11 +1219,13 @@ synthetic data load, AFTER a full backup
 (`mysqldump -u root -p --single-transaction insurance_db > insurance_db_backup_pre_reset_<date>.sql`).
 TRUNCATE auto-commits — not reversible without that backup. **Never run by an
 assistant without an explicit instruction to run it.**
-- **Clears (TRUNCATE, which also resets auto-increment to 1) — 22 tables**:
+- **Clears (TRUNCATE, which also resets auto-increment to 1) — 23 tables**:
   policyholders, insurance_cases, fire_property_surveys, fire_property_quotations,
   fire_property_policies, fire_property_claims, vehicles, motor_quotations,
-  motor_policies, motor_claims, import_records, risk_predictions, and all 10
-  `deleted_*` archives. FK checks off only around the truncates.
+  motor_policies, motor_claims, import_records, ml_predictions, ml_models (models
+  retrain after the next data load), and all 10 `deleted_*` archives. FK checks off
+  only around the truncates. (Before Models Phase 1 it was 22 tables incl.
+  `risk_predictions`, which no longer exists.)
 - **Keeps**: `geocode_cache` (never cleared) and ONE user — username exactly
   `Aaron James` (id 10, role manager). All other users are deleted (as of
   2026-09-26: james 3, aldrin 5, manager 8, test 47, test1 48 — confirmed by the
@@ -1788,12 +1885,19 @@ confirmation of the exact row list.
 - MySQL Workbench 8.0 is the DB tool in use. Safe Update Mode blocks
   `DELETE ... WHERE id NOT IN (...)` — use `WHERE id > N` instead, or
   toggle `SET SQL_SAFE_UPDATES = 0` for one query.
+- Automated tests (pytest, first added in Models Phase 1): from `Backend/`,
+  `./venv/Scripts/python -m pip install -r requirements-dev.txt` once, then
+  `./venv/Scripts/python -m pytest tests`. The `db` fixture (`tests/conftest.py`)
+  runs on the dev DB inside one outer transaction that is always rolled back
+  (commits become savepoints), so tests leave no rows — but they DO use up
+  auto-increment ids.
 
 ## Immediate Next Steps (in order)
-1. Predictive risk model (Objective 1.2 core) — not started, blocked on
-   having enough real data flowing through the system first. GIS/flood-risk
-   (Objective 2.1) is DONE (see "GIS Flood-Risk Lookup Service" above) and
-   was one of the things this was blocked on.
+1. Models Phase 2 — automatic retrain after learning-data uploads (background
+   task) + startup training if no model exists, writing predictions to
+   `ml_predictions`, and the `/ml/...` API. Then Phase 3 — frontend (Claim
+   Possibility / Risk Assessment / Fraud Warning columns, accuracy cards with
+   recall, mock-card changes). See "Models Phase 1" for the agreed design.
 
 Frontend display of the Motor Quotation GIS fields (latitude/longitude/
 flood_risk_flag/flood_risk_category) on the Quotation tab's

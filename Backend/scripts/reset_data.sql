@@ -4,11 +4,11 @@
 -- FIRST, e.g. from a terminal:
 --   mysqldump -u root -p --single-transaction insurance_db > insurance_db_backup_pre_reset_<date>.sql
 --
--- CLEARS (TRUNCATE = empty + auto-increment reset to 1), 22 tables:
+-- CLEARS (TRUNCATE = empty + auto-increment reset to 1), 23 tables:
 --   policyholders, insurance_cases,
 --   fire_property_surveys, fire_property_quotations, fire_property_policies, fire_property_claims,
 --   vehicles, motor_quotations, motor_policies, motor_claims,
---   import_records, risk_predictions,
+--   import_records, ml_predictions, ml_models,
 --   every deleted_* archive table (10).
 -- KEEPS: geocode_cache (address memory — never cleared),
 --        users row with username exactly 'Aaron James' (all other users deleted).
@@ -39,7 +39,8 @@ TRUNCATE TABLE motor_quotations;
 TRUNCATE TABLE fire_property_quotations;
 TRUNCATE TABLE vehicles;
 TRUNCATE TABLE fire_property_surveys;
-TRUNCATE TABLE risk_predictions;
+TRUNCATE TABLE ml_predictions;
+TRUNCATE TABLE ml_models;
 TRUNCATE TABLE import_records;
 TRUNCATE TABLE insurance_cases;
 TRUNCATE TABLE policyholders;
@@ -78,7 +79,8 @@ UNION ALL SELECT 'motor_quotations', COUNT(*) FROM motor_quotations
 UNION ALL SELECT 'motor_policies', COUNT(*) FROM motor_policies
 UNION ALL SELECT 'motor_claims', COUNT(*) FROM motor_claims
 UNION ALL SELECT 'import_records', COUNT(*) FROM import_records
-UNION ALL SELECT 'risk_predictions', COUNT(*) FROM risk_predictions
+UNION ALL SELECT 'ml_predictions', COUNT(*) FROM ml_predictions
+UNION ALL SELECT 'ml_models', COUNT(*) FROM ml_models
 UNION ALL SELECT 'deleted_policyholders', COUNT(*) FROM deleted_policyholders
 UNION ALL SELECT 'deleted_import_records', COUNT(*) FROM deleted_import_records
 UNION ALL SELECT 'deleted_fire_property_surveys', COUNT(*) FROM deleted_fire_property_surveys
