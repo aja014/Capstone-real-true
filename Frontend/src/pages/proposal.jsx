@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import axios from "axios";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -9,6 +9,10 @@ import Sidebar from "../components/sidebar";
 import FloodRiskModal from "../components/FloodRiskModal";
 import { MonthYearPicker } from "../components/DatePicker";
 import { fetchAllQuotations } from "../lib/quotations";
+import {
+  fetchQuotationPredictions, fetchModels, waitForModelRefresh, formatPercent, RISK_LEVELS,
+} from "../lib/ml";
+import { RiskLevelCell, ClaimPossibilityCell, ModelAccuracyCard } from "../components/ModelShared";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -20,10 +24,6 @@ function authHeaders() {
 const PERIOD_TO_MONTHS = { "Past 6 Months": 6, "Past 3 Months": 3, "Past 12 Months": 12 };
 
 const PIE_COLORS = ["#a5b4fc", "#6366f1"]; // [Not Yet Converted, Converted Account] — matches backend fire_pie/motor_pie order
-
-// March Policy Forecast — genuinely depends on the not-yet-started
-// predictive model (Objective 1.2), stays mock per explicit scope decision.
-const forecastData = [{ name: "March", converted: 4, forecast: 10 }];
 
 const PAGE_SIZE = 5;
 
@@ -92,15 +92,6 @@ function MiniPie({ title, data, sub }) {
   );
 }
 
-const RoundedBar = ({ x, y, width, height, fill }) => {
-  const r = 5;
-  if (!height || height <= 0) return null;
-  return <path d={`M${x},${y+r} Q${x},${y} ${x+r},${y} L${x+width-r},${y} Q${x+width},${y} ${x+width},${y+r} L${x+width},${y+height} L${x},${y+height} Z`} fill={fill} />;
-};
-const BarValueLabel = ({ x, y, width, value }) => (
-  <text x={x + width / 2} y={y + 18} fill="#fff" textAnchor="middle" fontSize={12} fontWeight={700}>{value}</text>
-);
-
 function formatQuoteDate(value) {
   if (!value) return "—";
   const d = new Date(value);
@@ -132,6 +123,11 @@ export default function QuotationsProposal() {
   const [quotations, setQuotations]   = useState([]);
   const [quotationsLoading, setQuotationsLoading] = useState(true);
   const [quotationsError, setQuotationsError]     = useState(null);
+
+  // Logistic Regression output (lib/ml.js): "line-id" -> { claim_probability, risk_level }.
+  const [predictions, setPredictions] = useState(() => new Map());
+  const [models, setModels] = useState(null); // GET /ml/models summaries; null while loading
+  const [predictionsUpdating, setPredictionsUpdating] = useState(false);
 
   const fetchStats = useCallback(async (params) => {
     setStatsError(null);
@@ -173,6 +169,36 @@ export default function QuotationsProposal() {
     })();
   }, []);
 
+  // Predictions + model scores. If the page is opened while the background retrain
+  // (started by an upload on Policy Holder Information) is still running, wait for it
+  // and then show the fresh predictions and scores.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [preds, { byName, refresh }] = await Promise.all([fetchQuotationPredictions(), fetchModels()]);
+      if (cancelled) return;
+      setPredictions(preds);
+      setModels(byName);
+      if (!refresh?.running) return;
+      setPredictionsUpdating(true);
+      await waitForModelRefresh({ isCancelled: () => cancelled });
+      if (cancelled) return;
+      const [fresh, latest] = await Promise.all([fetchQuotationPredictions(), fetchModels()]);
+      if (cancelled) return;
+      setPredictions(fresh);
+      setModels(latest.byName);
+      setPredictionsUpdating(false);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // A quotation without a prediction (its policy has ended, or no model yet) keeps
+  // null -> "—".
+  const rows = useMemo(() => quotations.map((q) => {
+    const p = predictions.get(`${q.line}-${q.id}`);
+    return { ...q, risk_level: p?.risk_level ?? null, claim_probability: p?.claim_probability ?? null };
+  }), [quotations, predictions]);
+
   // The bar's full height must equal the real total (t.quotation_count),
   // with "Converted" as a segment WITHIN it — not stacked on top of it.
   // Stacking converted_count + quotation_count (the raw total) double-
@@ -192,16 +218,15 @@ export default function QuotationsProposal() {
   // "YYYY-MM-DD" strings, so a lexicographic compare is a valid date
   // compare. A quotation with no date is excluded either way, same as the
   // backend's own SQL range filter excludes NULL quotation_date rows.
-  const filtered = quotations.filter((q) => {
+  const filtered = rows.filter((q) => {
     const matchRange = !!stats && !!q.quotation_date
       && q.quotation_date >= stats.range_start && q.quotation_date <= stats.range_end;
     const matchLine = lineFilter === "Policy Line: All" || q.line === lineFilter;
-    // Risk Assessment is still a fixed "Pending" placeholder (see the table
-    // cell below) — its filter can only ever match "Pending" or "All", never
-    // a specific outcome, since there's no real value yet.
-    const matchRisk = riskFilter === "Risk Assessment: All" || riskFilter === "Pending";
-    // Status is real, unlike Risk Assessment above — same "has a linked
-    // policy" definition the "Converted Accounts" KPI card already uses
+    // Low / Medium / High only match rows that have a prediction; "All" also
+    // keeps the rows shown as "—".
+    const matchRisk = riskFilter === "Risk Assessment: All" || q.risk_level === riskFilter;
+    // Status: same "has a linked policy" definition the
+    // "Converted Accounts" KPI card already uses
     // (q.is_converted comes straight from fetchAllQuotations() in
     // lib/quotations.js).
     const matchStatus = statusFilter === "Status: All"
@@ -225,13 +250,20 @@ export default function QuotationsProposal() {
 
   const conversionRateLabel = stats ? `${Math.round(stats.conversion_rate)}%` : "—";
 
+  // Average Claim Possibility: mean predicted probability over the quotations the
+  // table currently lists (period/month + every filter) that have a prediction.
+  const predictedRows = filtered.filter((q) => q.claim_probability !== null);
+  const averageClaimPossibility = predictedRows.length
+    ? predictedRows.reduce((sum, q) => sum + q.claim_probability, 0) / predictedRows.length
+    : null;
+  const averageCaption = `Based on ${predictedRows.length} quotation${predictedRows.length !== 1 ? "s" : ""} · `
+    + (lineFilter === "Policy Line: All" ? "All lines" : lineFilter);
+
   // Drives the "All time" replacement sub-label on the 3 KPI cards + both
   // pies — reflects whichever filter is actually active.
   const periodLabel = month
     ? `${MONTH_NAMES[month.getMonth()]} ${month.getFullYear()}`
     : period;
-
-  const currentYear = new Date().getFullYear();
 
   return (
     <div className="min-h-screen bg-yellow-400 p-4 sm:p-6 flex gap-4">
@@ -301,7 +333,7 @@ export default function QuotationsProposal() {
                 )}
                 <MonthYearPicker value={month} onChange={handleFilterChange(setMonth)} />
               </div>
-              <Dropdown label="Risk Assessment: All" options={["Risk Assessment: All","Pending"]} value={riskFilter} onChange={handleFilterChange(setRisk)} />
+              <Dropdown label="Risk Assessment: All" options={["Risk Assessment: All", ...RISK_LEVELS]} value={riskFilter} onChange={handleFilterChange(setRisk)} />
               <Dropdown label="Policy Line: All"     options={["Policy Line: All","Fire & Property","Motor Car"]} value={lineFilter} onChange={handleFilterChange(setLine)} />
               <Dropdown label="Status: All"          options={["Status: All","Converted","Not Yet Converted"]} value={statusFilter} onChange={handleFilterChange(setStatus)} />
               <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2">
@@ -314,6 +346,7 @@ export default function QuotationsProposal() {
               {search && (
                 <span className="text-xs text-gray-400">{filtered.length} result{filtered.length !== 1 ? "s" : ""}</span>
               )}
+              {predictionsUpdating && <span className="text-xs text-violet-500">Updating predictions…</span>}
             </div>
             {quotationsError && <p className="text-xs text-red-600 mb-3">{quotationsError}</p>}
             <div className="overflow-x-auto">
@@ -336,13 +369,8 @@ export default function QuotationsProposal() {
                       <td className="py-2.5 px-2">{r.line}</td>
                       <td className="py-2.5 px-2">{formatQuoteDate(r.quotation_date)}</td>
                       <td className="py-2.5 px-2">{r.is_converted ? (r.converted_policy_no || "Converted") : "Not Yet Converted"}</td>
-                      {/* Risk Assessment / Claim Possibility: honest fixed
-                          placeholder, not real data — same "not yet
-                          computable" pattern as Overview's Filed Claims "—",
-                          since both genuinely depend on the not-yet-started
-                          predictive model (Objective 1.2). */}
-                      <td className="py-2.5 px-2 text-gray-400">Pending</td>
-                      <td className="py-2.5 px-2 text-gray-400">Pending</td>
+                      <td className="py-2.5 px-2"><RiskLevelCell value={r.risk_level} /></td>
+                      <td className="py-2.5 px-2"><ClaimPossibilityCell value={r.claim_probability} /></td>
                       <td className="py-2.5 px-2">
                         <button onClick={() => setFloodModalQuotation(r)}
                           className="bg-black text-white text-[11px] px-3 py-1 rounded-lg hover:bg-gray-800 transition">View</button>
@@ -363,34 +391,24 @@ export default function QuotationsProposal() {
           </div>
 
           <div className="flex flex-col gap-3 w-64 flex-shrink-0">
-            {/* Still mock — depends on the not-yet-started predictive model
-                (Objective 1.2). Yearly-scoped, deliberately independent of
-                both the Past X Months and specific-month filters above. */}
+            {/* Follows the table: same period/month and filters. */}
             <div className="bg-white rounded-2xl p-5 shadow-sm flex flex-col gap-1">
-              <p className="text-gray-400 text-[10px]">As of {currentYear}</p>
+              <p className="text-gray-400 text-[10px]">{quotationsLoading ? "…" : averageCaption}</p>
               <div className="flex items-center gap-3">
-                <p className="text-black font-black text-4xl leading-none">50%</p>
-                <p className="text-gray-600 text-xs leading-snug">Average Quotation<br />Claiming Rate</p>
+                <p className="text-black font-black text-4xl leading-none">
+                  {quotationsLoading ? "…" : formatPercent(averageClaimPossibility)}
+                </p>
+                <p className="text-gray-600 text-xs leading-snug">Average Claim<br />Possibility</p>
               </div>
             </div>
-            <div className="bg-white rounded-2xl p-5 shadow-sm flex-1">
-              <p className="text-gray-400 text-[10px] text-center mb-1">As of {currentYear}</p>
-              <h2 className="font-bold text-black text-sm mb-3 text-center">March Policy Forecast</h2>
-              <ResponsiveContainer width="100%" height={170}>
-                <BarChart data={forecastData} barGap={8} barCategoryGap="25%" margin={{ top:8, right:8, left:-20, bottom:0 }}>
-                  <CartesianGrid vertical={false} stroke="#f3f4f6" />
-                  <XAxis dataKey="name" tick={{ fontSize:11, fill:"#9ca3af" }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize:11, fill:"#9ca3af" }} axisLine={false} tickLine={false} domain={[0,10]} ticks={[0,2,4,6,8,10]} />
-                  <defs>
-                    <linearGradient id="fcastGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#c4b5fd"/><stop offset="100%" stopColor="#818cf8"/>
-                    </linearGradient>
-                  </defs>
-                  <Bar dataKey="converted" barSize={50} shape={(p) => <RoundedBar {...p} fill="#7c6ff7" />} label={<BarValueLabel />} />
-                  <Bar dataKey="forecast"  barSize={50} shape={(p) => <RoundedBar {...p} fill="url(#fcastGrad)" />} label={<BarValueLabel />} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            <ModelAccuracyCard
+              title="Model accuracy (Logistic Regression)"
+              loading={models === null}
+              rows={[
+                { label: "Motor Car", model: models?.motor_lr, positives: "losses" },
+                { label: "Fire & Property", model: models?.fire_lr, positives: "losses" },
+              ]}
+            />
           </div>
         </div>
 

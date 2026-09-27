@@ -10,6 +10,8 @@ import { MonthYearPicker } from "../components/DatePicker";
 import { Dropdown, StatCard, MiniPie, formatCurrencyPH, formatDateSlash } from "../components/PolicyDistributionShared";
 import { InvestigationResultCell, FraudWarningCell } from "../components/ClaimsShared";
 import { fetchAllClaims, investigationFilterValue, NOT_YET_INVESTIGATED } from "../lib/claims";
+import { fetchModels, waitForModelRefresh } from "../lib/ml";
+import { ModelAccuracyCard } from "../components/ModelShared";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 const PAGE_SIZE = 8;
@@ -38,8 +40,8 @@ function authHeaders() {
 // from GET /stats/claims and share one basis: claims FILED (Date Reported) in
 // the selected Past 3/6/12 Months window. The table below lists every claim
 // (both lines, joined in lib/claims.js) with its own filters -- it is NOT
-// limited by the period dropdown. "Fraud Warning" is a placeholder until the
-// fraud model exists; "Claim Investigation Result" is the real human label.
+// limited by the period dropdown. "Fraud Warning" is the Naive Bayes prediction
+// (uninvestigated Paid Claims only); "Claim Investigation Result" is the real human label.
 export default function Claims() {
   const [period, setPeriod] = useState("Past 6 Months");
   const [stats, setStats] = useState(null);
@@ -55,6 +57,8 @@ export default function Claims() {
   const [lineFilter, setLine] = useState("Policy Line: All");
   const [statusFilter, setStatus] = useState("Final Status: All");
   const [investigationFilter, setInvestigation] = useState("Investigation Result: All");
+  const [models, setModels] = useState(null); // GET /ml/models summaries; null while loading
+  const [predictionsUpdating, setPredictionsUpdating] = useState(false);
 
   const fetchStats = useCallback(async (months) => {
     setStatsError(null);
@@ -68,21 +72,40 @@ export default function Claims() {
 
   useEffect(() => { fetchStats(PERIOD_TO_MONTHS[period] ?? 6); }, [period, fetchStats]);
 
-  useEffect(() => {
-    (async () => {
-      setClaimsLoading(true);
-      setClaimsError(null);
-      try {
-        const { motor, fire } = await fetchAllClaims();
-        // Newest filing first.
-        setClaims([...motor, ...fire].sort((a, b) => (b.date_reported || "").localeCompare(a.date_reported || "")));
-      } catch {
-        setClaimsError("Failed to load claims.");
-      } finally {
-        setClaimsLoading(false);
-      }
-    })();
+  const loadClaims = useCallback(async () => {
+    setClaimsLoading(true);
+    setClaimsError(null);
+    try {
+      const { motor, fire } = await fetchAllClaims();
+      // Newest filing first.
+      setClaims([...motor, ...fire].sort((a, b) => (b.date_reported || "").localeCompare(a.date_reported || "")));
+    } catch {
+      setClaimsError("Failed to load claims.");
+    } finally {
+      setClaimsLoading(false);
+    }
   }, []);
+
+  // Claims (with their Fraud Warning) + model scores. If the page is opened while the
+  // background retrain (started by an upload on Policy Holder Information) is still
+  // running, wait for it and then reload the claims and scores.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      loadClaims();
+      const { byName, refresh } = await fetchModels();
+      if (cancelled) return;
+      setModels(byName);
+      if (!refresh?.running) return;
+      setPredictionsUpdating(true);
+      await waitForModelRefresh({ isCancelled: () => cancelled });
+      if (cancelled) return;
+      setPredictionsUpdating(false);
+      loadClaims();
+      setModels((await fetchModels()).byName);
+    })();
+    return () => { cancelled = true; };
+  }, [loadClaims]);
 
   const periodLabel = stats?.period_label ?? period;
 
@@ -143,7 +166,9 @@ export default function Claims() {
               </h2>
               <Dropdown label="Past 6 Months" options={Object.keys(PERIOD_TO_MONTHS)} value={period} onChange={setPeriod} />
             </div>
-            <ResponsiveContainer width="100%" height={270}>
+            {/* Grows with the right-hand column of cards (min 270px) instead of leaving a gap. */}
+            <div className="flex-1 min-h-[270px]">
+            <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={trendData} barCategoryGap="30%">
                 <CartesianGrid vertical={false} stroke="#f3f4f6" />
                 <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
@@ -165,6 +190,7 @@ export default function Claims() {
                   stroke="#ef4444" strokeWidth={2} dot={{ r: 4, fill: "#ef4444" }} />
               </ComposedChart>
             </ResponsiveContainer>
+            </div>
           </div>
           <div className="flex flex-col gap-3 w-64 flex-shrink-0">
             <MiniPie
@@ -180,6 +206,11 @@ export default function Claims() {
               <p className="text-black font-black text-4xl mt-2">{fraudRateLabel}</p>
               <p className="text-gray-400 text-[10px] mt-1">(Suspected + Confirmed Fraud) ÷ investigated × 100</p>
             </div>
+            <ModelAccuracyCard
+              title="Fraud model accuracy (Naive Bayes)"
+              loading={models === null}
+              rows={[{ label: "Motor Car and Fire & Property", model: models?.fraud_nb, positives: "fraud" }]}
+            />
           </div>
         </div>
 
@@ -209,6 +240,7 @@ export default function Claims() {
               <input className="text-xs outline-none text-gray-600 w-44" placeholder="Search policy, client, claim no."
                 value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
             </div>
+            {predictionsUpdating && <span className="text-xs text-violet-500">Updating fraud predictions…</span>}
             {anyFilter && (
               <span className="text-xs text-gray-400">
                 {filtered.length} result{filtered.length !== 1 ? "s" : ""}
@@ -247,7 +279,7 @@ export default function Claims() {
                         <td className="py-2.5 px-2 whitespace-nowrap">{formatCurrencyPH(r.net_liability)}</td>
                         <td className="py-2.5 px-2 whitespace-nowrap">{r.final_status ?? "—"}</td>
                         <td className="py-2.5 px-2 whitespace-nowrap"><InvestigationResultCell value={r.investigation_display} /></td>
-                        <td className="py-2.5 px-2"><FraudWarningCell value={r.fraud_warning} /></td>
+                        <td className="py-2.5 px-2 whitespace-nowrap"><FraudWarningCell value={r.fraud_warning} flagged={r.fraud_flag} /></td>
                       </tr>
                     ))}
                     {pageRows.length === 0 && (

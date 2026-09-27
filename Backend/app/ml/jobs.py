@@ -26,7 +26,8 @@ _lock = threading.Lock()
 _running = False
 _pending = None  # reason of a run requested while one was running
 
-# Process-local; shown by GET /ml/models.
+# Process-local; shown by GET /ml/models. "running" stays True for the whole sequence,
+# including a coalesced extra run, so a page polling it never stops between two runs.
 status = {
     "running": False,
     "last_reason": None,
@@ -49,7 +50,7 @@ def run_refresh(db, reason, today=None, report_dir=None):
 
 
 def _run_once(reason, session_factory):
-    status.update(running=True, last_reason=reason, last_started_at=dt.datetime.now(), last_error=None)
+    status.update(last_reason=reason, last_started_at=dt.datetime.now(), last_error=None)
     db = None
     try:
         db = (session_factory or SessionLocal)()  # its own session: the request's is already closed
@@ -64,7 +65,7 @@ def _run_once(reason, session_factory):
     finally:
         if db is not None:
             db.close()
-        status.update(running=False, last_finished_at=dt.datetime.now())
+        status["last_finished_at"] = dt.datetime.now()
 
 
 def refresh_now(reason, session_factory=None):
@@ -75,6 +76,7 @@ def refresh_now(reason, session_factory=None):
             _pending = "upload" if "upload" in (_pending, reason) else reason
             return
         _running = True
+        status["running"] = True
     try:
         while True:
             _run_once(reason, session_factory)
@@ -83,11 +85,13 @@ def refresh_now(reason, session_factory=None):
                 # either becomes _pending (and runs next) or finds _running False.
                 if _pending is None:
                     _running = False
+                    status["running"] = False
                     return
                 reason, _pending = _pending, None
     except BaseException:  # _run_once catches Exception; this is only e.g. KeyboardInterrupt
         with _lock:
             _running = False
+            status["running"] = False
         raise
 
 

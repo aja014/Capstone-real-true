@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { ChevronDown, Search, Upload, Trash2, X } from "lucide-react";
 import axios from "axios";
 import Sidebar from "../components/sidebar";
@@ -7,6 +7,7 @@ import NeedsReviewModal from "../components/NeedsReviewModal";
 import { FullCalendarPicker } from "../components/DatePicker";
 import { fetchAllQuotations } from "../lib/quotations";
 import { fetchAllClaims } from "../lib/claims";
+import { waitForModelRefresh } from "../lib/ml";
 import { InvestigationResultCell, FraudWarningCell } from "../components/ClaimsShared";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
@@ -330,14 +331,14 @@ const MOTOR_QUOTATION_COLUMNS = [
 // policyholder, independent of the literal "Assured" text). Motor-only: Plate No.,
 // Coverage Type, Shop/Casa; Fire-only: Adjuster. Claim Investigation Result is the
 // real human label ("Not applicable (CNC)" for CNC Issuance rows); Fraud Warning
-// is a "Pending" placeholder until the fraud model exists ("—" for CNC rows).
+// is the Naive Bayes prediction for uninvestigated Paid Claims ("—" otherwise).
 const investigationColumn = {
   id: "investigation_display", dataKey: "investigation_display", header: "Claim Investigation Result",
   width: "min-w-[190px]", render: (r) => <InvestigationResultCell value={r.investigation_display} />,
 };
 const fraudWarningColumn = {
   id: "fraud_warning", dataKey: "fraud_warning", header: "Fraud Warning",
-  width: "min-w-[120px]", render: (r) => <FraudWarningCell value={r.fraud_warning} />,
+  width: "min-w-[150px]", render: (r) => <FraudWarningCell value={r.fraud_warning} flagged={r.fraud_flag} />,
 };
 const claimColumns = (isMotor) => [
   { id: "id", dataKey: "id", header: "Claim ID", width: "min-w-[80px]" },
@@ -866,6 +867,25 @@ export default function PolicyHolderInformation() {
     fetchClaims();
   }, [fetchClients, fetchNeedsReview, fetchFirePropertyPolicies, fetchMotorPolicies, fetchQuotations, fetchSurveys, fetchVehicles, fetchClaims]);
 
+  // An upload or a Needs Review resolve retrains the models in the background a few
+  // seconds AFTER its response (backend app/ml/jobs.py). Refresh everything now as
+  // before, then wait for that retrain and refetch the claims so their Fraud Warning
+  // shows the new predictions (the Claims tab is the only tab here that shows any).
+  const [predictionsUpdating, setPredictionsUpdating] = useState(false);
+  const unmounted = useRef(false);
+  useEffect(() => {
+    unmounted.current = false;
+    return () => { unmounted.current = true; };
+  }, []);
+  const refreshAfterImport = useCallback(async () => {
+    refreshAllData();
+    setPredictionsUpdating(true);
+    const outcome = await waitForModelRefresh({ isCancelled: () => unmounted.current });
+    if (outcome === "cancelled") return;
+    setPredictionsUpdating(false);
+    fetchClaims();
+  }, [refreshAllData, fetchClaims]);
+
   const deletePolicyholder = useCallback(async (row) => {
     if (!window.confirm(`Delete client "${clientDisplayName(row)}"? This moves the record to the deleted archive.`)) return;
     try {
@@ -1130,6 +1150,9 @@ export default function PolicyHolderInformation() {
                 onChange={(v) => { setClaimsLine(v); setPage(1); }}
               />
             )}
+            {showClaimsLineFilter && predictionsUpdating && (
+              <span className="text-xs text-violet-500">Updating fraud predictions…</span>
+            )}
 
             {/* Month filter — */}
 
@@ -1212,7 +1235,7 @@ export default function PolicyHolderInformation() {
         key={uploadTarget}
         isOpen={uploadOpen}
         onClose={() => setUploadOpen(false)}
-        onUploadSuccess={refreshAllData}
+        onUploadSuccess={refreshAfterImport}
         defaultTarget={uploadTarget}
       />
       <NeedsReviewModal
@@ -1221,7 +1244,7 @@ export default function PolicyHolderInformation() {
         records={needsReviewRecords}
         loading={needsReviewLoading}
         policyholders={clientRecords}
-        onResolved={refreshAllData}
+        onResolved={refreshAfterImport}
       />
       <JsonModal
         title={jsonModal?.title}

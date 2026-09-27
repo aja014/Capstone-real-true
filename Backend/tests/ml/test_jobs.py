@@ -2,13 +2,25 @@
 import datetime as dt
 import threading
 
+import pytest
+
 from app import models
 from app.ml import jobs, training
 
 TODAY = dt.date(2026, 9, 27)
 
 
-def test_retrains_only_when_the_training_data_or_settings_change(db, tmp_path, monkeypatch):
+@pytest.fixture
+def forget_fingerprints(db):
+    """Clear every stored data fingerprint (inside the rolled-back test transaction), so
+    the first retrain_if_changed() really trains, whatever models the dev DB already has
+    — a model already trained on today's data would otherwise make it a no-op."""
+    for row in db.query(models.MLModel):
+        row.parameters = {**(row.parameters or {}), "data_signature": None}
+    db.flush()
+
+
+def test_retrains_only_when_the_training_data_or_settings_change(db, tmp_path, monkeypatch, forget_fingerprints):
     first, retrained = training.retrain_if_changed(db, "fraud_nb", TODAY, tmp_path)
     assert retrained and first.parameters["data_signature"]
     same, retrained = training.retrain_if_changed(db, "fraud_nb", TODAY, tmp_path)
@@ -38,7 +50,7 @@ def test_a_new_open_quotation_does_not_retrain_the_lr_model(db, tmp_path):
     assert not retrained
 
 
-def test_identical_failure_is_not_retried(db, tmp_path, monkeypatch):
+def test_identical_failure_is_not_retried(db, tmp_path, monkeypatch, forget_fingerprints):
     active_before = training.active_model(db, "fire_lr")  # may be None on an empty database
     monkeypatch.setattr(training, "MIN_ROWS", 10_000)
     assert training.retrain_if_changed(db, "fire_lr", TODAY, tmp_path) == (None, True)
@@ -48,7 +60,7 @@ def test_identical_failure_is_not_retried(db, tmp_path, monkeypatch):
     assert db.query(models.MLModel).filter_by(model_name="fire_lr", status="failed").count() == 1
 
 
-def test_run_refresh_upload_and_startup(db, tmp_path, monkeypatch):
+def test_run_refresh_upload_and_startup(db, tmp_path, monkeypatch, forget_fingerprints):
     monkeypatch.setattr(training, "REPORT_DIR", tmp_path)
     retrained, counts = jobs.run_refresh(db, "upload", TODAY, tmp_path)
     assert sorted(retrained) == sorted(training.MODEL_NAMES) and sum(counts.values()) > 1000
@@ -81,10 +93,11 @@ def test_refresh_never_raises_and_records_the_error(monkeypatch):
 
 
 def test_requests_during_a_run_are_coalesced_into_one_more_run(monkeypatch):
-    started, release, reasons = threading.Event(), threading.Event(), []
+    started, release, reasons, running_seen = threading.Event(), threading.Event(), [], []
 
     def slow(db, reason, today=None, report_dir=None):
         reasons.append(reason)
+        running_seen.append(jobs.status["running"])
         if len(reasons) == 1:
             started.set()
             release.wait(5)
@@ -99,4 +112,5 @@ def test_requests_during_a_run_are_coalesced_into_one_more_run(monkeypatch):
     release.set()
     t.join(5)
     assert reasons == ["startup", "upload"]  # exactly one extra run, not three
-    assert jobs._running is False
+    assert running_seen == [True, True]  # "running" never dropped between the two runs
+    assert jobs._running is False and jobs.status["running"] is False

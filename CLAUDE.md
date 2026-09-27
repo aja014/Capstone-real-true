@@ -1108,6 +1108,61 @@ scikit-learn is used ONLY in `Backend/tests/ml/` to cross-check.
 - **Regression**: snapshot identical except `ml_models` 4 → 7 and `ml_predictions` 0 → 1,051;
   the 4 `/ml` endpoints return 401 without a token.
 
+## Models Phase 3 — frontend (predictions, accuracy cards, auto-refresh) — DONE
+2026-09-27, branch `claims-frontend`. No DB change.
+- **New** `lib/ml.js` (fetch quotation/claim predictions and `/ml/models`, never throw —
+  failures just mean "—" / "Not trained yet"; `waitForModelRefresh()`; % and date
+  formatting) and `components/ModelShared.jsx` (`RiskLevelCell` Low gray / Medium amber /
+  High red, `ClaimPossibilityCell`, `ModelAccuracyCard`).
+- **Proposal**: Risk Assessment + Claim Possibility are the LR predictions, merged by
+  `line-id` in the page only (`fetchAllQuotations()` is unchanged, so Policy Holder Info's
+  Quotation tab doesn't show them). "—" = no prediction (quotation whose policy has
+  ended). Risk filter = All / Low / Medium / High ("All" keeps "—" rows). March Policy
+  Forecast REMOVED (+ its mock data, `RoundedBar`, `BarValueLabel`). "Average Quotation
+  Claiming Rate" → **"Average Claim Possibility"** = mean probability over the table's
+  current rows with a prediction (follows period/month and every filter; both lines mixed
+  when the line filter is All), caption "Based on N quotations · All lines | <line>".
+- **Accuracy cards** ("Model accuracy (Logistic Regression)" on Proposal with Motor Car +
+  Fire & Property; "Fraud model accuracy (Naive Bayes)" on Claims under Fraud Rate): show
+  the **5-fold cross-validation MEANS** (user decision — the single 25% test sets are small,
+  fraud has ~12 cases), labelled "5-fold average (cross-validation)": "X% accurate",
+  "catches Y% of losses / fraud", "vN · trained <date>". Reports keep both.
+- **Fraud Warning** (Claims page + Policy Holder Info → Claims tab): `fetchAllClaims()` merges
+  the NB predictions: `fraud_warning` = "Suspicious · 56%" / "Not suspicious · 6%" (% =
+  P(Fraud); flagged above the stored cutoff 0.3), `fraud_flag` drives red vs gray; kept as
+  TEXT because the Claims tab search stringifies every field. "—" for CNC, investigated
+  claims, or no prediction. Hover note: a prediction, not an investigation result.
+- **Auto-refresh** (user decision): only Policy Holder Info has upload UI (one Upload modal
+  for all tabs + Needs Review resolve). After an upload/resolve → `refreshAllData()` as
+  before, then `waitForModelRefresh()` polls `GET /ml/models` every 2s (stop when it was
+  seen running and has stopped; 4s grace if it never starts; 120s timeout), then refetches
+  the claims; "Updating fraud predictions…" shows on the Claims tab meanwhile. Proposal and
+  Claims pages: if a retrain is running when they open, they show "Updating…", wait, then
+  refetch predictions/claims + scores.
+- **Backend tweak** (`app/ml/jobs.py`): `status.running` now stays True across a coalesced
+  extra run (was briefly False between the two runs, which could stop a poller early);
+  test added. `tests/ml/test_jobs.py` got a `forget_fingerprints` fixture — 3 tests had
+  assumed the dev DB's active models had no fingerprint (true only before Phase 2's
+  one-time retrain).
+- Claims page chart now grows with the taller right-hand column (min 270px) — the new card
+  had left a white gap.
+- **Verified**: 51 backend tests pass; `npm run build` ok; lint = pre-change baseline on
+  every changed file (the "fetch in useEffect" rule, same as before). Browser (fresh loads,
+  no console errors): Proposal Past 6 Months = 372 / "Based on 372 quotations · All lines" /
+  15%, Low 216 (10%), Medium 140 (21%), High 16 (28%), Motor 198 / 20%, Fire 174 / 9% — all
+  = SQL; August 2025 = 66 quotations, 14 predicted / 52 "—", avg 15% = SQL; cards Motor 64% /
+  51%, Fire 60% / 68%, fraud 85% / 39% (= CV means). Claims page, all 441 claims: 23
+  warnings = exactly the uninvestigated Paid Claims, 2 Suspicious (56%, 39%) in red, none on
+  CNC/investigated. Claims tab both lines + search "suspicious" ok. Auto-refresh with real
+  ZZTEST uploads (1 row, unknown policy → Needs Review; nothing retrained): Claims tab polled
+  running=true until 18.5s then refetched; Proposal and Claims pages opened mid-retrain
+  waited and refetched. The 3 ZZTEST import_records (6579–6581) were deleted by exact id
+  after a marker check; counts back to baseline. Regression snapshot: ALL IDENTICAL.
+- **Found, not fixed**: while a retrain runs (~15–20s after a learning-data upload), other
+  backend requests get slow (a `/ml/models` call took ~8s) — training and the web requests
+  share one Python process. Harmless (everything completes) but noticeable; a fix would be
+  running the refresh in a separate process.
+
 ## Data Prep Change 1 — Motor Sum Insured — DONE
 2026-09-26, branch `data-prep`. First of 5 approved changes preparing for the
 synthetic learning dataset (~850 people / ~1,750 policies / ~490 claims).
@@ -1734,16 +1789,10 @@ confirmation of the exact row list.
 - `pages/overview.jsx`, `pages/distribution.jsx` — all mock dashboard/chart
   data, would need new backend aggregation endpoints (none exist yet)
   before connecting.
-- `pages/proposal.jsx` (Quotations/Proposal) — DONE for everything that
-  doesn't depend on the not-yet-started predictive model (Objective 1.2).
-  Still mock, deliberately, per explicit scope decision: the March Policy
-  Forecast chart, the Average Quotation Claiming Rate indicator, and the
-  table's Risk Assessment/Claim Possibility columns (rendered as a fixed
-  "Pending" placeholder per row — same honest-placeholder pattern as
-  Overview's Filed Claims "—", not cycled fake values, so it never looks
-  like real data). Their filter dropdowns' options were trimmed to
-  `["... : All", "Pending"]` for the same reason — offering options that
-  could never match anything would be misleading.
+- `pages/proposal.jsx` (Quotations/Proposal) — DONE. (History: the March Policy
+  Forecast chart, the Average Quotation Claiming Rate indicator and the table's
+  Risk Assessment/Claim Possibility "Pending" placeholders were mock until Models
+  Phase 3 — all now real or removed; see "Models Phase 3".)
   - **Backend**: `GET /stats/quotation-proposal` in `routers/stats.py`,
     `QuotationProposalStats`/`...PieSlice`/`...TrendEntry` schemas — same
     one-endpoint-combines-several-sections shape as `/stats/overview`.
@@ -1957,13 +2006,9 @@ confirmation of the exact row list.
   auto-increment ids.
 
 ## Immediate Next Steps (in order)
-1. Models Phase 3 — frontend: Proposal's Claim Possibility (%) + Risk Assessment
-   (Low/Medium/High, filter options too) from `GET /ml/predictions/quotations`; Fraud
-   Warning (Claims page + Policy Holder Info → Claims tab) from
-   `GET /ml/predictions/claims`; "—" where there's no prediction; small accuracy cards
-   (accuracy WITH recall + trained date) from `GET /ml/models` on Proposal (Motor + Fire)
-   and Claims (Naive Bayes); remove "March Policy Forecast", relabel "Average Quotation
-   Claiming Rate" → "Average Claim Possibility". See "Models Phase 1/2".
+1. Models Phases 1–3 are DONE (see those sections). Open follow-ups: backend requests
+   slow down while a retrain runs (see "Models Phase 3" → Found); Objective 1.4
+   retention still has no dedicated model (Renewal Ratio page is computed, not predicted).
 
 Frontend display of the Motor Quotation GIS fields (latitude/longitude/
 flood_risk_flag/flood_risk_category) on the Quotation tab's

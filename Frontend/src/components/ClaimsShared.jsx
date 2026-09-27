@@ -13,9 +13,15 @@ export function InvestigationResultCell({ value }) {
   return <span className={INVESTIGATION_STYLE[value] || ""}>{value}</span>;
 }
 
-// Fraud Warning: placeholder until the Naive Bayes fraud model exists -- the same
-// honest gray "Pending" as Proposal's Risk Assessment. null (CNC rows) -> "—".
-export function FraudWarningCell({ value }) {
-  if (!value) return <span>—</span>;
-  return <span className="text-gray-400">{value}</span>;
+// Fraud Warning = the Naive Bayes prediction (lib/claims.js fraud_warning / fraud_flag),
+// never the human label. "—" when there is none: CNC rows, claims already investigated,
+// or no model yet.
+export function FraudWarningCell({ value, flagged }) {
+  if (!value) return <span className="text-gray-400">—</span>;
+  return (
+    <span className={flagged ? "text-red-500 font-semibold" : "text-gray-600"}
+      title="Naive Bayes P(Fraud) — a prediction, not an investigation result">
+      {value}
+    </span>
+  );
 }

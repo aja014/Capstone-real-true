@@ -1,4 +1,5 @@
 import axios from "axios";
+import { fetchClaimPredictions, formatPercent } from "./ml";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -22,16 +23,24 @@ export const NOT_YET_INVESTIGATED = "Not yet investigated";
 //                          same Client Name vs literal-name rule as other tabs
 //   investigation_display  the human label as shown; CNC Issuance rows are never
 //                          investigated, so they show "Not applicable (CNC)"
-//   fraud_warning          "Pending" until the fraud model exists; null ("—")
-//                          for CNC rows. Never a prediction.
+//   fraud_warning          the Naive Bayes prediction as text, e.g. "Suspicious · 45%"
+//                          or "Not suspicious · 8%" (the % is P(Fraud)); null ("—") when
+//                          there is none -- CNC rows, claims already investigated (the
+//                          human result is shown instead), or no model yet. Kept as text
+//                          so the Claims tab's all-fields search matches it.
+//   fraud_flag             true = flagged Suspicious (P(Fraud) above the model's stored
+//                          cutoff), false = not, null = no prediction
 export async function fetchAllClaims() {
   const headers = authHeaders();
   const get = (path) => axios.get(`${API_BASE_URL}${path}`, { headers });
-  const [motorC, fireC, motorP, fireP, motorQ, fireQ, casesRes, phRes] = await Promise.all([
-    get("/motor/claims"), get("/fire-property/claims"),
-    get("/motor/policies"), get("/fire-property/policies"),
-    get("/motor/quotations"), get("/fire-property/quotations"),
-    get("/insurance-cases"), get("/policyholders"),
+  const [[motorC, fireC, motorP, fireP, motorQ, fireQ, casesRes, phRes], predictions] = await Promise.all([
+    Promise.all([
+      get("/motor/claims"), get("/fire-property/claims"),
+      get("/motor/policies"), get("/fire-property/policies"),
+      get("/motor/quotations"), get("/fire-property/quotations"),
+      get("/insurance-cases"), get("/policyholders"),
+    ]),
+    fetchClaimPredictions(),
   ]);
 
   const policyholderByCase = new Map(casesRes.data.map((c) => [c.id, c.policyholder_id]));
@@ -46,13 +55,20 @@ export async function fetchAllClaims() {
   const enrich = (claim, line, policy, caseByQuotation) => {
     const caseId = policy ? caseByQuotation.get(policy.quotation_id) : undefined;
     const isCnc = claim.claim_type === CNC_CLAIM_TYPE;
+    // Only uninvestigated Paid Claims ever have a prediction (the backend never stores
+    // one for CNC or investigated claims), so a lookup miss simply means "—".
+    const prediction = isCnc ? undefined : predictions.get(`${line}-${claim.id}`);
+    const flagged = prediction ? prediction.label === "Fraud" : null;
     return {
       ...claim,
       line,
       policy_no: policy?.policy_no ?? null,
       client_name: nameByPolicyholder.get(policyholderByCase.get(caseId)) || null,
       investigation_display: isCnc ? CNC_INVESTIGATION_LABEL : claim.claim_investigation_result ?? null,
-      fraud_warning: isCnc ? null : "Pending",
+      fraud_warning: prediction
+        ? `${flagged ? "Suspicious" : "Not suspicious"} · ${formatPercent(prediction.fraud_probability)}`
+        : null,
+      fraud_flag: flagged,
     };
   };
 

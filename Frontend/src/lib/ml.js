@@ -1,0 +1,83 @@
+import axios from "axios";
+
+const API_BASE_URL = "http://127.0.0.1:8000";
+
+function authHeaders() {
+  const token = localStorage.getItem("token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+// Model predictions and scores (backend app/ml/, GET /ml/...). Predictions are stored
+// apart from the real data and exist only for rows that still need one: open or
+// in-force quotations, and Paid Claims not yet investigated. Everything else shows "—".
+// These helpers never throw -- a page must still load if the model endpoints fail,
+// it just shows "—" / "Not trained yet".
+
+export const RISK_LEVELS = ["Low", "Medium", "High"];
+
+// "Motor Car-123" -> { claim_probability, risk_level }
+export async function fetchQuotationPredictions() {
+  try {
+    const res = await axios.get(`${API_BASE_URL}/ml/predictions/quotations`, { headers: authHeaders() });
+    return new Map(res.data.map((p) => [`${p.line}-${p.quotation_id}`, p]));
+  } catch {
+    return new Map();
+  }
+}
+
+// "Fire & Property-45" -> { fraud_probability, label }
+export async function fetchClaimPredictions() {
+  try {
+    const res = await axios.get(`${API_BASE_URL}/ml/predictions/claims`, { headers: authHeaders() });
+    return new Map(res.data.map((p) => [`${p.line}-${p.claim_id}`, p]));
+  } catch {
+    return new Map();
+  }
+}
+
+// { byName: { motor_lr, fire_lr, fraud_nb } (schemas.MLModelSummary), refresh: { running, ... } }
+export async function fetchModels() {
+  try {
+    const res = await axios.get(`${API_BASE_URL}/ml/models`, { headers: authHeaders() });
+    return { byName: Object.fromEntries(res.data.models.map((m) => [m.model_name, m])), refresh: res.data.refresh };
+  } catch {
+    return { byName: {}, refresh: null };
+  }
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// The backend retrains + rewrites predictions in the background a few seconds AFTER an
+// upload/resolve response (app/ml/jobs.py). Poll GET /ml/models until that refresh is
+// over, then the caller refetches. "Over" = it was seen running and has stopped; if it
+// never shows up as running within startGraceMs (the upload had no learning data, or it
+// already finished) we stop waiting too. A refresh takes at least ~5s, so the grace
+// window can't miss one that is starting. Never throws; resolves to
+// "finished" | "not_started" | "timeout" | "cancelled".
+export async function waitForModelRefresh({
+  intervalMs = 2000, startGraceMs = 4000, timeoutMs = 120000, isCancelled = () => false,
+} = {}) {
+  const start = Date.now();
+  let sawRunning = false;
+  while (!isCancelled()) {
+    const { refresh } = await fetchModels();
+    const running = !!refresh?.running;
+    sawRunning = sawRunning || running;
+    const elapsed = Date.now() - start;
+    if (!running && sawRunning) return "finished";
+    if (!running && elapsed >= startGraceMs) return "not_started";
+    if (elapsed >= timeoutMs) return "timeout";
+    await sleep(intervalMs);
+  }
+  return "cancelled";
+}
+
+export function formatPercent(value) {
+  return value === null || value === undefined ? "—" : `${Math.round(value * 100)}%`;
+}
+
+export function formatTrainedDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return isNaN(d) ? "—" : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
