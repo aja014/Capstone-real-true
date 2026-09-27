@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.security import get_current_user
 from app import models, schemas
+from app.ml.jobs import schedule_model_refresh
 from app.routers.claims import loss_period_error
 
 router = APIRouter(
@@ -308,12 +309,14 @@ def _upload_claims(file: UploadFile, db: Session, import_type):
     )
 
 
-@router.post("/motor/upload", response_model=schemas.ImportSummary)
+@router.post("/motor/upload", response_model=schemas.ImportSummary,
+              dependencies=[Depends(schedule_model_refresh)])
 def upload_motor_claims(file: UploadFile = File(...), db: Session = Depends(get_db)):
     return _upload_claims(file, db, models.ImportType.motor_claim)
 
 
-@router.post("/fire-property/upload", response_model=schemas.ImportSummary)
+@router.post("/fire-property/upload", response_model=schemas.ImportSummary,
+              dependencies=[Depends(schedule_model_refresh)])
 def upload_fire_property_claims(file: UploadFile = File(...), db: Session = Depends(get_db)):
     return _upload_claims(file, db, models.ImportType.fire_property_claim)
 

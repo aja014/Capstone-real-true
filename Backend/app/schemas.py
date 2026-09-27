@@ -965,3 +965,83 @@ class ClaimsStats(BaseModel):
     investigation_pie: list[OverviewPieSlice]
 
     trend: list[ClaimsTrendEntry]  # oldest -> newest
+
+# ------------------------------------------------------------
+# PREDICTIVE MODELS (GET /ml/...) — see app/ml/ and app/routers/ml.py
+# ------------------------------------------------------------
+
+class MLMeanSD(BaseModel):
+    mean: Optional[float] = None
+    sd: Optional[float] = None
+
+
+class MLModelFailure(BaseModel):
+    version: int
+    trained_at: datetime
+    error: Optional[str] = None  # first line only
+
+
+class MLModelSummary(BaseModel):
+    model_name: str  # motor_lr | fire_lr | fraud_nb
+    title: str
+    available: bool  # False = no active version (never trained, or not enough data)
+    version: Optional[int] = None
+    trained_at: Optional[datetime] = None
+    data_as_of: Optional[date] = None
+    train_rows: Optional[int] = None
+    test_rows: Optional[int] = None
+    positive_rows: Optional[int] = None
+    # LR: {"medium_from", "high_from"}; Naive Bayes: {"fraud_cutoff"}
+    thresholds: Optional[dict[str, float]] = None
+    # held-back 25% test data: accuracy, precision, recall, f1, roc_auc
+    test: Optional[dict[str, Optional[float]]] = None
+    # 5-fold stratified CV: accuracy, precision, recall, roc_auc -> mean / sd
+    cross_validation: Optional[dict[str, MLMeanSD]] = None
+    report_file: Optional[str] = None  # file name inside model_reports/
+    last_failure: Optional[MLModelFailure] = None  # set when the LATEST attempt failed
+
+
+class MLRefreshStatus(BaseModel):
+    running: bool
+    last_reason: Optional[str] = None  # "upload" | "startup"
+    last_started_at: Optional[datetime] = None
+    last_finished_at: Optional[datetime] = None
+    last_retrained: list[str] = []
+    last_predictions: dict[str, int] = {}
+    last_error: Optional[str] = None
+
+
+class MLModelsOverview(BaseModel):
+    models: list[MLModelSummary]
+    refresh: MLRefreshStatus
+
+
+class MLModelAttempt(BaseModel):
+    version: int
+    status: str  # active | superseded | failed
+    trained_at: datetime
+    data_as_of: date
+    error: Optional[str] = None
+
+
+class MLModelDetail(MLModelSummary):
+    metrics: Optional[dict[str, Any]] = None  # everything shown in the report
+    history: list[MLModelAttempt]
+
+
+class QuotationPrediction(BaseModel):
+    line: str  # "Motor Car" | "Fire & Property"
+    quotation_id: int
+    claim_probability: float  # Claim Possibility, 0..1
+    risk_level: str  # Low | Medium | High (Risk Assessment)
+    model_version: int
+    predicted_at: Optional[datetime] = None
+
+
+class ClaimPrediction(BaseModel):
+    line: str  # "Motor Car" | "Fire & Property"
+    claim_id: int
+    fraud_probability: float  # normalized P(Fraud), 0..1
+    label: str  # Fraud | Legitimate, at the model's stored fraud_cutoff
+    model_version: int
+    predicted_at: Optional[datetime] = None

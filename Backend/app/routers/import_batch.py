@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.security import get_current_user
 from app import models, schemas
+from app.ml.jobs import schedule_model_refresh
 from app.routers import import_policyholders, import_fire_property, import_motor, import_vehicle, import_claims
 
 router = APIRouter(
@@ -226,7 +227,8 @@ PROCESSING_PRIORITY = {
 }
 
 
-@router.post("/upload", response_model=schemas.BatchImportSummary)
+@router.post("/upload", response_model=schemas.BatchImportSummary,
+              dependencies=[Depends(schedule_model_refresh)])
 def upload_batch(
     files: list[UploadFile] = File(...),
     import_types: list[str] = Form(...),

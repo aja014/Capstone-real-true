@@ -36,7 +36,7 @@ def test_train_all_saves_models_and_reports(db, tmp_path):
     assert set(motor.thresholds) == {"medium_from", "high_from"}
     assert len(motor.metrics["control_check"]) == 9
     assert "Control check" in open(motor.report_path, encoding="utf-8").read()
-    assert nb.thresholds == {"fraud_cutoff": 0.5}
+    assert nb.thresholds == {"fraud_cutoff": training.NB_FRAUD_CUTOFF}
     assert [r["cutoff"] for r in nb.metrics["cutoff_table"]] == [0.5, 0.4, 0.3, 0.2]
     recalls = [r["recall"]["mean"] for r in nb.metrics["cutoff_table"]]
     assert recalls == sorted(recalls)  # a lower cutoff never catches less fraud

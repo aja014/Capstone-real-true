@@ -1,4 +1,5 @@
 import bcrypt
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 from app.database import engine, Base, get_db
@@ -6,8 +7,19 @@ from app import models, schemas
 from passlib.context import CryptContext
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import HTTPException # for getting users
-from app.routers import auth, users, policyholders, fire_property, motor_car, import_policyholders, import_fire_property, import_motor, import_vehicle, import_batch, stats, claims, import_claims
-app = FastAPI()
+from app.routers import auth, users, policyholders, fire_property, motor_car, import_policyholders, import_fire_property, import_motor, import_vehicle, import_batch, stats, claims, import_claims, ml
+from app.ml import jobs as ml_jobs
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Background thread: trains only models that have no active version yet, then
+    # rewrites the predictions. Startup is not delayed (see app/ml/jobs.py).
+    ml_jobs.start_startup_refresh()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -43,3 +55,4 @@ app.include_router(import_batch.router)
 app.include_router(import_claims.router)
 app.include_router(stats.router)
 app.include_router(claims.router)
+app.include_router(ml.router)

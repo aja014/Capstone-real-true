@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.security import get_current_user
 from app import models, schemas
+from app.ml.jobs import schedule_model_refresh
 from app.routers import import_fire_property, import_motor, import_vehicle, import_shared, import_claims
 
 router = APIRouter(
@@ -391,7 +392,8 @@ def get_policy_candidates(record_id: int, db: Session = Depends(get_db)):
     return import_claims.list_policy_candidates(db, record)
 
 
-@router.patch("/records/{record_id}/resolve", response_model=schemas.ImportRecordOut)
+@router.patch("/records/{record_id}/resolve", response_model=schemas.ImportRecordOut,
+              dependencies=[Depends(schedule_model_refresh)])
 def resolve_import_record(
     record_id: int,
     resolution: schemas.ResolveImportRecord,

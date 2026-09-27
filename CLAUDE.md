@@ -999,9 +999,14 @@ scikit-learn is used ONLY in `Backend/tests/ml/` to cross-check.
   of the product (no evidence). Needed because 18 of the 23 uninvestigated claims have
   "Not yet submitted" docs + "Unknown" estimate, values no investigated claim has;
   smoothing alone made them ~6× "fraud-like" (Fraud is the smaller class).
-- **Adjustable fraud cutoff**: `training.NB_FRAUD_CUTOFF` (default 0.5 = the documents'
-  "higher score wins"), stored per model in `ml_models.thresholds.fraud_cutoff`; the
-  fraud report compares 0.5/0.4/0.3/0.2 on the same 5 CV folds.
+- **Adjustable fraud cutoff**: `training.NB_FRAUD_CUTOFF`, stored per model in
+  `ml_models.thresholds.fraud_cutoff`; the fraud report compares 0.5/0.4/0.3/0.2 on the
+  same 5 CV folds. 0.5 = the documents' "higher score wins" (v1). **Now 0.3** (user
+  decision, 2026-09-27, from the v1 table: CV recall 38.9% vs 24.2%, precision 44.6% vs
+  43.3%) → `fraud_nb` **v2** (ml_models id 28, active; v1 superseded): test acc 90.6%,
+  precision 61.5%, recall 66.7%, F1 64.0%, AUC 0.877 (unchanged — ranking doesn't depend
+  on the cutoff); CV acc 85.2 ± 4.6%, prec 44.6 ± 16.5%, rec 38.9 ± 8.9%. Report
+  `model_reports/2026-09-27_fraud_nb_v2.md`. Motor/Fire stay v1.
 - **Risk levels (LR)**: Low < training loss rate ≤ Medium < 2 × that rate ≤ High, stored
   in `thresholds` (v1: Motor 0.21/0.41, Fire 0.09/0.18). Test/CV "predicted loss" =
   Medium or High; reports also show the 0.5 cutoff and the always-"no" baseline.
@@ -1043,6 +1048,65 @@ scikit-learn is used ONLY in `Backend/tests/ml/` to cross-check.
   scikit-learn 1.9.1, installed in the venv). Reset script clears both ml tables.
 - **Paper notes**: the walkthrough doesn't mention the L2 penalty, Laplace smoothing, the
   unseen-value rule or the risk-level thresholds — each needs one sentence in Chapter 3/4.
+
+## Models Phase 2 — automatic retrain, startup, predictions, /ml API — DONE (no UI yet)
+2026-09-27, branch `claims-frontend`. No new table; fills `ml_predictions`.
+- **Trigger** (`app/ml/jobs.py`): route dependency `Depends(schedule_model_refresh)` on 9
+  endpoints — Survey / Fire Quotation / Fire Policy / Motor Quotation / Motor Policy
+  uploads, both Claims uploads, `POST /import/batch/upload`, and
+  `PATCH /import/policyholders/records/{id}/resolve`. It queues a FastAPI background task
+  that runs AFTER the response is sent, and only if the endpoint returned normally (an
+  error response carries no background task). The folder upload calls each importer as a
+  plain function, so a folder = ONE refresh. Customer Info / Vehicle uploads and all manual
+  CRUD (claims PATCH/POST, deletes) do NOT trigger — by user decision (claims are updated
+  via upload); they are picked up at the next upload.
+- **Refresh** = for each model `training.retrain_if_changed()`, then
+  `predict.refresh_predictions()`. Runs on its own `SessionLocal` session, catches every
+  error (kept in `jobs.status`, shown by `GET /ml/models`; process-local), never fails the
+  upload. Requests during a running refresh are coalesced into ONE more run.
+- **Retrain only on change**: each model stores `parameters.data_signature` = SHA-256 of its
+  training rows (ids, inputs, label) + settings (LR settings/spec or NB alpha/cutoff/clue
+  lists, seed, split, folds, `training.MODEL_CODE_VERSION` — bump it to force a retrain after
+  a code change). Equal to the latest attempt's → skip. So: a new open quotation only
+  refreshes predictions; a new ended policy, a changed label or setting retrains. A failed
+  attempt stores its fingerprint too, so an identical failure (e.g. not enough data after a
+  reset) is not retried every upload/reload.
+- **Startup** (`main.py` `lifespan` → `jobs.start_startup_refresh()`, daemon thread, startup
+  not delayed): trains only models with NO active version, then rewrites predictions (~5s).
+  Runs on every `--reload` too (predictions only, when all models exist).
+- **Predictions** (`app/ml/predict.py`, whole table replaced in one transaction):
+  `motor_quotation` / `fire_quotation` = open quotations + quotations whose policy is in force
+  (period_to >= today) → probability + Low/Medium/High; `motor_claim` / `fire_claim` = Paid
+  Claims with no Investigation Result → P(Fraud) + Fraud/Legitimate at the stored cutoff.
+  Ended-policy quotations, investigated claims and CNC rows get none ("—" in Phase 3).
+  Now: 617 Motor (Low 390 / Medium 206 / High 21), 411 Fire (244 / 142 / 25), 23 claims
+  (2 Fraud).
+- **API** (`app/routers/ml.py`, prefix `/ml`, router-wide login, read-only, no train
+  endpoint): `GET /ml/models` (per model: available, version, trained_at, data_as_of, rows,
+  thresholds, test scores, CV mean ± SD, report file name, latest failure; + `refresh`
+  status), `GET /ml/models/{name}` (+ full metrics + attempt history; 404 unknown),
+  `GET /ml/predictions/quotations?line=` and `GET /ml/predictions/claims?line=`
+  (`line` = "Motor Car" | "Fire & Property", the frontend's labels; else 422). Schemas
+  `MLModelsOverview`, `MLModelSummary`, `MLModelDetail`, `QuotationPrediction`,
+  `ClaimPrediction` (+ helpers) in `schemas.py`.
+- **Deterministic rows**: `features.py` queries now `ORDER BY` id. Motor rows used to come
+  back in join order, so its 75/25 split depended on MySQL's plan (Fire/claims were already
+  in id order). Moved Motor slightly (below).
+- **One-time retrain (user decision)** through the real refresh path, because v1/v2 had no
+  fingerprint: Motor **v2** (ml_models id 93), Fire **v2** (id 94), fraud **v3** (id 95),
+  all active (ids 29–92 were used up by rolled-back test runs);
+  a second refresh right after retrained nothing (9.5s vs 5.6s).
+  Motor v2: test acc 63.0% / prec 29.3% / rec 55.8% / F1 38.4% / AUC 0.614; CV acc
+  63.6 ± 2.0%, prec 28.5 ± 2.6%, rec 50.6 ± 7.2%, AUC 0.622 ± 0.045; loss rate Low 15.1% /
+  Medium 28.9% / High 33.3% (6 rows); color −0.23…+0.40. Fire v2 and fraud v3 = identical
+  to Fire v1 / fraud v2 (same rows, same order).
+- **Tests**: 51 pass (33 Phase 1 + 18 new: `test_predict.py`, `test_jobs.py`,
+  `test_ml_api.py`). API tests use `TestClient(app)` WITHOUT `with` (no startup refresh) and
+  an autouse fixture that stops a background refresh from opening a real session. Needs
+  `httpx==0.28.1` (added to `requirements-dev.txt`; Starlette warns it will want `httpx2`
+  later — harmless).
+- **Regression**: snapshot identical except `ml_models` 4 → 7 and `ml_predictions` 0 → 1,051;
+  the 4 `/ml` endpoints return 401 without a token.
 
 ## Data Prep Change 1 — Motor Sum Insured — DONE
 2026-09-26, branch `data-prep`. First of 5 approved changes preparing for the
@@ -1893,11 +1957,13 @@ confirmation of the exact row list.
   auto-increment ids.
 
 ## Immediate Next Steps (in order)
-1. Models Phase 2 — automatic retrain after learning-data uploads (background
-   task) + startup training if no model exists, writing predictions to
-   `ml_predictions`, and the `/ml/...` API. Then Phase 3 — frontend (Claim
-   Possibility / Risk Assessment / Fraud Warning columns, accuracy cards with
-   recall, mock-card changes). See "Models Phase 1" for the agreed design.
+1. Models Phase 3 — frontend: Proposal's Claim Possibility (%) + Risk Assessment
+   (Low/Medium/High, filter options too) from `GET /ml/predictions/quotations`; Fraud
+   Warning (Claims page + Policy Holder Info → Claims tab) from
+   `GET /ml/predictions/claims`; "—" where there's no prediction; small accuracy cards
+   (accuracy WITH recall + trained date) from `GET /ml/models` on Proposal (Motor + Fire)
+   and Claims (Naive Bayes); remove "March Policy Forecast", relabel "Average Quotation
+   Claiming Rate" → "Average Claim Possibility". See "Models Phase 1/2".
 
 Frontend display of the Motor Quotation GIS fields (latitude/longitude/
 flood_risk_flag/flood_risk_category) on the Quotation tab's

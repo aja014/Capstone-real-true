@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.security import get_current_user
 from app import models, schemas
+from app.ml.jobs import schedule_model_refresh
 from app.routers import import_shared
 from app.services.flood_risk import lookup_flood_risk
 
@@ -451,7 +452,8 @@ def match_score(cn, cp, en, ep) -> float:
     return (name_score * 0.8) + (phone_match * 0.2)
 
 
-@router.post("/surveys/upload", response_model=schemas.ImportSummary)
+@router.post("/surveys/upload", response_model=schemas.ImportSummary,
+              dependencies=[Depends(schedule_model_refresh)])
 def upload_surveys(file: UploadFile = File(...), db: Session = Depends(get_db)):
     if not file.filename.lower().endswith((".xlsx", ".xls", ".csv")):
         raise HTTPException(status_code=400, detail="Only .xlsx, .xls, or .csv files are supported")
@@ -748,7 +750,8 @@ def _resolve_or_create_fire_quotation(db: Session, policyholder_id: int, fields:
     return target_case.id, models.MatchStatus.unmatched
 
 
-@router.post("/quotations/upload", response_model=schemas.ImportSummary)
+@router.post("/quotations/upload", response_model=schemas.ImportSummary,
+              dependencies=[Depends(schedule_model_refresh)])
 def upload_fire_property_quotations(file: UploadFile = File(...), db: Session = Depends(get_db)):
     if not file.filename.lower().endswith((".xlsx", ".xls", ".csv")):
         raise HTTPException(status_code=400, detail="Only .xlsx, .xls, or .csv files are supported")
@@ -916,7 +919,8 @@ def _resolve_or_create_fire_policy(db: Session, policyholder_id: int, fields: di
     return quotation.insurance_case_id, models.MatchStatus.unmatched
 
 
-@router.post("/policies/upload", response_model=schemas.ImportSummary)
+@router.post("/policies/upload", response_model=schemas.ImportSummary,
+              dependencies=[Depends(schedule_model_refresh)])
 def upload_fire_property_policies(file: UploadFile = File(...), db: Session = Depends(get_db)):
     if not file.filename.lower().endswith((".xlsx", ".xls", ".csv")):
         raise HTTPException(status_code=400, detail="Only .xlsx, .xls, or .csv files are supported")

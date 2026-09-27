@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.security import get_current_user
 from app import models, schemas
+from app.ml.jobs import schedule_model_refresh
 from app.routers import import_shared
 from app.services.flood_risk import lookup_flood_risk
 
@@ -164,7 +165,8 @@ def find_existing_vehicle(db: Session, plate_no: str, engine_no: str, chassis_no
     return query.filter(or_(*conditions)).first()
 
 
-@router.post("/quotations/upload", response_model=schemas.ImportSummary)
+@router.post("/quotations/upload", response_model=schemas.ImportSummary,
+              dependencies=[Depends(schedule_model_refresh)])
 def upload_motor_quotations(file: UploadFile = File(...), db: Session = Depends(get_db)):
     if not file.filename.lower().endswith((".xlsx", ".xls", ".csv")):
         raise HTTPException(status_code=400, detail="Only .xlsx, .xls, or .csv files are supported")
@@ -533,7 +535,8 @@ def _resolve_or_create_motor_policy(db: Session, policyholder_id: int, fields: d
     return quotation.insurance_case_id, models.MatchStatus.unmatched
 
 
-@router.post("/policies/upload", response_model=schemas.ImportSummary)
+@router.post("/policies/upload", response_model=schemas.ImportSummary,
+              dependencies=[Depends(schedule_model_refresh)])
 def upload_motor_policies(file: UploadFile = File(...), db: Session = Depends(get_db)):
     if not file.filename.lower().endswith((".xlsx", ".xls", ".csv")):
         raise HTTPException(status_code=400, detail="Only .xlsx, .xls, or .csv files are supported")

@@ -132,6 +132,7 @@ def motor_quotation_frame(db):
         FROM motor_quotations q
         JOIN vehicles v ON v.id = q.vehicle_id
         LEFT JOIN motor_policies p ON p.quotation_id = q.id
+        ORDER BY q.id
     """)
     df["flood_category"] = [_flood_category(la, c) for la, c in zip(df["latitude"], df["flood_risk_category"])]
     model_year = pd.to_numeric(df["model_year"], errors="coerce")
@@ -160,6 +161,7 @@ def fire_quotation_frame(db):
         LEFT JOIN fire_property_surveys s ON s.id = (
             SELECT MAX(s2.id) FROM fire_property_surveys s2 WHERE s2.insurance_case_id = q.insurance_case_id)
         LEFT JOIN fire_property_policies p ON p.quotation_id = q.id
+        ORDER BY q.id
     """)
     df["flood_category"] = [_flood_category(la, c) for la, c in zip(df["latitude"], df["flood_risk_category"])]
     df["log_total_sum_insured"] = np.log(pd.to_numeric(df["total_sum_insured"], errors="coerce").where(lambda s: s > 0))
@@ -288,14 +290,14 @@ def claim_clue_frame(db):
         JOIN motor_policies p ON p.id = c.motor_policy_id
         JOIN motor_quotations q ON q.id = p.quotation_id
         JOIN insurance_cases ic ON ic.id = q.insurance_case_id
-        WHERE c.claim_type = :paid""", paid=PAID_CLAIM)
+        WHERE c.claim_type = :paid ORDER BY c.id""", paid=PAID_CLAIM)
     fire = _read(db, f"""
         SELECT 'Fire & Property' AS line, 'N/A (Fire)' AS coverage_type, {common}
         FROM fire_property_claims c
         JOIN fire_property_policies p ON p.id = c.fire_property_policy_id
         JOIN fire_property_quotations q ON q.id = p.quotation_id
         JOIN insurance_cases ic ON ic.id = q.insurance_case_id
-        WHERE c.claim_type = :paid""", paid=PAID_CLAIM)
+        WHERE c.claim_type = :paid ORDER BY c.id""", paid=PAID_CLAIM)
     df = pd.concat([motor, fire], ignore_index=True)
     df["date_reported"] = pd.to_datetime(df["date_reported"])
 

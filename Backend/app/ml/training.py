@@ -8,8 +8,15 @@ all rows (mean ± SD, because the Fire and fraud test sets are small) -> save th
 trained on the 75% (so the stored accuracy belongs to the stored model) -> write
 model_reports/<date>_<model>_v<N>.md. A failed run is recorded as status 'failed' and
 never touches the active model; train_model() never raises.
+
+retrain_if_changed() (used by the automatic refresh, app/ml/jobs.py) first fingerprints
+exactly what a run would learn from (the training rows, their inputs and labels, plus the
+settings below) and skips training when that fingerprint equals the latest attempt's:
+an identical model would come out, or the identical failure would repeat.
 """
 import datetime as dt
+import hashlib
+import json
 import logging
 import math
 import traceback
@@ -34,13 +41,17 @@ LR_SETTINGS = {"learning_rate": 0.5, "max_epochs": 50000, "tolerance": 1e-12, "l
 NB_ALPHA = 1.0
 # Stored with each fraud model (thresholds.fraud_cutoff). 0.5 = the documents' rule,
 # P(Fraud) > P(Legitimate). Change it here (next training stores the new value) — the
-# report's cutoff table shows what 0.4 / 0.3 / 0.2 would do first.
-NB_FRAUD_CUTOFF = DEFAULT_FRAUD_CUTOFF
+# report's cutoff table shows what 0.5 / 0.4 / 0.3 / 0.2 would do first.
+# 0.3 chosen from the v1 cutoff table (5-fold CV): recall 38.9% vs 24.2% at 0.5, with
+# precision unchanged (44.6% vs 43.3%).
+NB_FRAUD_CUTOFF = 0.3
 NB_CUTOFFS_COMPARED = (0.5, 0.4, 0.3, 0.2)
 MIN_CLUE_SUPPORT = 5
 MIN_ROWS = 30
 MIN_PER_CLASS = CV_FOLDS  # every CV fold needs at least one row of each class
 REPORT_DIR = Path(__file__).resolve().parents[3] / "model_reports"
+# Bump when a code change should force every model to retrain on the next refresh.
+MODEL_CODE_VERSION = 1
 
 
 class NotEnoughData(Exception):
@@ -82,10 +93,15 @@ def _lr_eval(frame, encoder, model, thresholds, idx):
     return y, p, result
 
 
-def train_logistic(db, line, today):
+def _lr_dataset(db, line, today):
     frame_fn = features.motor_quotation_frame if line == "motor" else features.fire_quotation_frame
+    return features.ended_policy_rows(frame_fn(db), today)
+
+
+def train_logistic(db, line, today, frame=None):
     spec = features.MOTOR_SPEC if line == "motor" else features.FIRE_SPEC
-    frame = features.ended_policy_rows(frame_fn(db), today)
+    if frame is None:
+        frame = _lr_dataset(db, line, today)
     y = frame["counted_loss"].to_numpy()
     _check_counts(y, f"{line} ended policies")
 
@@ -148,9 +164,14 @@ def _nb_eval(model, rows, y, idx, cutoff):
     return result
 
 
-def train_naive_bayes(db, today):
+def _nb_dataset(db):
     frame = features.claim_clue_frame(db)
-    frame = frame[frame["fraud_label"].notna()].reset_index(drop=True)
+    return frame[frame["fraud_label"].notna()].reset_index(drop=True)
+
+
+def train_naive_bayes(db, today, frame=None):
+    if frame is None:
+        frame = _nb_dataset(db)
     y = frame["fraud_label"].astype(int).to_numpy()
     _check_counts(y, "investigated Paid Claims")
     rows = _nb_rows(frame)
@@ -204,6 +225,45 @@ def train_naive_bayes(db, today):
     }
 
 
+# ------------------------------------------------------------ fingerprint
+
+def build_dataset(db, name, today):
+    if name == "motor_lr":
+        return _lr_dataset(db, "motor", today)
+    if name == "fire_lr":
+        return _lr_dataset(db, "fire", today)
+    if name == "fraud_nb":
+        return _nb_dataset(db)
+    raise ValueError(f"unknown model {name!r}")
+
+
+def data_signature(name, frame):
+    """SHA-256 of the training rows (id, inputs, label) + every setting that shapes the model."""
+    if name == "fraud_nb":
+        cols = ["line", "claim_id", *features.NB_CLUE_VALUES, "fraud_label"]
+        settings = {"alpha": NB_ALPHA, "fraud_cutoff": NB_FRAUD_CUTOFF, "clue_values": features.NB_CLUE_VALUES,
+                    "min_clue_support": MIN_CLUE_SUPPORT}
+    else:
+        spec = features.MOTOR_SPEC if name == "motor_lr" else features.FIRE_SPEC
+        cols = ["quotation_id", *spec["categorical"], *spec["numeric"], *spec["binary"], "counted_loss"]
+        settings = {"lr": LR_SETTINGS, "spec": spec}
+    settings.update(code=MODEL_CODE_VERSION, seed=SEED, test_fraction=TEST_FRACTION, cv_folds=CV_FOLDS)
+    digest = hashlib.sha256(frame[cols].to_csv(index=False).encode("utf-8"))
+    digest.update(json.dumps(settings, sort_keys=True).encode("utf-8"))
+    return digest.hexdigest()
+
+
+def active_model(db, name):
+    return (db.query(models.MLModel)
+            .filter(models.MLModel.model_name == name, models.MLModel.status == "active")
+            .order_by(models.MLModel.version.desc()).first())
+
+
+def latest_attempt(db, name):
+    return (db.query(models.MLModel).filter(models.MLModel.model_name == name)
+            .order_by(models.MLModel.version.desc()).first())
+
+
 # ------------------------------------------------------------ save + entry points
 
 def _next_version(db, name):
@@ -219,20 +279,23 @@ def _finish(db, commit):
         db.flush()
 
 
-def train_model(db, name, today=None, report_dir=None, commit=True):
+def train_model(db, name, today=None, report_dir=None, commit=True, dataset=None):
     """Train one model; returns the saved MLModel row, or None if training failed.
-    On failure the session is rolled back, so pass a session with no other pending work."""
+    On failure the session is rolled back, so pass a session with no other pending work.
+    `dataset` = an already-built build_dataset() frame (saves reading it twice)."""
     today = today or dt.date.today()
     report_dir = Path(report_dir) if report_dir else REPORT_DIR
+    signature = None
     try:
+        frame = dataset if dataset is not None else build_dataset(db, name, today)
+        signature = data_signature(name, frame)
         if name == "motor_lr":
-            result = train_logistic(db, "motor", today)
+            result = train_logistic(db, "motor", today, frame)
         elif name == "fire_lr":
-            result = train_logistic(db, "fire", today)
-        elif name == "fraud_nb":
-            result = train_naive_bayes(db, today)
+            result = train_logistic(db, "fire", today, frame)
         else:
-            raise ValueError(f"unknown model {name!r}")
+            result = train_naive_bayes(db, today, frame)
+        result["parameters"]["data_signature"] = signature
 
         row = models.MLModel(
             model_name=name, version=_next_version(db, name), status="active",
@@ -255,11 +318,29 @@ def train_model(db, name, today=None, report_dir=None, commit=True):
         failed = models.MLModel(
             model_name=name, version=_next_version(db, name), status="failed",
             trained_at=dt.datetime.now(), data_as_of=today,
+            parameters={"data_signature": signature} if signature else None,
             error=f"{type(exc).__name__}: {exc}\n{traceback.format_exc()[-2000:]}",
         )
         db.add(failed)
         _finish(db, commit)
         return None
+
+
+def retrain_if_changed(db, name, today=None, report_dir=None, commit=True):
+    """Train `name` unless its fingerprint equals the latest attempt's (active or failed).
+    Returns (active MLModel row or None, retrained: bool). Never raises."""
+    today = today or dt.date.today()
+    try:
+        frame = build_dataset(db, name, today)
+        signature = data_signature(name, frame)
+    except Exception:
+        log.exception("Could not build the %s dataset", name)
+        frame, signature = None, None
+    latest = latest_attempt(db, name)
+    if (signature is not None and latest is not None and latest.status in ("active", "failed")
+            and (latest.parameters or {}).get("data_signature") == signature):
+        return active_model(db, name), False
+    return train_model(db, name, today, report_dir, commit, dataset=frame), True
 
 
 def train_all(db, today=None, report_dir=None, commit=True):
