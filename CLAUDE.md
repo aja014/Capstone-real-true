@@ -1531,28 +1531,52 @@ dataset (seed 20260926); all earlier dev/test business data is gone.
   Occupancy Breakdown (6 keys), Boundaries (5), Protection Facilities (32), Perils (18),
   Hazard (6); no console errors.
 
-## How to restore the presentation backup (v2 dataset)
-Backup of the freshly loaded v2 synthetic dataset (2026-09-27, `mysqldump
---single-transaction --routines insurance_db`, 8,788,942 bytes):
-`Desktop\insurance_db_backup_loaded_v2_20260927_003529.sql`. Proven to restore:
-loaded into a temp DB `insurance_db_restoretest`, all 24 tables' row counts matched
-`insurance_db` (and the v2 columns came through: 481 surveys with 18 perils +
-occupancy + boundaries, 984 TINs), temp DB dropped. The dump has no `CREATE
+## Models — v3 presentation backup — DONE
+2026-09-27, branch `models` (after Models Phase 3). No code change.
+`Desktop\insurance_db_backup_loaded_v3_20260927_211608.sql` (`mysqldump
+--single-transaction --routines insurance_db`, 8,924,234 bytes, ends with "Dump
+completed"). It holds the v2 synthetic dataset plus the trained models and their
+predictions, so a restore needs no retraining.
+- Pre-flight: tree clean, no retrain running (`/ml/models` refresh `running: False`),
+  no ZZTEST/test rows (every table's max id = its row count).
+- Counts (25 tables): policyholders 1,129 · insurance_cases 1,224 · fire_property_surveys
+  481 · vehicles 743 · motor_quotations 1,450 · fire_property_quotations 1,032 ·
+  fire_property_policies 876 · motor_policies 1,139 · motor_claims 351 ·
+  fire_property_claims 90 · import_records 6,548 (0 needs_review) · users 1 (Aaron James)
+  · geocode_cache 500 · ml_models 7 · ml_predictions 1,051 · all 10 `deleted_*` 0.
+- Active models: motor_lr v2 (id 93, trained 2026-09-27 16:53:21, 833 rows) · fire_lr v2
+  (id 94, 16:53:24, 621 rows) · fraud_nb v3 (id 95, 16:53:24, 385 rows); 4 superseded.
+  Predictions: 617 Motor (Low 390 / Medium 206 / High 21), 411 Fire (244 / 142 / 25),
+  23 claims (2 Fraud).
+- Test restore into a temp `insurance_db_restoretest`: same 25 tables, every row count
+  equal, the 3 active models' version + trained_at equal, all 1,051 predictions equal
+  row by row, 481 surveys with the v2 columns; temp DB dropped.
+
+## How to restore the presentation backup (v3 — dataset + models)
+Presentation backup: `Desktop\insurance_db_backup_loaded_v3_20260927_211608.sql` (see
+"Models — v3 presentation backup" above). After restoring, the backend does NOT retrain on
+startup because an active model already exists (`jobs.py` trains only models with no active
+version), so predictions show immediately. Startup still rewrites predictions in ~10s,
+replacing the table in one transaction, so the restored predictions stay visible meanwhile.
+The dump has no `CREATE
 DATABASE`/`USE` line, so it restores into whatever database you name; each table is
 `DROP TABLE IF EXISTS` + recreated (a table that isn't in the dump is left alone).
 Stop the backend (uvicorn) first so nothing writes during the restore.
 - **Command line** (works in PowerShell and cmd; asks for the MySQL password):
   ```
-  & "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -p insurance_db -e "source C:/Users/aaron/OneDrive/Desktop/insurance_db_backup_loaded_v2_20260927_003529.sql"
+  & "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -p insurance_db -e "source C:/Users/aaron/OneDrive/Desktop/insurance_db_backup_loaded_v3_20260927_211608.sql"
   ```
   (in cmd, drop the leading `& ` and keep the quoted path.)
 - **MySQL Workbench**: Server → Data Import → "Import from Self-Contained File" →
   pick the `.sql` file → "Default Target Schema": `insurance_db` → Import Progress
   tab → Start Import. Afterwards refresh the schema and check a few counts, e.g.
   `SELECT COUNT(*) FROM policyholders;` → 1,129.
-- Older backups (not the presentation state): `insurance_db_backup_loaded_20260926_233342.sql`
-  = the v1 load (Step 4); `insurance_db_backup_pre_v2_load_20260927_002649.sql` = the
-  same v1 state taken right before the v2 reset.
+- Older backups (no models — restoring one makes the backend train all 3 models at startup,
+  and the pages show no predictions for the first ~20s):
+  `insurance_db_backup_loaded_v2_20260927_003529.sql` = the v2 load (Step 5; 24 tables,
+  its own test restore also passed); `insurance_db_backup_loaded_20260926_233342.sql` =
+  the v1 load (Step 4); `insurance_db_backup_pre_v2_load_20260927_002649.sql` = the same
+  v1 state taken right before the v2 reset.
 
 ## ⚠️ Importer-wide: cells containing None / NA / N/A / null are read as BLANK
 pandas' default NA list (`None`, `NA`, `N/A`, `n/a`, `null`, `NULL`, `nan`,
