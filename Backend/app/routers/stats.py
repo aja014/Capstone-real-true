@@ -225,7 +225,10 @@ def get_renewal_ratio(
     lost_count = fire_lost + motor_lost
     pending_count = fire_pending + motor_pending
     expiring_count = renewed_count + lost_count + pending_count
-    renewal_rate = (renewed_count / expiring_count * 100) if expiring_count else 0.0
+    # Pending (not expired yet, not renewed yet) has no outcome yet, so it's left out
+    # of the rate — otherwise every future expiry drags the rate down as "not renewed".
+    decided_count = renewed_count + lost_count
+    renewal_rate = (renewed_count / decided_count * 100) if decided_count else 0.0
 
     fire_pie = [
         {"name": "Renewed Policy", "value": fire_renewed},
@@ -265,7 +268,7 @@ def get_renewal_ratio(
             "issue_date": p.issue_date,
             "expiry_date": p.period_to,
             "total_amount_due": p.total_amount_due,
-            "sum_insured": p.sum_insured if line == "Fire & Property" else None,
+            "sum_insured": p.sum_insured,
             "status": status,
         }
         for p, status, line in combined

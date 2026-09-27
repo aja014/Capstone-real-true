@@ -82,9 +82,21 @@ function LeafletMap({ lat, lng }) {
   return <div ref={mapRef} className="h-full w-full" />;
 }
 
+// Which hazard dataset(s) produced the headline category (flood_risk.py takes the worse
+// of river flood vs storm surge SSA3, so the source is whichever one equals the headline).
+function hazardSourceText(q, category) {
+  const river = q?.river_flood_category === category;
+  const surge = q?.storm_surge_category === category;
+  if (river && surge) return "Rated from both the 100-year river flood map and the storm surge map";
+  if (surge) return "Rated from the storm surge map (coastal flooding)";
+  if (river) return "Rated from the 100-year river flood map";
+  return "Within a mapped flood hazard zone";
+}
+
 // `quotation` is a row from src/lib/quotations.js's fetchAllQuotations() —
-// carries latitude/longitude/flood_risk_flag/flood_risk_category (borrowed
-// from the case's Survey for Fire rows, stored directly for Motor rows) and
+// carries latitude/longitude/flood_risk_flag/flood_risk_category plus the
+// river_flood_category/storm_surge_category breakdown (borrowed from the
+// case's Survey for Fire rows, stored directly for Motor rows) and
 // address_label (location_of_risk or address, whichever the line uses).
 // 3 real states, not 2: no coordinates at all (never geocoded, or geocoding
 // failed) is a DIFFERENT, more honest state than coordinates that geocoded
@@ -152,7 +164,7 @@ export default function FloodRiskModal({ isOpen, onClose, quotation }) {
                     {category} Risk
                   </h1>
                   <div className="mt-2 text-md text-[#444]">
-                    Within a mapped 100-year flood hazard zone
+                    {hazardSourceText(quotation, category)}
                   </div>
                 </>
               ) : (

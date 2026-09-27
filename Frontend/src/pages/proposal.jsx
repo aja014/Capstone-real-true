@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, Legend,
+  ResponsiveContainer, PieChart, Pie, Cell, Legend, LabelList,
 } from "recharts";
 import { ChevronDown, Search } from "lucide-react";
 import Sidebar from "../components/sidebar";
@@ -267,10 +267,16 @@ export default function QuotationsProposal() {
                   label={{ value: "count", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: "#9ca3af" } }} />
                 <Tooltip contentStyle={{ borderRadius: 10, border: "none", fontSize: 12 }} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="converted_count" name="Converted" stackId="a" fill="#6366f1"
-                  label={{ position: "center", fontSize: 10, fill: "#fff", fontWeight: 700 }} />
-                <Bar dataKey="not_converted_count" name="Not Yet Converted" stackId="a" fill="#a5b4fc" radius={[4,4,0,0]}
-                  label={{ position: "center", fontSize: 10, fill: "#fff", fontWeight: 700 }} />
+                {/* Explicit LabelList per segment: a stacked Bar's built-in label shows the
+                    running total on the upper segment, not its own count. */}
+                <Bar dataKey="converted_count" name="Converted" stackId="a" fill="#6366f1">
+                  <LabelList dataKey="converted_count" position="center" formatter={(v) => v || ""}
+                    style={{ fontSize: 10, fill: "#fff", fontWeight: 700 }} />
+                </Bar>
+                <Bar dataKey="not_converted_count" name="Not Yet Converted" stackId="a" fill="#a5b4fc" radius={[4,4,0,0]}>
+                  <LabelList dataKey="not_converted_count" position="center" formatter={(v) => v || ""}
+                    style={{ fontSize: 10, fill: "#fff", fontWeight: 700 }} />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>

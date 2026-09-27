@@ -150,7 +150,7 @@ export function RenewalRateCard({ rate }) {
     <div className="w-64 h-fit flex-shrink-0 bg-white rounded-2xl p-5 shadow-sm flex flex-col justify-center">
       <p className="text-black font-bold text-sm">Current Renewal Rate</p>
       <p className="text-black font-black text-5xl mt-3">{rate}</p>
-      <p className="text-gray-400 text-[10px] mt-2">Renewal Rate = Renewed ÷ Expiring × 100</p>
+      <p className="text-gray-400 text-[10px] mt-2">Renewal Rate = Renewed ÷ (Renewed + Lost) × 100 · Pending excluded</p>
     </div>
   );
 }

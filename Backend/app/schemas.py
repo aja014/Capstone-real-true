@@ -827,7 +827,7 @@ class RenewalRatioStats(BaseModel):
     renewed_count: int
     lost_count: int
     pending_count: int
-    renewal_rate: float  # renewed_count / expiring_count * 100, 0 if expiring_count is 0
+    renewal_rate: float  # renewed_count / (renewed_count + lost_count) * 100, 0 if both are 0
 
     # Empty for "daily" (no chart in that view), same convention as
     # /stats/policy-distribution.

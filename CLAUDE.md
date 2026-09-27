@@ -910,13 +910,44 @@ Replaces all claims mock data in 3 places.
   identical once `filed_claims` is removed, 10 × 401 + `/stats/claims` 401, detection
   unchanged, `npm run build` ok. Lint: no new errors beyond the existing
   fetch-in-`useEffect` pattern the other pages already use.
-- **Found, not fixed**: a stacked Recharts `Bar`'s built-in `label` shows the running
-  total on the upper segment, not its own count — fixed on the Claims page with an
-  explicit `LabelList`, but Quotations/Proposal's trend chart still has it (its
-  "Not Yet Converted" segment is labelled with the month's total). The Upload modal's
-  default importer for the Claims tab wasn't checked in the browser (the type
-  selector only appears after a file is picked); it uses the same mechanism as the
-  Policy tab.
+- **Found here, fixed in the Polish pass below**: a stacked Recharts `Bar`'s built-in
+  `label` shows the running total on the upper segment, not its own count — fixed on
+  the Claims page with an explicit `LabelList`; Quotations/Proposal got the same fix
+  later. The Upload modal check for the Claims tab was done later too (see Polish pass).
+
+## Polish pass — DONE
+2026-09-27, branch `claims-frontend`. No DB change.
+- **Quotations/Proposal trend chart**: both stacked segments use an explicit
+  `LabelList` (same as the Claims page), so "Not Yet Converted" shows its own count,
+  not the month's total; a 0 segment has no label.
+- **Renewal rate = Renewed ÷ (Renewed + Lost) × 100** — Pending (not expired, not
+  renewed yet) is left out of the denominator (`stats.py` `get_renewal_ratio`,
+  0.0 if Renewed + Lost is 0). Only the "Current Renewal Rate" card shows it (always
+  the YTD figure on all 3 tabs); its caption now says "Pending excluded". Counts,
+  pies, bars, table and the Expiring card (still Renewed + Lost + Pending) are
+  unchanged. Current data: YTD 52.19% → **69.59%** (286 ÷ 411); API-only MTD 69.84% →
+  73.33%; daily 100% unchanged.
+- **Renewal table Sum Insured**: Motor rows now use the real `motor_policies.sum_insured`
+  (was hard-coded None → "—"). Fire rows unchanged.
+- **GIS modal subtitle** (`FloodRiskModal.jsx` `hazardSourceText()`): says which hazard
+  equals the headline category — "Rated from the 100-year river flood map", "Rated from
+  the storm surge map (coastal flooding)", or "Rated from both …"; falls back to
+  "Within a mapped flood hazard zone" if the breakdown is missing. `lib/quotations.js`'s
+  `gisFromSurvey()` now also copies `river_flood_category` / `storm_surge_category` for
+  Fire rows (Motor rows already had them from the spread).
+- **Verified**: regression snapshot — 24 counts, 11 of 12 spot-check hashes, 10 × 401
+  and detection identical; the 12th (`/stats/renewal-ratio` YTD) differs only in
+  `renewal_rate` and the 305 Motor rows' `sum_insured` (compared field by field).
+  `npm run build` ok; no new lint errors in the 4 changed frontend files. Browser (no
+  console errors): Proposal bar labels = API for all 6 months (e.g. Apr 53 + 18); GIS
+  modal Fire #922 Panghulo → "High Risk / Rated from the storm surge map", Fire #1027
+  Buliran (river only) and Motor #1309 Hagonoy → "Rated from the 100-year river flood
+  map"; Renewal card 69.59% with the new caption on Daily and YTD, YTD cards
+  548/286/125/137 unchanged, Motor-filtered table shows real Sum Insured (= DB).
+  Claims-tab Upload modal: `8_fire_property_claims.xlsx` → "Detected as: Fire &
+  Property Claims", `7_motor_claims.xlsx` → "Detected as: Motor Claims" (cancelled,
+  nothing imported). Its manual picker lists both claims types but starts blank on
+  every tab (detection-first design).
 
 ## Data Prep Change 1 — Motor Sum Insured — DONE
 2026-09-26, branch `data-prep`. First of 5 approved changes preparing for the
@@ -1027,7 +1058,8 @@ synthetic learning dataset (~850 people / ~1,750 policies / ~490 claims).
   now classifies High (older notes above say Medium — likely the later 50m
   boundary buffer). The GIS modal's subtitle says "Within a mapped 100-year
   flood hazard zone" even when the headline category comes from storm surge
-  (e.g. Panghulo) — pre-existing wording in `FloodRiskModal.jsx`.
+  (e.g. Panghulo) — pre-existing wording in `FloodRiskModal.jsx` (fixed later, see
+  "Polish pass").
 
 ## Data Prep Change 4 — Address memory (`geocode_cache`) — DONE
 2026-09-26, branch `data-prep`. Cuts repeat Nominatim calls during large imports
@@ -1245,7 +1277,8 @@ dataset (seed 20260926); all earlier dev/test business data is gone.
   ₱1,092,348.33 GWP, 66 quotations; pie 143/44), Distribution (MTD 50, YTD 417),
   Renewal Ratio (daily 3 expiring; MTD 69.8%; YTD 52.19% — lower than the
   generator's ~71% because 138 not-yet-expired Pending policies are in the YTD
-  denominator), Quotations/Proposal (6 months: 372 quotations, 291 converted, 78%).
+  denominator — Pending was later excluded from the rate, see "Polish pass"),
+  Quotations/Proposal (6 months: 372 quotations, 291 converted, 78%).
   Overview's Filed Claims card and the Claims page were still mock at this point
   (wired in Claims Phase 4).
 
@@ -1315,17 +1348,6 @@ generators / real exports must never use these words as meaningful values
 (e.g. write Loss Record "No loss record", not "None").
 
 ## Known Remaining Issues (not yet fixed)
-- **Follow-up (Data Prep Change 1)**: the Renewal Ratio table still shows "—"
-  for Motor Sum Insured — `stats.py` (`/stats/renewal-ratio` row builder,
-  `"sum_insured": p.sum_insured if line == "Fire & Property" else None`)
-  hard-codes Motor to None. Left unchanged on purpose; switch to
-  `p.sum_insured` for both lines when wanted.
-- **Follow-up (Data Prep Change 3)**: `FloodRiskModal.jsx`'s subtitle always says
-  "Within a mapped 100-year flood hazard zone", even when the headline category
-  comes from storm surge (e.g. Panghulo, Obando: river None / storm surge High).
-  It should say storm surge in that case — the breakdown is available as
-  `river_flood_category` / `storm_surge_category` (on Survey / Motor Quotation;
-  Fire quotations borrow them from the case's Survey). Not fixed yet.
 - No delete endpoint exists yet for `insurance_cases` (quotations got one
   in a later session — see Frontend Status's Delete buttons bullet; the
   original gap was surfaced when a leftover test quotation, `FP-Q-3`, had
@@ -1725,7 +1747,8 @@ confirmation of the exact row list.
     a past month/year can therefore only ever contain Lost/Renewed, which
     falls out of the logic above rather than being special-cased.
     "Expiring" = Renewed + Lost + Pending; Renewal Rate = Renewed ÷
-    Expiring × 100. Same-line-only renewal matching (fire only renews
+    (Renewed + Lost) × 100 — Pending excluded (changed in the "Polish pass";
+    was Renewed ÷ Expiring). Same-line-only renewal matching (fire only renews
     fire, motor only renews motor) — verified via a deliberate cross-line
     test (a motor policy's `renewing_policy_no` textually matching a fire
     policy's `policy_no` does NOT mark the fire policy Renewed).

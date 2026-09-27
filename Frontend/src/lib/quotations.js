@@ -60,6 +60,8 @@ export async function fetchAllQuotations() {
       longitude: survey?.longitude ?? null,
       flood_risk_flag: survey?.flood_risk_flag ?? null,
       flood_risk_category: survey?.flood_risk_category ?? null,
+      river_flood_category: survey?.river_flood_category ?? null,
+      storm_surge_category: survey?.storm_surge_category ?? null,
     };
   };
 
