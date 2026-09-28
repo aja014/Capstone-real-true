@@ -107,6 +107,54 @@ const MONTH_NAMES = [
   "July", "August", "September", "October", "November", "December",
 ];
 
+// Plain statistics from GET /stats/policy-forecast, not a model. Always both lines and
+// never affected by the page's filters -- it is forward-looking, so it states its own basis.
+function PolicyForecastCard({ forecast, error }) {
+  const lineOf = (name) => forecast?.lines.find((l) => l.line === name);
+  const motor = lineOf("Motor Car");
+  const fire = lineOf("Fire & Property");
+  const count = (n) => (n === null || n === undefined ? "—" : Math.round(n).toLocaleString());
+  const rate = (r) => (r === null || r === undefined ? "—" : `${Math.round(r * 100)}%`);
+  const policies = (n) => (n !== null && n !== undefined && Math.round(n) === 1 ? "policy" : "policies");
+  const waitDays = forecast ? Math.max(...forecast.lines.map((l) => l.wait_days)) : null;
+  return (
+    <div className="bg-white rounded-2xl p-4 shadow-sm flex flex-col gap-1.5">
+      <p className="text-black font-bold text-sm">
+        {forecast ? `${MONTH_NAMES[forecast.target_month - 1]} Policy Forecast` : "Policy Forecast"}
+      </p>
+      {error ? (
+        <p className="text-gray-400 text-xs">{error}</p>
+      ) : !forecast ? (
+        <p className="text-gray-400 text-xs">…</p>
+      ) : (
+        <>
+          <p className="text-black text-xs">
+            <span className="font-black text-4xl leading-none">≈ {count(forecast.expected_policies)}</span>
+            <span className="text-gray-600"> new {policies(forecast.expected_policies)}</span>
+          </p>
+          <p className="text-gray-600 text-xs">
+            Motor {count(motor?.expected_policies)} · Fire &amp; Property {count(fire?.expected_policies)}
+          </p>
+          <p className="text-gray-400 text-[10px] leading-snug">
+            Based on ≈ {count(forecast.avg_quotations_per_month)} quotations a month and past conversion
+            rates (Motor {rate(motor?.conversion_rate)} · Fire &amp; Property {rate(fire?.conversion_rate)}),
+            past {forecast.history_months} months
+          </p>
+          <p className="text-gray-600 text-xs border-t border-gray-100 pt-1.5 mt-0.5">
+            Open now: {forecast.open_quotations} quotation{forecast.open_quotations !== 1 ? "s" : ""} → ≈{" "}
+            {count(forecast.expected_from_open)} {policies(forecast.expected_from_open)} within {waitDays} days
+          </p>
+          {forecast.backtest_error_pct !== null && (
+            <p className="text-gray-400 text-[10px]">
+              Backtest, last 12 months: off by {Math.round(forecast.backtest_error_pct)}% on average
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function QuotationsProposal() {
   const [page, setPage]           = useState(1);
   const [period, setPeriod]       = useState("Past 6 Months");
@@ -128,6 +176,9 @@ export default function QuotationsProposal() {
   const [predictions, setPredictions] = useState(() => new Map());
   const [models, setModels] = useState(null); // GET /ml/models summaries; null while loading
   const [predictionsUpdating, setPredictionsUpdating] = useState(false);
+
+  const [forecast, setForecast] = useState(null);
+  const [forecastError, setForecastError] = useState(null);
 
   const fetchStats = useCallback(async (params) => {
     setStatsError(null);
@@ -167,6 +218,13 @@ export default function QuotationsProposal() {
         setQuotationsLoading(false);
       }
     })();
+  }, []);
+
+  // Policy Forecast: fetched once, independent of every filter on this page.
+  useEffect(() => {
+    axios.get(`${API_BASE_URL}/stats/policy-forecast`, { headers: authHeaders() })
+      .then((res) => setForecast(res.data))
+      .catch(() => setForecastError("Forecast not available."));
   }, []);
 
   // Predictions + model scores. If the page is opened while the background retrain
@@ -401,6 +459,7 @@ export default function QuotationsProposal() {
                 <p className="text-gray-600 text-xs leading-snug">Average Claim<br />Possibility</p>
               </div>
             </div>
+            <PolicyForecastCard forecast={forecast} error={forecastError} />
             <ModelAccuracyCard
               title="Model accuracy (Logistic Regression)"
               loading={models === null}

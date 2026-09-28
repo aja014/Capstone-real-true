@@ -927,6 +927,63 @@ class QuotationProposalStats(BaseModel):
 
 
 # ------------------------------------------------------------
+# POLICY FORECAST (Proposal page card) — plain statistics, not an ML model.
+# Next month = quotations per month (past 12 months) × conversion rate; open
+# quotations shown separately. See app/services/policy_forecast.py.
+# ------------------------------------------------------------
+
+class PolicyForecastLine(BaseModel):
+    line: str  # "Motor Car" | "Fire & Property"
+    wait_days: int  # W: 95th percentile of days from quotation to policy, rounded up
+    decided_quotations: int  # at least W days old, within the past 12 months
+    converted_quotations: int  # of those, became a policy within W days
+    conversion_rate: Optional[float]  # 0..1; null when nothing is decided yet
+    quotations_past_12_months: int
+    avg_quotations_per_month: float
+    expected_policies: Optional[float]  # next calendar month
+    open_quotations: int  # younger than W days, no policy yet
+    expected_from_open: Optional[float]  # policies expected from them within W days (age-aware)
+    backtest_error_pct: Optional[float]  # mean |forecast − actual| ÷ actual, last 12 complete months
+    backtest_total_error_pct: Optional[float]  # signed, summed over those 12 months
+    open_backtest_error_pct: Optional[float]  # same, for the open-quotation forecast
+
+
+class PolicyForecastBacktestLine(BaseModel):
+    line: str
+    forecast: Optional[float]
+    actual: int  # policies issued in the target month
+    open_quotations: int
+    open_forecast: Optional[float]
+    open_actual: int  # policies those open quotations actually became
+
+
+class PolicyForecastBacktestRow(BaseModel):
+    as_of: date  # the 1st of the month before the target month
+    target_year: int
+    target_month: int
+    target_label: str  # e.g. "August 2026"
+    lines: list[PolicyForecastBacktestLine]
+    total_forecast: Optional[float]
+    total_actual: int
+
+
+class PolicyForecast(BaseModel):
+    as_of: date  # today
+    target_year: int
+    target_month: int
+    target_label: str  # next calendar month, e.g. "October 2026"
+    history_months: int
+    expected_policies: Optional[float]  # both lines
+    avg_quotations_per_month: float
+    open_quotations: int
+    expected_from_open: Optional[float]
+    backtest_error_pct: Optional[float]
+    backtest_total_error_pct: Optional[float]
+    lines: list[PolicyForecastLine]  # Motor Car, Fire & Property
+    backtest: list[PolicyForecastBacktestRow]  # oldest → newest
+
+
+# ------------------------------------------------------------
 # CLAIMS MODULE PAGE STATS
 # Every figure is scoped to claims FILED (date_reported) in range_start..range_end.
 # Each claim row counts once (OD + TP rows of one accident are separate rows).

@@ -8,6 +8,7 @@ from typing import Literal
 from app.database import get_db
 from app.security import get_current_user
 from app import models, schemas
+from app.services import policy_forecast
 
 router = APIRouter(
     prefix="/stats",
@@ -548,6 +549,16 @@ def get_quotation_proposal_stats(
         "month": month,
         "trend": trend,
     }
+
+
+# ------------------------------------------------------------
+# POLICY FORECAST (Proposal page card) -- plain statistics, not one of the
+# ML models; the method and its backtest live in app/services/policy_forecast.py
+# ------------------------------------------------------------
+
+@router.get("/policy-forecast", response_model=schemas.PolicyForecast)
+def get_policy_forecast(db: Session = Depends(get_db)):
+    return policy_forecast.build_forecast(db, date_type.today())
 
 
 # ------------------------------------------------------------

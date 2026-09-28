@@ -1163,6 +1163,78 @@ scikit-learn is used ONLY in `Backend/tests/ml/` to cross-check.
   share one Python process. Harmless (everything completes) but noticeable; a fix would be
   running the refresh in a separate process.
 
+## Policy Forecast (Proposal page card) — DONE
+2026-09-27, branch `policy-forecast`. **Plain statistics, NOT one of the ML models** (and
+not based on Claim Possibility). No DB change — no new table, no schema change, so the v3
+presentation backup stays valid. Replaces the mock "March Policy Forecast" removed in
+Models Phase 3.
+- **Question**: how many new policies should Maagap expect next month?
+- **Waiting period W** = 95th percentile of days from quotation_date to the policy's
+  issue_date, rounded up, per line, computed from the data every time (not hardcoded).
+  Current data: every conversion takes 1–7 days (median 4, p90/p95/p99/max all 7) on both
+  lines → **W = 7**. A quotation converting later than W counts as not converted (none do).
+- **Next month (the headline)** = quotations sent per month (average of the past 365 days)
+  × conversion rate, per line, then summed. Conversion rate = quotations that became a
+  policy within W ÷ quotations old enough to be decided (age ≥ W), age window W..W+364
+  days (same idea as Renewal Rate excluding Pending). Now: Motor 302/389 = 77.6% × 388/12
+  = 25.1; Fire & Property 253/300 = 84.3% × 303/12 = 21.3 → **October 2026 ≈ 46**. Rates
+  are stable across windows (Motor 75–79%, Fire 83–87% for 3/6/12/24 months/all time).
+- **Why not "open quotations × rate" for next month** (the first idea): quotations decide
+  within 7 days, so today's open quotations are almost all decided before the month starts
+  (only ~1.2 of them land in October). That number would say ≈ 6 when ≈ 46 happen.
+- **Open quotations** (separate line, NOT added to the monthly number): no policy yet and
+  younger than W (age 0..W−1; age = days from quotation_date to today; archived quotations
+  are in `deleted_*`, so not counted). No validity/expiry field exists (Fire's
+  `period_cover` is "One (1) Year" on every row — coverage length, not quote validity).
+  **Age-aware**: each counts with P(becomes a policy | still unconverted at its age) =
+  share that converted after that age ÷ share still unconverted at that age, from the same
+  past quotations (e.g. Motor 78% at day 0–1 → 50% at day 6). Now: 9 open (Motor 6, Fire 3)
+  → ≈ 5.6 policies within 7 days. The simple rate over-forecast in the backtest.
+- **"Known on a day"** = dated on or before that day (end of day). Everything is computed
+  from (quotation_date, issue_date) pairs + an as-of date, so the backtest runs the same code.
+- **Backtest** (last 12 complete months; on the 1st of the month before, forecast the month
+  with only that day's data; actual = policies issued in the month): average monthly error
+  **Motor 14.0%, Fire & Property 24.2%, total 10.7%**; 12-month total error −1.9% / −5.1% /
+  −3.3%; total within ±20% in 10 of 12 months (worst: Sep 2025, 45.3 vs 61). Open-quotation
+  forecast, 12-month total error: Motor −9.1%, Fire −8.1% (monthly counts 0–6, noisy).
+  Honest caveat for the defense: the synthetic data has steady volume and no seasonality, so
+  a plain average of past monthly policies is about as accurate; the volume × rate split is
+  kept because it shows the two levers (quotation volume, conversion rate).
+  Report: `model_reports/2026-09-27_policy_forecast_backtest.md` (gitignored; regenerate
+  with `python -m app.services.policy_forecast` from `Backend/`).
+- **Code**: `app/services/policy_forecast.py` (method + backtest + report writer);
+  `GET /stats/policy-forecast` in `stats.py` (read-only, login required, ~0.4s) →
+  `schemas.PolicyForecast` (+ `PolicyForecastLine`, `PolicyForecastBacktestRow`,
+  `PolicyForecastBacktestLine`): target month, per-line W / decided / converted / rate /
+  volume / expected / open / expected-from-open / backtest errors, and the 12-row backtest.
+- **Card** (`proposal.jsx` `PolicyForecastCard`, right column between Average Claim
+  Possibility and Model accuracy): "October Policy Forecast" (month name from the API's
+  target month, never hardcoded) · "≈ 46 new policies" · "Motor 25 · Fire & Property 21" ·
+  "Based on ≈ 58 quotations a month and past conversion rates (Motor 78% · Fire & Property
+  84%), past 12 months" · "Open now: 9 quotations → ≈ 6 policies within 7 days" · "Backtest,
+  last 12 months: off by 11% on average". Always both lines; NOT affected by the period,
+  month, line or other filters (forward-looking, states its own basis). The card itself does
+  not say "statistics, not ML" (user decision) — this section and the report do.
+- **Verified**: 12 new tests (`tests/test_policy_forecast.py`: W, decided/open boundaries,
+  age-aware formula by hand, later data never changes a past forecast, Dec→Jan, backtest
+  months/actuals, error measures, 401, endpoint = independent SQL) + all 51 existing = 63
+  pass. Live endpoint = a separate SELECT calculation on every per-line field incl. the
+  age-aware open expectation and August 2026 actuals. Browser: card text exact, unchanged
+  under Policy Line = Motor Car (Average Claim Possibility followed it: 198) and Past 3
+  Months (KPI 187); rest of page = Phase 3 values; no console errors. `npm run build` ok;
+  lint = pre-change baseline (3 existing errors). Regression snapshot: ALL IDENTICAL.
+- **Found, not fixed**: the extra card makes the right column taller (372 → 615 px), and the
+  table panel stretches with it — the page now scrolls ~220 px at 1568×957 with white space
+  under the table's 5 rows.
+- **Fixed (2026-09-28)**: an empty `risk_predictions` table had come back (created 2026-09-27
+  21:24:13 when `main` was briefly checked out at the pre-Models commit `5bdcb0f` while
+  `uvicorn --reload` ran — that old `models.py` still has `RiskPrediction`, so
+  `create_all()` recreated it). On user instruction it was dropped again: confirmed 0 rows
+  and no FK pointing at it, `DROP TABLE risk_predictions`. Afterwards 25 tables, and every
+  other table's row count was identical before and after. It is not in the v3 backup or the
+  reset script, and no current code uses it. Lesson: checking out an old commit with the
+  backend running can recreate dropped tables — stop uvicorn before switching to an old commit.
+
 ## Data Prep Change 1 — Motor Sum Insured — DONE
 2026-09-26, branch `data-prep`. First of 5 approved changes preparing for the
 synthetic learning dataset (~850 people / ~1,750 policies / ~490 claims).
@@ -1816,7 +1888,8 @@ confirmation of the exact row list.
 - `pages/proposal.jsx` (Quotations/Proposal) — DONE. (History: the March Policy
   Forecast chart, the Average Quotation Claiming Rate indicator and the table's
   Risk Assessment/Claim Possibility "Pending" placeholders were mock until Models
-  Phase 3 — all now real or removed; see "Models Phase 3".)
+  Phase 3 — all now real or removed; see "Models Phase 3". A real, statistics-based
+  "<next month> Policy Forecast" card came back later — see "Policy Forecast".)
   - **Backend**: `GET /stats/quotation-proposal` in `routers/stats.py`,
     `QuotationProposalStats`/`...PieSlice`/`...TrendEntry` schemas — same
     one-endpoint-combines-several-sections shape as `/stats/overview`.
