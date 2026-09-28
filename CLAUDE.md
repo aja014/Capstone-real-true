@@ -1624,9 +1624,29 @@ predictions, so a restore needs no retraining.
   equal, the 3 active models' version + trained_at equal, all 1,051 predictions equal
   row by row, 481 surveys with the v2 columns; temp DB dropped.
 
-## How to restore the presentation backup (v3 — dataset + models)
-Presentation backup: `Desktop\insurance_db_backup_loaded_v3_20260927_211608.sql` (see
-"Models — v3 presentation backup" above). After restoring, the backend does NOT retrain on
+## v4 presentation backup — DONE
+2026-09-28, branch `password-rules` (after Policy Forecast + Password rules). No code change.
+`Desktop\insurance_db_backup_loaded_v4_20260928_195453.sql` (`mysqldump
+--single-transaction --routines insurance_db`, 8,923,167 bytes, last line "-- Dump
+completed on 2026-09-28 19:54:53"). Same v2 dataset + trained models as v3; taken after the
+stray `risk_predictions` table was dropped (neither backup contains it).
+- Pre-flight: no retrain running (`/ml/models` refresh `running: False`).
+- Credentials were handed to mysqldump/mysql through a temporary `--defaults-extra-file`
+  built from `DATABASE_URL` in memory and deleted afterwards; no password or hash was
+  printed or read.
+- Counts (25 tables): same as v3 except **ml_predictions 1,049** (v3: 1,051 — startup
+  rewrites predictions, and which quotations get one depends on today's date). users 1
+  (Aaron James, **with the password as of this backup** — if the password is changed later,
+  restoring v4 brings the old one back).
+- Active models unchanged: fire_lr v2 (trained 2026-09-27 16:53:24), fraud_nb v3
+  (16:53:24), motor_lr v2 (16:53:21).
+- Test restore into a temp `insurance_db_restoretest`: 25 tables, every row count equal to
+  `insurance_db`, the 3 active models' version + trained_at equal; temp DB dropped
+  (confirmed gone).
+
+## How to restore the presentation backup (v4 — dataset + models)
+Presentation backup: `Desktop\insurance_db_backup_loaded_v4_20260928_195453.sql` (see
+"v4 presentation backup" above). After restoring, the backend does NOT retrain on
 startup because an active model already exists (`jobs.py` trains only models with no active
 version), so predictions show immediately. Startup still rewrites predictions in ~10s,
 replacing the table in one transaction, so the restored predictions stay visible meanwhile.
@@ -1636,13 +1656,16 @@ DATABASE`/`USE` line, so it restores into whatever database you name; each table
 Stop the backend (uvicorn) first so nothing writes during the restore.
 - **Command line** (works in PowerShell and cmd; asks for the MySQL password):
   ```
-  & "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -p insurance_db -e "source C:/Users/aaron/OneDrive/Desktop/insurance_db_backup_loaded_v3_20260927_211608.sql"
+  & "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -p insurance_db -e "source C:/Users/aaron/OneDrive/Desktop/insurance_db_backup_loaded_v4_20260928_195453.sql"
   ```
   (in cmd, drop the leading `& ` and keep the quoted path.)
 - **MySQL Workbench**: Server → Data Import → "Import from Self-Contained File" →
   pick the `.sql` file → "Default Target Schema": `insurance_db` → Import Progress
   tab → Start Import. Afterwards refresh the schema and check a few counts, e.g.
   `SELECT COUNT(*) FROM policyholders;` → 1,129.
+- Older backup with models: `insurance_db_backup_loaded_v3_20260927_211608.sql` (see
+  "Models — v3 presentation backup"; same data and models, 1,051 predictions, restores the
+  same way).
 - Older backups (no models — restoring one makes the backend train all 3 models at startup,
   and the pages show no predictions for the first ~20s):
   `insurance_db_backup_loaded_v2_20260927_003529.sql` = the v2 load (Step 5; 24 tables,
