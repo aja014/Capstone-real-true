@@ -1761,6 +1761,39 @@ confirmation of the exact row list.
   Change Password — weak new → rule message, wrong current → "Current password is
   incorrect." (still logged in), then Cancel. The Aaron James password was NOT changed.
 
+## Terms of Service + Privacy Policy (Create Account modal) — DONE
+2026-09-28, branch `terms-privacy`. Frontend only.
+- **Text lives in `Frontend/src/content/legal.js`** (`TERMS_OF_SERVICE`, `PRIVACY_POLICY`):
+  title, effective date, and `sections` (`heading`, optional `text`, optional `bullets`;
+  `**bold**` works inside text; sections are numbered automatically). Edit wording there only.
+- `components/LegalModal.jsx` shows a document on top (`z-[60]`) of the Create Account
+  modal; Close / X / backdrop close only it, so typed values stay. The checkbox links
+  ("Terms of Service", "Privacy Policy") are `type="button"` buttons (were dead
+  `<Link to="#">`); the checkbox is still required.
+- Privacy text adjusted to match the system (user decision): no "date of birth"; system
+  users = username, role, hashed password; only business records are archived on delete.
+- Verified: browser — typed values kept after opening/closing both documents, checkbox
+  untouched and still required, all 10 sections scroll, no console errors; at 794×514 the
+  card fits and scrolls. `npm run build` ok; 86 backend tests pass; regression ALL IDENTICAL.
+- **Found, not fixed (pre-existing)**: at phone width (<768px) the sidebar — and with it
+  Settings and every modal it opens — is hidden, so Create Account isn't reachable on a
+  phone.
+- **Fixed (same branch): light-mode buttons.** `index.css` had Vite's starter
+  `@media (prefers-color-scheme: light)` block (`button { background-color: #f9f9f9 }`,
+  `a:hover { color: #747bff }`, `:root { color: #213547 }`). Being unlayered, it beat
+  Tailwind 4's layered `bg-*` / `hover:text-*` classes, so on a computer in LIGHT mode the
+  yellow buttons (Login, Sign Up, Change Password, filters, pagination, …) turned near-white
+  and link hovers purple. The dev browser is in dark mode, so it never showed. The whole
+  block was removed (user decision), so light mode now renders exactly like dark mode did.
+  Verified with same-origin iframes whose `color-scheme` forces `prefers-color-scheme`
+  light/dark: computed background/text colour of every visible button and link on Login,
+  Overview, Policy Holder Info, Proposal, Claims, Settings, Create Account and Change
+  Password — before the fix light differed on every page (e.g. Sign Up `#f9f9f9`); after,
+  light = dark = the pre-fix dark baseline everywhere (Proposal's 5 GIS "View" buttons
+  checked separately once loaded: black in both), root text colour identical;
+  `npm run build` ok. Don't reintroduce unlayered element rules — put base styles in
+  `@layer base` so Tailwind classes still win.
+
 ## Frontend Status
 - `pages/login.jsx` — fully wired to `POST /login`, tested working
   end-to-end (JWT token + role stored in localStorage on success).

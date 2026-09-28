@@ -9,9 +9,10 @@ import {
   Shield,
   CheckCircle,
 } from "lucide-react";
-import { Link } from "react-router-dom";
 import api from "../api/api";
 import { PASSWORD_HINT, passwordRuleError } from "../lib/passwordRule";
+import LegalModal from "./LegalModal";
+import { TERMS_OF_SERVICE, PRIVACY_POLICY } from "../content/legal";
 
 import Logo from "../img/MAAGAP_LOGO.png";
 
@@ -28,6 +29,7 @@ export default function CreateAccountModal({ isOpen, onClose }) {
   const [agreed, setAgreed] = useState(false);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false); // ✅ ADD THIS LINE
+  const [legalDoc, setLegalDoc] = useState(null); // Terms / Privacy shown on top; form state kept
 
   if (!isOpen) return null;
 
@@ -78,6 +80,7 @@ export default function CreateAccountModal({ isOpen, onClose }) {
 
   const handleClose = () => {
     setStep("form");
+    setLegalDoc(null);
     setForm({ username: "", password: "", confirmPassword: "" });
     setAgreed(false);
     setErrors({});
@@ -251,19 +254,21 @@ export default function CreateAccountModal({ isOpen, onClose }) {
                 />
                 <span className="text-[11px] text-gray-500 leading-snug">
                   I agree to the{" "}
-                  <Link
-                    to="#"
+                  <button
+                    type="button"
+                    onClick={() => setLegalDoc(TERMS_OF_SERVICE)}
                     className="text-yellow-600 underline hover:text-yellow-700"
                   >
                     Terms of Service
-                  </Link>{" "}
+                  </button>{" "}
                   and{" "}
-                  <Link
-                    to="#"
+                  <button
+                    type="button"
+                    onClick={() => setLegalDoc(PRIVACY_POLICY)}
                     className="text-yellow-600 underline hover:text-yellow-700"
                   >
-                    Policy and Privacy
-                  </Link>{" "}
+                    Privacy Policy
+                  </button>
                 </span>
               </label>
               {errors.agreed && (
@@ -344,6 +349,9 @@ export default function CreateAccountModal({ isOpen, onClose }) {
             Continue
           </button>
         </div>
+      )}
+      {legalDoc && (
+        <LegalModal doc={legalDoc} onClose={() => setLegalDoc(null)} />
       )}
     </div>
   );
