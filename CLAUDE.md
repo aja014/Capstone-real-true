@@ -1673,6 +1673,66 @@ Stop the backend (uvicorn) first so nothing writes during the restore.
   the v1 load (Step 4); `insurance_db_backup_pre_v2_load_20260927_002649.sql` = the same
   v1 state taken right before the v2 reset.
 
+## Demo upload folder (live defense demo) — DONE, rehearsed 2026-09-28
+Branch `demo-prep`. No app code change. Defense: October 14–15, 2026.
+- **Script** `data_prep/demo/make_demo_upload.py [--quote-date YYYY-MM-DD] [--out DIR]
+  [--copy-to DIR]` writes 4 Excel files (default `data_prep/demo/demo_upload/`, quote date =
+  yesterday). Refuses a future date or one >7 days old; warns unless 1–2 days ago. Writes
+  files only, never the DB. Only replaces a folder that holds nothing but `.xlsx` files.
+- **Contents** (headers copied from `data_prep/synthetic_v2/`, all auto-detect in folder mode):
+  `1_customer_information` (2 rows), `2_fire_survey` (1), `3_motor_quotation` (1),
+  `4_fire_quotation` (1). Clients: **Rosalinda Manalastas Dimaculangan** (fire; sari-sari
+  store with residence, Barangay Panghulo, Obando → river none / storm surge High / **High**)
+  and **Joel Balagtas Pagsisihan** (motor; 2024 Toyota Sedan NDQ4817, Canalate, Malolos City →
+  river Medium / **Medium**). Both addresses are in `geocode_cache` (no Nominatim call). Best
+  fuzzy score vs the 1,129 existing clients: 56.7 / 51.3 (Customer Info), 66.7 / 58.3
+  (name only) — all below the 70 review threshold.
+- **No Vehicle Information file on purpose**: its 9 headers are all Motor Quotation headers,
+  so detection scores both 100 and it can never auto-detect (manual pick). The Motor
+  Quotation creates the vehicle itself.
+- **Why a warm-up**: training rows = policies with `period_to < today`, so every day after
+  2026-09-27 the training set grows (Motor from 9-28, Fire from ~10-05) and the first
+  refresh retrains. The warm-up does that retrain before the audience arrives, so the live
+  upload only rewrites predictions. The accuracy card then shows "Motor v3 · trained <that
+  day>" (and Fire v3 by mid-October) — expected.
+- **Defense-morning steps** (from the repo root unless noted):
+  1. Stop the backend; restore v4 (see "How to restore the presentation backup"); start the
+     backend and wait ~15 s (startup only rewrites predictions).
+  2. Warm-up, from `Backend/`:
+     `./venv/Scripts/python -c "from app.ml import jobs; jobs.refresh_now('pre-demo warm-up'); print(jobs.status)"`
+     → expect `last_retrained` to list `motor_lr` (and `fire_lr` in October), `last_error: None`.
+  3. Regenerate the folder with yesterday's date (e.g. defense on Oct 15 → `2026-10-14`):
+     `Backend/venv/Scripts/python data_prep/demo/make_demo_upload.py --quote-date 2026-10-14 --copy-to "C:/Users/aaron/OneDrive/Desktop/FIREMAP_demo_upload"`
+  4. Log in, then open Proposal once so everything is warm.
+- **Demo steps**: Policy Holder Info → Upload → Folder → choose `Desktop\FIREMAP_demo_upload`
+  → 4 types detected (none amber) → Import All → "Import complete", each row 0 needs review,
+  0 failed → talk for ~45 s → sidebar **Quotations/Proposal** (opened AFTER the upload; it
+  waits by itself if the refresh is still running) → search **Dimaculangan** → Claim
+  Possibility + GIS **View** ("High Risk · Rated from the storm surge map (coastal
+  flooding)") → search **Pagsisihan** → GIS View ("Medium Risk · Rated from the 100-year
+  river flood map"). The table lists oldest first, so always search by name.
+- **Measured (rehearsal 2026-09-28, quote date 09-27)**: warm-up 28.6 s (retrained motor_lr);
+  folder → types detected 1.5 s; Import All 10.4 s; refresh after upload 40.8 s server-side
+  with no retrain → predictions ready ~51 s after clicking Import All; Proposal first load
+  ~10 s. Result: Fire #1033 Medium 12%, Motor #1460 Low 16% (values can shift with the
+  October models). DB changes were exactly +2 policyholders, +2 cases, +1 survey, +1 vehicle,
+  +2 quotations, +5 import_records (+ the warm-up's model and predictions); geocode_cache
+  unchanged.
+- **Fallbacks** (existing data, no upload needed): GIS — **Reynaldo Isidro Pelayo**, Fire
+  Quotation **#1002** (search "Reynaldo Isidro"; "Pelayo" alone gives 9 rows), Panducot,
+  Calumpit → "High Risk · Rated from the 100-year river flood map" (survey #305; Risk
+  Assessment High 18% on 9-28, may change once Fire retrains). Fraud — Claims page, search
+  **MS2602030016** → claim **#83 Rosa Robles Padilla** "Suspicious · 56%"; backup claim
+  **#248 Sonia Francisco Magbanua** (MS2501030071) "Suspicious · 39%" (Fraud model doesn't
+  retrain on these dates).
+- **Screenshots** for backup slides: `Desktop\FIREMAP_demo_screenshots\` (16 files: every
+  upload step, both new quotations + GIS Views, Pelayo fallback, accuracy card after the
+  warm-up, Suspicious claim).
+- **Caveats**: the GIS View's satellite map and Leaflet load from the internet (ArcGIS
+  imagery, unpkg) — offline, the rating text still shows but the map may not. Don't re-run
+  the folder on a DB that already has it; restore v4 first. After the defense, restore v4 to
+  remove the demo clients (verified 2026-09-28: all 25 counts and max ids back to v4).
+
 ## ⚠️ Importer-wide: cells containing None / NA / N/A / null are read as BLANK
 pandas' default NA list (`None`, `NA`, `N/A`, `n/a`, `null`, `NULL`, `nan`,
 `NaN`, `#N/A`, ... — confirmed on pandas 3.0.5) converts those exact cell texts
