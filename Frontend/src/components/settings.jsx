@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { useState } from "react";
 import CreateAccountModal from "./CreateAccountModal";
+import ChangePasswordModal from "./ChangePasswordModal";
 
 import Logo from "../img/MAAGAP_LOGO.png";
 
@@ -20,6 +21,7 @@ export default function ProfileModal({
   const accountName = localStorage.getItem("username") || "—";
 
   const [openAccountModal, setOpenAccountModal] = useState(false);
+  const [openPasswordModal, setOpenPasswordModal] = useState(false);
 
   const handleLogout = () => {
     localStorage.clear();
@@ -159,6 +161,22 @@ export default function ProfileModal({
                 {displayRole}
               </p>
 
+              <button
+                style={{
+                  fontSize: 13,
+                  color: "#4a7fc1",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  textDecoration: "underline",
+                  textUnderlineOffset: 3,
+                  marginBottom: 10,
+                }}
+                onClick={() => setOpenPasswordModal(true)}
+              >
+                Change Password
+              </button>
+
               {userRole === "manager" && (
                 <button
                   style={{
@@ -196,6 +214,11 @@ export default function ProfileModal({
         onClose={() => {
           setOpenAccountModal(false);
         }}
+      />
+      <ChangePasswordModal
+        key="change-password-modal"
+        isOpen={openPasswordModal}
+        onClose={() => setOpenPasswordModal(false)}
       />
     </AnimatePresence>
   );

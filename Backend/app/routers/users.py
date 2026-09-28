@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from app.security import hash_password
+from app.security import hash_password, password_rule_error, verify_password
 from app.services.user_service import get_user_by_username
 from app.security import get_current_user
 
@@ -21,6 +21,13 @@ def create_user( user: schemas.UserCreate, db: Session = Depends(get_db), curren
             status_code=403,
             detail="Only managers can create admin accounts."
         )
+
+    if not user.username.strip():
+        raise HTTPException(status_code=400, detail="Username is required.")
+
+    rule_error = password_rule_error(user.password)
+    if rule_error:
+        raise HTTPException(status_code=400, detail=rule_error)
 
     existing_user = get_user_by_username(db, user.username)
 
@@ -53,3 +60,25 @@ def create_user( user: schemas.UserCreate, db: Session = Depends(get_db), curren
         "message": "User created!",
         "user": db_user
     }
+
+
+@router.post("/users/me/password")
+def change_own_password(body: schemas.PasswordChange, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+    # 400, not 401, for a wrong current password: the frontend logs out on any 401.
+    if not verify_password(body.current_password, current_user.password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+
+    rule_error = password_rule_error(body.new_password)
+    if rule_error:
+        raise HTTPException(status_code=400, detail=rule_error)
+
+    if verify_password(body.new_password, current_user.password):
+        raise HTTPException(
+            status_code=400,
+            detail="New password must be different from the current password."
+        )
+
+    current_user.password = hash_password(body.new_password)
+    db.commit()
+
+    return {"message": "Password changed."}

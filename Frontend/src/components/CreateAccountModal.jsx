@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import api from "../api/api";
+import { PASSWORD_HINT, passwordRuleError } from "../lib/passwordRule";
 
 import Logo from "../img/MAAGAP_LOGO.png";
 
@@ -33,8 +34,8 @@ export default function CreateAccountModal({ isOpen, onClose }) {
   const validate = () => {
     const e = {};
     if (!form.username.trim()) e.username = "Username is required";
-    if (form.password.length < 6)
-      e.password = "Password must be at least 6 characters";
+    const passwordError = passwordRuleError(form.password);
+    if (passwordError) e.password = passwordError;
     if (form.password !== form.confirmPassword)
       e.confirmPassword = "Passwords do not match";
     if (!agreed) e.agreed = "You must agree to the terms";
@@ -195,9 +196,13 @@ export default function CreateAccountModal({ isOpen, onClose }) {
                   {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
               </div>
-              {errors.password && (
+              {errors.password ? (
                 <p className="text-[10px] text-red-500 mt-1 ml-1">
                   {errors.password}
+                </p>
+              ) : (
+                <p className="text-[10px] text-gray-400 mt-1 ml-1">
+                  {PASSWORD_HINT}
                 </p>
               )}
             </div>

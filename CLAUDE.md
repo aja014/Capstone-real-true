@@ -1702,6 +1702,42 @@ delete-archive table (unlike `deleted_policyholders` etc.), so this
 cleanup was a hard, unrecoverable delete, done only after explicit user
 confirmation of the exact row list.
 
+## Password rules + Change Password — DONE
+2026-09-28, branch `password-rules`. No DB change.
+- **Rule for a NEW password**: at least 8 characters, at least 2 letters (only A–Z / a–z
+  count, so "ñ" doesn't), at most **72 bytes** (bcrypt's limit — bcrypt 5.0 raises above it
+  instead of truncating; "é"/"ñ" count as 2 bytes). Messages: "Password must be at least 8
+  characters and include at least 2 letters." / "Password must be at most 72 characters
+  (accented characters count as 2)."
+- **Where enforced**: backend `security.password_rule_error()` (the real check), used by
+  `POST /users` and `POST /users/me/password` → 400 with the message. Frontend
+  `lib/passwordRule.js` has the same rule/messages (checked before submitting) and the hint
+  "At least 8 characters, including 2 letters" under the password field. `POST /users` also
+  rejects a blank/whitespace-only username → 400 "Username is required." (the username is
+  otherwise stored as typed).
+- **Login is unchanged**: `/login` never checks the rule, so passwords set before it (incl.
+  Aaron James's) keep working. `verify_password()` now returns False above 72 bytes, so an
+  over-long login is a clean 401 (was a raw 500).
+- **Change Password**: Settings (sidebar) → "Change Password" link, for every role →
+  `ChangePasswordModal.jsx` (Current / New / Confirm new). `POST /users/me/password`
+  (login required): wrong current password → 400 "Current password is incorrect." (400, not
+  401 — `api.js` logs out on any 401); rule → 400; same as current → 400 "New password must
+  be different from the current password."; success → `{"message": "Password changed."}`.
+  The user **stays logged in** (JWTs are stateless, 60 min, never revoked — a forced logout
+  wouldn't cancel the old token; real revocation would need a token-version column).
+  There is still no reset/forgot-password flow (the login page link stays commented out).
+- **Tests**: `tests/test_passwords.py` (23) — rule cases (7 chars, 8 digits, 1 letter + 7
+  digits, 73 bytes, 37 × "é", "ñé123456"), `POST /users` weak/blank-username/valid, a
+  below-rule old password still logs in, 73-byte login = 401, change-password 401 / wrong
+  current / weak / same / success. Temporary ZZTEST users only, in the rolled-back `db`
+  fixture; the real account is never read or changed.
+- **Verified**: 86 tests pass (63 + 23); regression snapshot ALL IDENTICAL (users = 1);
+  `npm run build` ok; lint = pre-existing unused-import errors only. Browser (manager session
+  via a generated token, the real password never used): Create Account — weak password shows
+  the message, valid one creates the account (test user id 63 deleted by exact id);
+  Change Password — weak new → rule message, wrong current → "Current password is
+  incorrect." (still logged in), then Cancel. The Aaron James password was NOT changed.
+
 ## Frontend Status
 - `pages/login.jsx` — fully wired to `POST /login`, tested working
   end-to-end (JWT token + role stored in localStorage on success).
