@@ -1014,6 +1014,7 @@ class ClaimsStats(BaseModel):
     fire_claims: int
     open_claims: int  # final_status not one of Closed / Denied / CNC Only / Not Push Through
     closed_claims: int  # final_status == "Closed Claim"
+    other_claims: int  # Total − Open − Closed: Denied / CNC Only / Not Push Through (or no status)
     total_net_liability: Decimal
 
     # Investigation result -- CNC Issuance rows are excluded (not investigated for fraud).

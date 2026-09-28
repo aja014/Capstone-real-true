@@ -100,3 +100,9 @@ def get_current_user(
         )
 
     return user
+
+def require_manager(current_user=Depends(get_current_user)):
+    """Manager-only endpoints: 401 without a login (from get_current_user), 403 for any other role."""
+    if current_user.role != "manager":
+        raise HTTPException(status_code=403, detail="Manager access only.")
+    return current_user

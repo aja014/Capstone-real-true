@@ -10,7 +10,7 @@ from app import models, schemas
 from app.database import get_db
 from app.ml import jobs, training
 from app.ml.report import TITLES
-from app.security import get_current_user
+from app.security import get_current_user, require_manager
 
 router = APIRouter(
     prefix="/ml",
@@ -65,7 +65,9 @@ def list_models(db: Session = Depends(get_db)):
             "refresh": dict(jobs.status)}
 
 
-@router.get("/models/{model_name}", response_model=schemas.MLModelDetail)
+# Manager only (Models detail). /models and /predictions/claims stay open to every role:
+# Policy Holder Information (admins too) polls /models after an upload and shows the claims' Fraud Warning.
+@router.get("/models/{model_name}", response_model=schemas.MLModelDetail, dependencies=[Depends(require_manager)])
 def get_model(model_name: str, db: Session = Depends(get_db)):
     """Full metrics of the active version (confusion matrix, CV per fold, top clues, ...)
     plus every training attempt of this model."""
@@ -88,7 +90,8 @@ def _predictions(db, target_types):
             .order_by(models.MLPrediction.target_type, models.MLPrediction.target_id).all())
 
 
-@router.get("/predictions/quotations", response_model=list[schemas.QuotationPrediction])
+@router.get("/predictions/quotations", response_model=list[schemas.QuotationPrediction],
+            dependencies=[Depends(require_manager)])  # Proposal page only (manager)
 def quotation_predictions(line: Optional[Literal["Motor Car", "Fire & Property"]] = Query(None),
                           db: Session = Depends(get_db)):
     """Claim Possibility + Risk Assessment for open quotations and quotations whose policy is

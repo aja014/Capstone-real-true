@@ -6,14 +6,14 @@ from sqlalchemy.orm import Session
 from typing import Literal
 
 from app.database import get_db
-from app.security import get_current_user
+from app.security import require_manager
 from app import models, schemas
 from app.services import policy_forecast
 
 router = APIRouter(
     prefix="/stats",
     tags=["Stats"],
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(require_manager)],
 )
 
 MONTH_NAMES = [
@@ -77,11 +77,11 @@ def get_policy_distribution(
     if period in ("mtd", "ytd"):
         fire_pie = [
             {"name": "New Policy", "value": sum(1 for p in fire_policies if not _is_renewed(p.renewing_policy_no))},
-            {"name": "Renewed Policy", "value": sum(1 for p in fire_policies if _is_renewed(p.renewing_policy_no))},
+            {"name": "Renewal Policy", "value": sum(1 for p in fire_policies if _is_renewed(p.renewing_policy_no))},
         ]
         motor_pie = [
             {"name": "New Policy", "value": sum(1 for p in motor_policies if not _is_renewed(p.renewing_policy_no))},
-            {"name": "Renewed Policy", "value": sum(1 for p in motor_policies if _is_renewed(p.renewing_policy_no))},
+            {"name": "Renewal Policy", "value": sum(1 for p in motor_policies if _is_renewed(p.renewing_policy_no))},
         ]
 
         if period == "mtd":
@@ -371,7 +371,7 @@ def get_overview(db: Session = Depends(get_db)):
     )
     quotation_pie = [
         {"name": "Converted", "value": pie_converted},
-        {"name": "Quotation", "value": pie_quotations_offered - pie_converted},
+        {"name": "Not Yet Converted", "value": pie_quotations_offered - pie_converted},
     ]
     if pie_start_year == today.year:
         quotation_pie_label = f"Past 3 Months ({MONTH_ABBR[pie_start_month - 1]}-{MONTH_ABBR[today.month - 1]} {today.year})"
@@ -612,6 +612,12 @@ def get_claims_stats(
     investigated = sum(result_counts.values())
     fraud_count = result_counts["Suspected Fraud"] + result_counts["Confirmed Fraud"]
 
+    open_claims = sum(1 for c in claims if c.final_status in OPEN_FINAL_STATUSES)
+    closed_claims = sum(1 for c in claims if c.final_status == "Closed Claim")
+    # Neither open nor closed (Denied Claim, CNC Only, Not Push Through, or no final status),
+    # so Open + Closed + Other always equals Total.
+    other_claims = len(claims) - open_claims - closed_claims
+
     trend = []
     for delta in range(-(months - 1), 1):
         y, m = _shift_month(today.year, today.month, delta)
@@ -636,8 +642,9 @@ def get_claims_stats(
         "total_claims": len(claims),
         "motor_claims": len(motor),
         "fire_claims": len(fire),
-        "open_claims": sum(1 for c in claims if c.final_status in OPEN_FINAL_STATUSES),
-        "closed_claims": sum(1 for c in claims if c.final_status == "Closed Claim"),
+        "open_claims": open_claims,
+        "closed_claims": closed_claims,
+        "other_claims": other_claims,
         "total_net_liability": sum((c.net_liability or 0) for c in claims),
         "legitimate": result_counts["Legitimate"],
         "suspected_fraud": result_counts["Suspected Fraud"],

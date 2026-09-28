@@ -56,9 +56,15 @@ There are two roles: **manager** and **admin**. The live database has 1 user (ro
 
 - An account created in the app is **always role admin**. No screen or endpoint can create
   another manager.
-- The page restrictions are enforced **in the browser** (`App.jsx` ProtectedRoute + sidebar).
-  The backend only checks that you are logged in; the only role check on the server is
-  "create account = manager only" (see §18).
+- The page restrictions are enforced **in the browser** (`App.jsx` ProtectedRoute + sidebar)
+  **and on the server** (fixed 2026-09-28). With an admin login the server answers **403
+  "Manager access only."** on:
+  - every `/stats/*` endpoint (the five manager pages);
+  - `GET /ml/models/{model_name}` and `GET /ml/predictions/quotations`;
+  - `POST /users` (403 "Only managers can create admin accounts.").
+- Everything Policy Holder Information uses stays open to both roles: all lists, uploads,
+  Needs Review, deletes, `GET /ml/models` (upload refresh status) and
+  `GET /ml/predictions/claims` (Fraud Warning on the Claims tab).
 
 ## 2. Login, session, Settings, passwords, Terms and Privacy
 
@@ -73,10 +79,13 @@ There are two roles: **manager** and **admin**. The live database has 1 user (ro
 
 ### Session
 - The login token lasts **60 minutes** from login (not extended by activity).
-- After it expires, the server rejects every request with 401 "Invalid or expired token".
-  Only the Create Account and Change Password forms react to that by clearing the login and
-  returning to the Login page; every other page just shows its "Failed to load …" message
-  until you log out and in again (see §18).
+- After it expires (or if the stored login is invalid), the server rejects every request with
+  401. On **any** such 401, from any page, the app clears the login and opens the Login page,
+  which shows **"Your session has expired. Please log in again."** (one shared handler in
+  `Frontend/src/api/api.js`, fixed 2026-09-28).
+  - Not triggered by a wrong password on the Login page itself (that still shows "Invalid
+    username or password").
+  - Not triggered by a wrong current password on Change Password (that is a 400).
 - **Log out** (Settings) clears everything stored in the browser and returns to Login.
 
 ### Settings panel (sidebar → Settings, bottom left)
@@ -124,12 +133,12 @@ calendar month (1st through the last day of the month).
 
 | Element (where) | What it shows | Source → exact formula | Live value (2026-09-28) |
 |---|---|---|---|
-| Card 1 "**Gross Premium Written**", caption "As of September 2026" (top row) | Premium of policies issued this month | Σ `total_amount_due` of `fire_property_policies` + `motor_policies` with `issue_date` in the current month | **₱1,092,348.33** |
-| Card 2 "**Policies Made**", "As of September 2026" | Policies issued this month | count of both policy tables, `issue_date` in current month | **50** |
+| Card 1 "**Gross Premium Written**", caption "This Month (September 2026)" (top row; all four cards use this caption since 2026-09-28) | Premium of policies issued this month | Σ `total_amount_due` of `fire_property_policies` + `motor_policies` with `issue_date` in the current month | **₱1,092,348.33** |
+| Card 2 "**Policies Made**", "This Month (September 2026)" | Policies issued this month | count of both policy tables, `issue_date` in current month | **50** |
 | Card 3 "**Total Quotation Offered**", "This Month (September 2026)" | Quotations made this month | count of both quotation tables, `quotation_date` in current month | **66** |
 | Card 4 "**Filed Claims**", "This Month (September 2026)" | Claims filed this month | count of `motor_claims` + `fire_property_claims`, `date_reported` in current month (includes CNC Issuance rows) | **8** |
 | Bar chart "**Policy Made (Past 4 Years)**" (middle left) | Policies per calendar year, stacked Fire & Property (lilac) / Motor & Car (blue) | count by `issue_date` year, current year + 3 before; current year is partial | 2023: 197 + 308 · 2024: 239 + 305 · 2025: 243 + 303 · 2026: 196 + 221 |
-| Pie "**Quotation vs. Converted Accounts**" (middle right), caption "Past 3 Months (Jul-Sep 2026)" | Quotations of the last 3 calendar months split into converted / not converted | quotations with `quotation_date` from the 1st of the month 2 months ago to the end of this month; **Converted** (yellow) = has a policy; **Quotation** (pale) = no policy yet | Converted **143**, Quotation **44** (of 187) |
+| Pie "**Quotation vs. Converted Accounts**" (middle right), caption "Past 3 Months (Jul-Sep 2026)" | Quotations of the last 3 calendar months split into converted / not converted | quotations with `quotation_date` from the 1st of the month 2 months ago to the end of this month; **Converted** (yellow) = has a policy; **Not Yet Converted** (pale; was "Quotation" before 2026-09-28) = no policy yet | Converted **143**, Not Yet Converted **44** (of 187) |
 | Line chart "**Policy Line (Past 6 Months)**" (bottom) | Policies per month for the last 6 months (this month included), one line per line (Motor & Car indigo, Fire & Prop. red) | count by `issue_date` month | Apr 15/37 · May 32/20 · Jun 21/25 · Jul 28/23 · Aug 24/23 · Sep 26/24 (Fire/Motor) |
 
 - Pie with nothing in it shows a grey circle "No data yet".
@@ -175,7 +184,7 @@ predictions…" (violet) while a model refresh runs.
 
 | Column | Meaning / source |
 |---|---|
-| Quote Number | The quotation's internal id (Fire and Motor numbering overlap — see §18) |
+| Quote Number | **FQ-<id>** for Fire & Property, **MQ-<id>** for Motor Car (display only, since 2026-09-28 — the ids of the two lines overlap; the database/API id is unchanged). The search also matches this form, e.g. "fq-1002" |
 | Client Name | Resolved client: quotation → insurance case → policyholder (first middle last) |
 | Insurance Line | Fire & Property / Motor Car |
 | Quotation Date | `quotation_date` |
@@ -211,7 +220,7 @@ of `fire_property_policies` + `motor_policies`. Method details in §16.
   Policies 26** · **Motor & Car Policies 24** · **Total Amount Due ₱1,092,348.33**.
 - Chart "**Policy Type: Motor & Car vs. Fire & Property** (As of September 2026)": policies
   per day of the month, stacked Fire & Property (lilac) / Motor & Car (red).
-- Pies "Fire & Property" and "Motor & Car": **New Policy** vs **Renewed Policy**. Live: Fire
+- Pies "Fire & Property" and "Motor & Car": **New Policy** vs **Renewal Policy** (was "Renewed Policy" before 2026-09-28). Live: Fire
   5 / 21, Motor 8 / 16.
 - Month picker (table toolbar, January … current month) + **Clear**: re-scopes the **whole**
   view (cards, chart, pies, table) to that month.
@@ -225,12 +234,12 @@ of `fire_property_policies` + `motor_policies`. Method details in §16.
   cards/charts stay year-to-date.
 
 ### Table (all three views)
-- Toolbar: **Policy Line: All**, **Status: All** (All / New / Renewed), search "Search Policy
+- Toolbar: **Policy Line: All**, **Status: All** (All / New / Renewal), search "Search Policy
   Number" (matches policy number **or** client name).
 - Columns: **Policy Number** · **Client Name** · **Policy Line** · **Issued Date** ·
   **Expiry Date** (click to sort ▲ ascending / ▼ descending / off; blanks last) · **Total
-  Amount Due** · **Sum Insured** (Fire from the policy; **Motor always "—"**, see §18) ·
-  **Status** (New = no Renewing Policy No.; Renewed = has one).
+  Amount Due** · **Sum Insured** (from the policy, both lines; Motor was always "—" before 2026-09-28) ·
+  **Status** (New = no Renewing Policy No.; **Renewal** = has one, i.e. the policy itself renews an earlier one).
 - Pies with all-zero data show "No data yet".
 
 ---
@@ -276,13 +285,14 @@ quotations + cases + clients lists and `GET /ml/predictions/claims` (table, join
 
 **Period** dropdown on the chart: Past 3 / 6 / 12 Months (default 6) = from the 1st of the
 month N−1 months ago to the end of the current month, by **Date Reported** (`date_reported`).
-It drives the 4 cards, the chart, the pie and Fraud Rate — **not the table**.
+It drives the 5 cards, the chart, the pie and Fraud Rate — **not the table**.
 
 | Element | What / formula | Live 3 m | Live 6 m | Live 12 m |
 |---|---|---|---|---|
 | Card "**Total Claims**" ("Filed Past N Months") | claims (both lines, all claim types) with Date Reported in range | 36 | **67** | 133 |
 | Card "**Open Claims**" | Final Status is one of: No Docs. Submitted, Waiting for Evaluation, Waiting for LOA, Waiting for Billing, Waiting for Claim Check, With Lacking Docs, Hold per Client | 29 | **32** | 37 |
-| Card "**Closed Claims**" | Final Status = "Closed Claim" only (Denied Claim, CNC Only, Not Push Through are in neither Open nor Closed — §18) | 4 | **22** | 74 |
+| Card "**Closed Claims**" | Final Status = "Closed Claim" only | 4 | **22** | 74 |
+| Card "**Other Finished**", small caption "Denied, CNC Only, Not Push Through" (added 2026-09-28) | Total − Open − Closed: Final Status Denied Claim, CNC Only or Not Push Through (or none). **Open + Closed + Other Finished = Total** | 3 | **13** | 22 |
 | Card "**Total Net Liability**" | Σ `net_liability` of those claims (any status) | ₱5,457,281.94 | **₱13,272,613.23** | ₱30,284,192.49 |
 | Chart "**Filed Claims per Month** (by Date Reported)" | bars stacked **Motor & Car** (indigo) + **Fire & Property** (light) with each segment's own count; red line "**Investigated as Fraud (human label)**" = Suspected + Confirmed Fraud (CNC rows excluded) per month | — | Apr 12+1 (3) · May 3+2 (1) · Jun 9+4 (2) · Jul 10+8 (1) · Aug 7+3 (0) · Sep 5+3 (0) | — |
 | Pie "**Claim Investigation Result**" (Legitimate indigo, Suspected Fraud amber, Confirmed Fraud red, Not Yet Investigated grey), note "CNC Issuance rows are excluded (N in this period)." | human label counts of non-CNC claims in range; blank label = Not Yet Investigated | 23/0/1/10, CNC 2 | **44/2/5/11**, CNC **5** | 97/3/7/15, CNC 11 |
@@ -304,8 +314,8 @@ Reported first, 8 per page.
 - **Claim Investigation Result** = the human label. Legitimate grey, **Suspected Fraud
   amber**, **Confirmed Fraud red**; CNC Issuance rows show "Not applicable (CNC)"
   (light grey); blank = "—".
-- **Fraud Warning** = the Naive Bayes prediction. "**Suspicious · 56%**" (red) when
-  P(Fraud) > 0.3, "Not suspicious · 6%" (grey) otherwise; the % is always P(Fraud). Hover text
+- **Fraud Warning** = the Naive Bayes prediction. "**Suspicious · 56% fraud chance**" (red) when
+  P(Fraud) > 0.3, "Not suspicious · 6% fraud chance" (grey) otherwise (wording since 2026-09-28); the % is always P(Fraud). Hover text
   "Naive Bayes P(Fraud) — a prediction, not an investigation result". "—" for CNC rows, claims
   already investigated, or no model.
 - Live: 441 claims (Motor 351, Fire 90); Fraud Warning on **23** (the uninvestigated Paid
@@ -602,11 +612,12 @@ Discarding (trash) archives the import row (§11).
   - an unknown Protection Facilities name, or "None" mixed with names;
   - an Occupancy amount that isn't a number;
   - a Claims date/amount that isn't valid, a fixed-list value outside its list (the message
-    lists the allowed values), or a date of loss outside coverage.
+    lists the allowed values), or a date of loss outside coverage;
+  - an unreadable date in a Quotation or Policy file (Date, Issue Date, Period From, Period
+    To), e.g. "Date: '31/31/2026' is not a valid date" (since 2026-09-28; a blank date cell
+    is still allowed and stays empty).
 - Non-blocking warning (API only, not shown in the UI): Occupancy - Total differs from the
   sum of the parts by more than ₱1.
-- Quotation and Policy files: an unreadable date becomes blank instead of failing the row
-  (§18).
 - A file that can't be read at all → "Could not read file: …".
 
 ### 10.7 The "no quotation, no policy" rule
@@ -904,7 +915,7 @@ Per line (Motor Car, Fire & Property), from (quotation date, policy issue date) 
 - Daily = today only.
 - MTD = 1st of the month → today (a past month: → its last day).
 - YTD = Jan 1 → today.
-- **New** vs **Renewed** (pies and Status): Renewed = the policy itself has a Renewing
+- **New** vs **Renewal** (pies and Status): Renewal = the policy itself has a Renewing
   Policy No. (it is a renewal of an earlier policy); New = blank.
 - **Total Amount Due** = Σ policy `total_amount_due` (premium due) in the range. Same number
   as Overview's "Gross Premium Written" for the current month.
@@ -947,7 +958,8 @@ Per line (Motor Car, Fire & Property), from (quotation date, policy issue date) 
 | Nature of Loss | Motor: Collision, Flood, Theft/Carnapping, Fire, Vandalism, Other; Fire: Fire, Flood, Typhoon, Earthquake, Lightning, Other |
 | Needs Review | Import rows the system could not decide safely; a person links/creates/picks |
 | Net Liability | Amount Maagap owes on the claim |
-| New / Renewed Policy (Distribution) | Policy without / with a Renewing Policy No. |
+| New / Renewal Policy (Distribution) | Policy without / with a Renewing Policy No. (a Renewal renews an earlier policy) |
+| Renewed Policy (Renewal Ratio) | A policy that another, later policy renews |
 | Occupancy | Use of the property (e.g. Dwelling, Store with Dwelling, Office, Warehouse, Restaurant, Small Factory) |
 | Open Claims | Final Status still in progress (not Closed/Denied/CNC Only/Not Push Through) |
 | Pending | Not renewed yet and not yet expired |
@@ -972,17 +984,24 @@ Per line (Motor Car, Fire & Property), from (quotation date, policy issue date) 
 
 ---
 
-## 18. Found while inventorying — unclear, inconsistent or possibly wrong (not fixed)
+## 18. Found while inventorying — unclear, inconsistent or possibly wrong
+
+Items marked **Fixed 2026-09-28** were fixed on branch `predefense-fixes`; the others are
+still open (left as is on purpose).
 
 1. **"Renewed" means two different things.**
    - Policy Distribution: a policy that **has** a Renewing Policy No. (it is itself a
      renewal).
    - Renewal Ratio: a policy that **another** policy renews.
    - The same word points in opposite directions on two pages.
+   - **Fixed 2026-09-28**: Policy Distribution now says **New / Renewal** (pies, Status filter, column);
+     Renewal Ratio keeps "Renewed".
 2. **Claims page: Open + Closed ≠ Total.**
    - "Closed Claims" counts only "Closed Claim". Denied Claim, CNC Only and Not Push Through
      are in neither card.
    - Past 6 Months: 32 + 22 = 54 of 67.
+   - **Fixed 2026-09-28**: fifth card **Other Finished** ("Denied, CNC Only, Not Push Through"); Open +
+     Closed + Other = Total (3 m 29+4+3 = 36 · 6 m 32+22+13 = 67 · 12 m 37+74+22 = 133).
 3. **Claims date basis differs.**
    - The Claims page (cards, chart, month filter) uses **Date Reported**.
    - The Claims tab's date filter on Policy Holder Information uses **Date of Loss**.
@@ -993,15 +1012,19 @@ Per line (Motor Car, Fire & Property), from (quotation date, policy issue date) 
      for the same basis.
    - "Gross Premium Written" (Overview) and "Total Amount Due" (Distribution MTD) are the
      same number (₱1,092,348.33) under different names.
+   - **Fixed 2026-09-28**: the slice is now "Not Yet Converted" and all four cards say "This Month
+     (September 2026)". The Gross Premium Written / Total Amount Due naming is unchanged.
 5. **Rolling windows run to the end of the current month** (Overview pie, Proposal, Claims),
    not to today. Policy Distribution MTD stops at today. The results are only the same while
    there are no future-dated records.
 6. **Distribution table: Motor "Sum Insured" is hard-coded "—"**, although all 1,139 Motor
    policies have one. The Renewal table does show it.
+   - **Fixed 2026-09-28**: the real `motor_policies.sum_insured` is shown.
 7. **Distribution pie colours are per line, not per status.** On YTD, "New Policy" is lilac
    in the Fire pie and red in the Motor pie. Easy to misread.
 8. **Proposal "Quote Number" is the internal id**, and Fire and Motor ids overlap (all 1,032
    Fire ids also exist as Motor ids), so two rows can show the same number.
+   - **Fixed 2026-09-28**: shown as **FQ-<id>** / **MQ-<id>** (display only); search matches it.
 9. **Searches behave differently.**
    - Proposal and Policy Holder Information match **every** field, including hidden ones
      (searching "Pelayo" returns 9 rows, some only by middle name).
@@ -1015,12 +1038,18 @@ Per line (Motor Car, Fire & Property), from (quotation date, policy issue date) 
 11. **Manager-only pages are enforced only in the browser.** `/stats/*`, `/ml/*` and every
     CRUD/delete/import endpoint accept any logged-in user, so an admin token can call them
     directly. The only server-side role check is Create Account.
+    - **Fixed 2026-09-28**: `/stats/*`, `/ml/models/{name}` and `/ml/predictions/quotations` return 403
+      for admins (see §1); everything Policy Holder Information uses stays open to both roles.
 12. **Expired session**: only the Create Account and Change Password forms send the user back
     to Login on a 401. Every other page just shows "Failed to load …" after 60 minutes, with
     no hint to log in again.
+    - **Fixed 2026-09-28**: one shared 401 handler (plain axios + the `api` instance) sends every page
+      to Login with "Your session has expired. Please log in again." (§2).
 13. **Quotation and Policy importers turn an unreadable date into a blank** (Claims fail the
     row instead). A quotation with no date is left out of the Proposal cards/table, the
     forecast and the date filter, without any warning.
+    - **Fixed 2026-09-28**: an unreadable date now fails the row with a clear message (§10.6); a blank
+      date is still allowed.
 14. **Leftover clients from uploads that didn't finish.**
     - A Policy row whose name scores < 70 first creates a brand-new client, then finds no
       quotation and goes to Needs Review. The new, almost empty client stays even if the row
@@ -1040,12 +1069,15 @@ Per line (Motor Car, Fire & Property), from (quotation date, policy issue date) 
     9 % and Motor's about 21 %, so the "15 %" average depends on the line mix.
 19. **Fraud Warning shows P(Fraud) on both labels.** "Not suspicious · 29 %" is possible
     (cutoff 0.3), and a reader may take the % as confidence.
+    - **Fixed 2026-09-28**: the text is now "Suspicious · 56% fraud chance" / "Not suspicious · 6% fraud
+      chance".
 20. **Total Net Liability sums every claim filed in the window**, including Denied / Not Push
     Through.
 21. **Orphan report file.**
     - `model_reports/2026-09-28_motor_lr_v3.md` is left over from the demo-warm-up rehearsal;
       the database (v4) has no Motor v3.
     - The next Motor retrain will also be called v3 (a different date in the file name).
+    - **Fixed 2026-09-28**: the orphan file was deleted (after the pre-defense rehearsal and v4 restore).
 22. **No password reset.** "Forgot your password?" is commented out, and a manager cannot
     reset an admin's password from the app.
 23. **Settings shows "Malolos Branch" for every user** (fixed text).

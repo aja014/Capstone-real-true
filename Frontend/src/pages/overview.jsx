@@ -99,7 +99,8 @@ export default function Overview() {
 
   useEffect(() => { load(); }, [load]);
 
-  const sub = loading ? "…" : `As of ${stats?.month_label ?? ""}`;
+  // One caption for all four cards: each counts the current calendar month.
+  const sub = loading ? "…" : `This Month (${stats?.month_label ?? ""})`;
   const quotationPieSub = loading ? "…" : (stats?.quotation_pie_label ?? "Past 3 Months");
   const quotationPie = stats?.quotation_pie ?? [];
   const yearlyBar = (stats?.yearly_bar ?? []).map((b) => ({
@@ -137,14 +138,14 @@ export default function Overview() {
             label="Policies Made"
           />
           <StatCard
-            sub={loading ? "…" : `This Month (${stats?.month_label ?? ""})`}
+            sub={sub}
             value={loading ? "…" : String(stats?.quotations_offered ?? 0)}
             label="Total Quotation Offered"
           />
           {/* Same basis as Total Quotation Offered: claims (both lines) whose
               Date Reported falls in the current month. */}
           <StatCard
-            sub={loading ? "…" : `This Month (${stats?.month_label ?? ""})`}
+            sub={sub}
             value={loading ? "…" : String(stats?.filed_claims ?? 0)}
             label="Filed Claims"
           />

@@ -364,10 +364,7 @@ def row_to_fire_quotation_fields(row) -> dict:
             fields[money_field] = cleaned if cleaned else None
 
     if "quotation_date" in fields:
-        try:
-            fields["quotation_date"] = pd.to_datetime(fields["quotation_date"]).date()
-        except Exception:
-            fields["quotation_date"] = None
+        fields["quotation_date"] = import_shared.parse_import_date("quotation_date", fields["quotation_date"])
 
     return fields
 
@@ -388,10 +385,7 @@ def row_to_fire_policy_fields(row) -> dict:
 
     for date_field in ("issue_date", "period_from", "period_to"):
         if date_field in fields:
-            try:
-                fields[date_field] = pd.to_datetime(fields[date_field]).date()
-            except Exception:
-                fields[date_field] = None
+            fields[date_field] = import_shared.parse_import_date(date_field, fields[date_field])
 
     return fields
 

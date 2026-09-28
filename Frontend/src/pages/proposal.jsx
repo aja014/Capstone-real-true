@@ -254,7 +254,10 @@ export default function QuotationsProposal() {
   // null -> "—".
   const rows = useMemo(() => quotations.map((q) => {
     const p = predictions.get(`${q.line}-${q.id}`);
-    return { ...q, risk_level: p?.risk_level ?? null, claim_probability: p?.claim_probability ?? null };
+    // Display-only quote number: Fire and Motor ids overlap, so prefix the line (FQ- / MQ-).
+    // Kept on the row so the all-fields search also matches e.g. "fq-1002".
+    const quote_number = `${q.line === "Motor Car" ? "MQ" : "FQ"}-${q.id}`;
+    return { ...q, quote_number, risk_level: p?.risk_level ?? null, claim_probability: p?.claim_probability ?? null };
   }), [quotations, predictions]);
 
   // The bar's full height must equal the real total (t.quotation_count),
@@ -422,7 +425,7 @@ export default function QuotationsProposal() {
                   )}
                   {!quotationsLoading && pageRows.map((r) => (
                     <tr key={`${r.line}-${r.id}`} className="border-b border-gray-50 hover:bg-gray-50 transition">
-                      <td className="py-2.5 px-2">{r.id}</td>
+                      <td className="py-2.5 px-2 whitespace-nowrap">{r.quote_number}</td>
                       <td className="py-2.5 px-2">{r.client_name || "—"}</td>
                       <td className="py-2.5 px-2">{r.line}</td>
                       <td className="py-2.5 px-2">{formatQuoteDate(r.quotation_date)}</td>

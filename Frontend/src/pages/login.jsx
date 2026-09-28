@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Shield, User, Lock, ArrowRight, Eye, EyeOff } from "lucide-react";
 import Background_Cars from "../img/Background_Cars.jpg";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
+import { SESSION_EXPIRED_KEY } from "../api/api";
 
 import Logo from "../img/MAAGAP_LOGO.png";
 
@@ -11,6 +12,11 @@ export default function MaagapLogin() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  // Set by the shared 401 handler (api/api.js) when a login expired or became invalid.
+  const [sessionNotice] = useState(() =>
+    sessionStorage.getItem(SESSION_EXPIRED_KEY) ? "Your session has expired. Please log in again." : null
+  );
+  useEffect(() => { sessionStorage.removeItem(SESSION_EXPIRED_KEY); }, []);
 
   const navigate = useNavigate();
 
@@ -94,6 +100,12 @@ export default function MaagapLogin() {
 
         {/* Form */}
         <div className="flex flex-col gap-4 max-w-sm w-full mb-10 z-30 relative">
+          {sessionNotice && (
+            <p className="text-xs font-semibold text-black bg-white/70 rounded-lg px-3 py-2">
+              {sessionNotice}
+            </p>
+          )}
+
           {/* Username */}
           <div className="relative">
             <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />

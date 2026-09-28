@@ -65,11 +65,12 @@ export function formatCurrencyPH(value, dashIfEmpty = true) {
   return `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-// Derived, not stored — a policy is "Renewed" if it carries a
-// renewing_policy_no, "New" otherwise. Mirrors the backend's
-// /stats/policy-distribution logic exactly.
+// Derived, not stored — a policy is a "Renewal" (it itself renews an earlier
+// policy) if it carries a renewing_policy_no, "New" otherwise. Mirrors the
+// backend's /stats/policy-distribution logic exactly. Deliberately not
+// "Renewed": on Renewal Ratio, "Renewed" means ANOTHER policy renews this one.
 export function deriveStatus(renewingPolicyNo) {
-  return renewingPolicyNo && renewingPolicyNo.trim() ? "Renewed" : "New";
+  return renewingPolicyNo && renewingPolicyNo.trim() ? "Renewal" : "New";
 }
 
 // { start, end } ISO bounds for a period, anchored on refDateISO — mirrors
@@ -169,7 +170,7 @@ export async function fetchDistributionPolicies() {
     expiryRaw: p.period_to,
     expiry: formatDateSlash(p.period_to),
     premium: formatCurrencyPH(p.total_amount_due),
-    sum: "—", // no sum-insured-equivalent field on MotorPolicy
+    sum: formatCurrencyPH(p.sum_insured),
     status: deriveStatus(p.renewing_policy_no),
   }));
 
@@ -201,12 +202,16 @@ export function Dropdown({ label, options, value, onChange }) {
 }
 
 // ── StatCard ──────────────────────────────────────────────────────────────────
-export function StatCard({ sub, value, label }) {
+// `note` (optional) is a small caption under the label, e.g. what the card counts.
+export function StatCard({ sub, value, label, note }) {
   return (
     <div className="bg-white rounded-2xl px-5 py-4 shadow-sm flex flex-col justify-between min-h-[110px]">
       <p className="text-gray-400 text-xs">{sub}</p>
       <p className="text-black font-black text-xl md:text-4xl leading-none my-2">{value}</p>
-      <p className="text-gray-500 text-xs">{label}</p>
+      <div>
+        <p className="text-gray-500 text-xs">{label}</p>
+        {note && <p className="text-gray-400 text-[10px] leading-snug">{note}</p>}
+      </div>
     </div>
   );
 }
@@ -214,7 +219,7 @@ export function StatCard({ sub, value, label }) {
 // ── PolicyTable ───────────────────────────────────────────────────────────────
 export function PolicyTable({
   search, setSearch, extraFilters, data,
-  statusOptions = ["Status: All", "New", "Renewed"],
+  statusOptions = ["Status: All", "New", "Renewal"],
   premiumLabel = "Total Amount Due",
 }) {
   const [page, setPage] = useState(1);

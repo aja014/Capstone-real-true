@@ -23,8 +23,8 @@ export const NOT_YET_INVESTIGATED = "Not yet investigated";
 //                          same Client Name vs literal-name rule as other tabs
 //   investigation_display  the human label as shown; CNC Issuance rows are never
 //                          investigated, so they show "Not applicable (CNC)"
-//   fraud_warning          the Naive Bayes prediction as text, e.g. "Suspicious · 45%"
-//                          or "Not suspicious · 8%" (the % is P(Fraud)); null ("—") when
+//   fraud_warning          the Naive Bayes prediction as text, e.g. "Suspicious · 45% fraud chance"
+//                          or "Not suspicious · 8% fraud chance" (the % is P(Fraud)); null ("—") when
 //                          there is none -- CNC rows, claims already investigated (the
 //                          human result is shown instead), or no model yet. Kept as text
 //                          so the Claims tab's all-fields search matches it.
@@ -66,7 +66,7 @@ export async function fetchAllClaims() {
       client_name: nameByPolicyholder.get(policyholderByCase.get(caseId)) || null,
       investigation_display: isCnc ? CNC_INVESTIGATION_LABEL : claim.claim_investigation_result ?? null,
       fraud_warning: prediction
-        ? `${flagged ? "Suspicious" : "Not suspicious"} · ${formatPercent(prediction.fraud_probability)}`
+        ? `${flagged ? "Suspicious" : "Not suspicious"} · ${formatPercent(prediction.fraud_probability)} fraud chance`
         : null,
       fraud_flag: flagged,
     };

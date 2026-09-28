@@ -1,6 +1,7 @@
 """HTTP level: the 4 /ml endpoints and which uploads schedule the automatic refresh.
 TestClient is used WITHOUT `with`, so the app's startup refresh never runs in tests."""
 import datetime as dt
+from types import SimpleNamespace
 import io
 
 import pytest
@@ -37,7 +38,7 @@ def no_real_refresh_session(monkeypatch):
 @pytest.fixture
 def client(db):
     app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[get_current_user] = lambda: None
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(role="manager")
     try:
         yield TestClient(app)
     finally:

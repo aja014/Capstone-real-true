@@ -1733,6 +1733,45 @@ Branch `demo-prep`. No app code change. Defense: October 14–15, 2026.
   the folder on a DB that already has it; restore v4 first. After the defense, restore v4 to
   remove the demo clients (verified 2026-09-28: all 25 counts and max ids back to v4).
 
+## Pre-defense fixes (SYSTEM_REFERENCE §18) — DONE
+2026-09-28, branch `predefense-fixes`. No DB change, no ML code/number change. Fixed §18 items
+1, 2, 4, 6, 8, 11, 12, 13, 19, 21; the rest are left as is on purpose.
+- **Claims page (#2)**: fifth card **Other Finished** (caption "Denied, CNC Only, Not Push
+  Through") = Total − Open − Closed (`/stats/claims` `other_claims`, schema `ClaimsStats`), so the
+  cards add up: 3 m 29+4+3 = 36 · 6 m 32+22+13 = 67 · 12 m 37+74+22 = 133. `StatCard` gained an
+  optional `note` caption.
+- **Distribution (#1, #6)**: New / **Renewal** (pies from the API "Renewal Policy", Status filter,
+  column — a policy that itself renews an earlier one); Renewal Ratio keeps "Renewed". Motor rows
+  show the real Sum Insured.
+- **Server-side roles (#11)**: `security.require_manager` (401 without login, 403 "Manager access
+  only." for non-managers) on the whole `/stats` router + `GET /ml/models/{name}` +
+  `GET /ml/predictions/quotations`. `GET /ml/models` and `GET /ml/predictions/claims` stay open
+  to both roles (Policy Holder Information polls the refresh status and shows Fraud Warning to
+  admins); every CRUD/import/Needs Review endpoint stays open to both roles. Tests that stub
+  `get_current_user` must return a manager-like object (`SimpleNamespace(role="manager")`).
+- **Expired session (#12)**: one 401 handler in `Frontend/src/api/api.js`, registered on plain
+  `axios` and on the `api` instance, installed by `import './api/api'` in `main.jsx`: clears the
+  login, sets `sessionStorage.sessionExpired`, goes to `/`; Login shows "Your session has
+  expired. Please log in again." The `/login` request itself is excluded.
+- **Proposal (#8)**: Quote Number shown as **FQ-<id>** / **MQ-<id>** (display + search only).
+- **Overview (#4)**: pie slice "Not Yet Converted" (API), all four card captions "This Month (…)".
+- **Fraud Warning (#19)**: "Suspicious · 56% fraud chance" / "Not suspicious · 6% fraud chance".
+- **Unreadable dates (#13)**: `import_shared.parse_import_date` — Fire/Motor Quotation (Date) and
+  Policy (Issue Date / Period From / Period To) rows with an unreadable date now FAIL with e.g.
+  "Date: '31/31/2026' is not a valid date" (blank dates still allowed). v2 synthetic files (1,032 +
+  1,450 quotation, 876 + 1,139 policy rows) and the demo folder: 0 parser failures.
+- **Orphan report (#21)**: `model_reports/2026-09-28_motor_lr_v3.md` deleted.
+- **Verified**: 155 backend tests (86 + `tests/test_roles.py` + `tests/test_predefense_fixes.py`);
+  `npm run build` ok; lint = baseline (19 pre-existing). Regression: counts, 401s, detection
+  identical; only `/stats/overview` differs, and hashing it with "Quotation" put back matches the
+  baseline exactly. Browser as manager (all changed places) and as a temporary admin (ZZTEST
+  Admin, created via Create Account): admin 403 on stats/manager ML, 200 on everything Policy
+  Holder Information uses, `/overview` redirects to `/policy`, Claims tab Fraud Warning shown;
+  invalid token → Login with the session message; wrong password still "Invalid username or
+  password". Demo rehearsal (warm-up 26.9 s, retrained motor_lr → Import All 0 review / 0 failed
+  → Proposal FQ-1033 Medium 12% / MQ-1460 Low 16%, GIS High storm surge / Medium river → Claims
+  new cards) passed; then v4 restored (25 counts = v4, users 1, no ZZTEST user, no demo client).
+
 ## ⚠️ Importer-wide: cells containing None / NA / N/A / null are read as BLANK
 pandas' default NA list (`None`, `NA`, `N/A`, `n/a`, `null`, `NULL`, `nan`,
 `NaN`, `#N/A`, ... — confirmed on pandas 3.0.5) converts those exact cell texts

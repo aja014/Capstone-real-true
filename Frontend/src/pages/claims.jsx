@@ -149,11 +149,14 @@ export default function Claims() {
       <div className="flex-1 flex flex-col gap-4 min-w-0">
         {statsError && <p className="text-xs text-red-600 bg-white/70 rounded-lg px-3 py-2">{statsError}</p>}
 
-        {/* All four cards: claims filed (Date Reported) in the selected period. */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* All five cards: claims filed (Date Reported) in the selected period.
+            Open + Closed + Other Finished = Total Claims. */}
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           <StatCard sub={`Filed ${periodLabel}`} value={stats ? stats.total_claims : "…"} label="Total Claims" />
           <StatCard sub={`Filed ${periodLabel}`} value={stats ? stats.open_claims : "…"} label="Open Claims" />
           <StatCard sub={`Filed ${periodLabel}`} value={stats ? stats.closed_claims : "…"} label="Closed Claims" />
+          <StatCard sub={`Filed ${periodLabel}`} value={stats ? stats.other_claims : "…"} label="Other Finished"
+            note="Denied, CNC Only, Not Push Through" />
           <StatCard sub={`Filed ${periodLabel}`}
             value={stats ? formatCurrencyPH(stats.total_net_liability, false) : "…"} label="Total Net Liability" />
         </div>

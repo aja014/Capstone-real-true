@@ -2,6 +2,7 @@
 GET /stats/policy-forecast against independent SQL counts on the dev database.
 TestClient is used WITHOUT `with`, so the app's startup model refresh never runs."""
 import datetime as dt
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -119,7 +120,7 @@ def no_real_refresh_session(monkeypatch):
 @pytest.fixture
 def client(db):
     app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[get_current_user] = lambda: None
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(role="manager")
     try:
         yield TestClient(app)
     finally:

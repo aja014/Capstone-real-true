@@ -9,10 +9,26 @@ this file existed).
 """
 from datetime import date as date_type
 
+import pandas as pd
+
 from app import models
 
 CONFIDENT_THRESHOLD = 75
 AMBIGUITY_MARGIN = 15
+
+# Column header shown in the error message for each date field of the Quotation/Policy files.
+DATE_LABELS = {"quotation_date": "Date", "issue_date": "Issue Date",
+               "period_from": "Period From", "period_to": "Period To"}
+
+
+def parse_import_date(field, value):
+    """An unreadable date fails the row (same as the Claims importer) instead of silently
+    becoming blank, which would drop the record from every date-based page without a trace.
+    Blank cells never get here -- they are left out of `fields` and stay NULL."""
+    try:
+        return pd.to_datetime(value).date()
+    except Exception:
+        raise ValueError(f"{DATE_LABELS[field]}: '{value}' is not a valid date")
 
 
 def require_name(first_name, last_name, context: str) -> None:
