@@ -159,6 +159,28 @@ def find_existing_vehicle(db: Session, plate_no: str, engine_no: str, chassis_no
     return query.filter(or_(*conditions)).first()
 
 
+def fill_vehicle_ids(db: Session, vehicle, plate_no: str, engine_no: str, chassis_no: str):
+    """A re-quote on a known vehicle fills in the vehicle's EMPTY plate / engine / chassis
+    from this row, so a later quotation found by any of them reaches the same vehicle.
+    A different non-empty value never overwrites the stored one, and a value already used
+    by ANOTHER vehicle is not copied; both return a warning for the import summary."""
+    notes = []
+    for attr, label, value in (("plate_no", "Plate No.", plate_no),
+                               ("motor_engine_no", "Engine No.", engine_no),
+                               ("serial_chassis_no", "Chassis No.", chassis_no)):
+        current = getattr(vehicle, attr)
+        if not value or current == value:
+            continue
+        if current:
+            notes.append(f"{label} {value} differs from the vehicle's {current} (kept {current})")
+        elif db.query(models.Vehicle).filter(getattr(models.Vehicle, attr) == value,
+                                             models.Vehicle.id != vehicle.id).first():
+            notes.append(f"{label} {value} belongs to another vehicle (not copied)")
+        else:
+            setattr(vehicle, attr, value)
+    return f"Vehicle #{vehicle.id}: " + "; ".join(notes) if notes else None
+
+
 @router.post("/quotations/upload", response_model=schemas.ImportSummary,
               dependencies=[Depends(schedule_model_refresh)])
 def upload_motor_quotations(file: UploadFile = File(...), db: Session = Depends(get_db)):
@@ -183,6 +205,7 @@ def upload_motor_quotations(file: UploadFile = File(...), db: Session = Depends(
     failed_count = 0
     import_record_ids = []
     errors = []
+    warnings = []
 
     for idx, row in df.iterrows():
         source_row = idx + 2
@@ -205,10 +228,12 @@ def upload_motor_quotations(file: UploadFile = File(...), db: Session = Depends(
             # This is a re-quote: reuse its existing case, unless this specific
             # quotation (same date + same amount) is a re-uploaded duplicate.
             # ------------------------------------------------------------
+            row_warning = None
             if existing_vehicle:
                 case = existing_vehicle.insurance_case
                 matched_policyholder_id = case.policyholder_id
                 matched_case_id = case.id
+                row_warning = fill_vehicle_ids(db, existing_vehicle, plate_no, engine_no, chassis_no)
 
                 existing_quotations = db.query(models.MotorQuotation).filter(
                     models.MotorQuotation.vehicle_id == existing_vehicle.id
@@ -351,6 +376,8 @@ def upload_motor_quotations(file: UploadFile = File(...), db: Session = Depends(
 
             db.commit()  # everything created for this row is saved together, or not at all
 
+            if row_warning:
+                warnings.append(schemas.ImportRowWarning(source_row=source_row, warning=row_warning))
             import_record_ids.append(record.id)
             if status == models.MatchStatus.matched:
                 matched_count += 1
@@ -374,6 +401,7 @@ def upload_motor_quotations(file: UploadFile = File(...), db: Session = Depends(
         failed=failed_count,
         import_record_ids=import_record_ids,
         errors=errors,
+        warnings=warnings,
     )
 
 
@@ -401,6 +429,7 @@ def resolve_for_policyholder(db: Session, record: models.ImportRecord, policyhol
 
     if existing_vehicle:
         case = existing_vehicle.insurance_case
+        fill_vehicle_ids(db, existing_vehicle, plate_no, engine_no, chassis_no)  # no summary to warn in
         existing_quotations = db.query(models.MotorQuotation).filter(
             models.MotorQuotation.vehicle_id == existing_vehicle.id
         ).all()

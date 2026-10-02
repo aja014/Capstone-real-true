@@ -8,6 +8,7 @@ import { FullCalendarPicker } from "../components/DatePicker";
 import { fetchAllQuotations } from "../lib/quotations";
 import { fetchAllClaims } from "../lib/claims";
 import { waitForModelRefresh } from "../lib/ml";
+import { rowMatchesSearch } from "../lib/search";
 import { InvestigationResultCell, FraudWarningCell } from "../components/ClaimsShared";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
@@ -79,6 +80,11 @@ function extractDateParts(value) {
     if (!mm || !dd || !yyyy) return null;
     return { month: mm, day: dd, year: yyyy };
   }
+  // "YYYY-MM-DD" or the server's local timestamp "YYYY-MM-DDTHH:MM:SS" (no time zone):
+  // read the date as written. new Date() + getUTC* moved a survey imported before 08:00
+  // (UTC+8) to the previous day.
+  const iso = typeof value === "string" && value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return { month: Number(iso[2]), day: Number(iso[3]), year: Number(iso[1]) };
   const d = new Date(value);
   if (isNaN(d)) return null;
   return { month: d.getUTCMonth() + 1, day: d.getUTCDate(), year: d.getUTCFullYear() };
@@ -484,6 +490,13 @@ function VehicleTable({ rows, onDelete }) {
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
+
+// Money columns (any tab) for the search's ₱1,234.56 / 1234.56 forms — same keys everywhere.
+const SEARCH_TYPE_BY_KEY = Object.fromEntries(
+  [...FIRE_POLICY_COLUMNS, ...MOTOR_POLICY_COLUMNS, ...FIRE_QUOTATION_COLUMNS, ...MOTOR_QUOTATION_COLUMNS,
+    ...MOTOR_CLAIM_COLUMNS, ...FIRE_CLAIM_COLUMNS, ...SURVEY_COLUMNS]
+    .filter((c) => c.type === "currency").map((c) => [c.dataKey, "currency"])
+);
 
 // Map each table type to the date field used for month filtering.
 // Policy filters on issue_date — the direct analog of Quotation's
@@ -1045,13 +1058,7 @@ export default function PolicyHolderInformation() {
   const selectedYear = fromDate ? fromDate.getFullYear() : null;
 
   const filtered = allRows.filter((row) => {
-    const searchText = search.toLowerCase();
-
-    const matchSearch =
-      searchText === "" ||
-      Object.values(row).some((value) =>
-        String(value).toLowerCase().includes(searchText)
-      );
+    const matchSearch = rowMatchesSearch(row, search, SEARCH_TYPE_BY_KEY);
 
     let matchDate = true;
 

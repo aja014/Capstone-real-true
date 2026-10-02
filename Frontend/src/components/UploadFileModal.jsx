@@ -73,6 +73,42 @@ function authHeaders() {
 // the modal was opened from is still a reasonable starting guess) -- it no
 // longer drives an upfront type selector, since single-file mode detects
 // the type from the file itself instead of asking first.
+const ROW_MESSAGES_PREVIEW = 10;
+
+// Every failed row ("Row n: reason", red) and every warning (amber) of one file's summary,
+// collapsed to the first 10 lines with "Show all". Used by single-file and folder results.
+function RowMessages({ summary }) {
+  const [showAll, setShowAll] = useState(false);
+  const rowLabel = (r) => (r.source_row ? `Row ${r.source_row}: ` : "");
+  const lines = [
+    ...(summary?.errors || []).map((e) => ({ text: rowLabel(e) + e.error, error: true })),
+    ...(summary?.warnings || []).map((w) => ({ text: rowLabel(w) + w.warning, error: false })),
+  ];
+  if (lines.length === 0) return null;
+  const shown = showAll ? lines : lines.slice(0, ROW_MESSAGES_PREVIEW);
+  return (
+    // preventDefault: in single-file mode this sits inside the file-picker <label>, and a
+    // click on the list (e.g. to select text) must not open the picker.
+    <div className="mt-1 w-full max-w-[520px] max-h-28 overflow-y-auto text-left text-xs" onClick={(e) => e.preventDefault()}>
+      {shown.map((l, i) => (
+        <p key={i} className={l.error ? "text-red-500" : "text-amber-700"}>{l.text}</p>
+      ))}
+      {lines.length > ROW_MESSAGES_PREVIEW && (
+        <button
+          type="button"
+          onClick={(e) => { e.preventDefault(); setShowAll((s) => !s); }}
+          className="mt-1 text-gray-500 underline hover:text-gray-700"
+        >
+          {showAll ? "Show less" : `Show all (${lines.length})`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// The detect endpoint's message for a file it couldn't open, without its prefix.
+const unreadableReason = (error) => error.replace(/^Could not read file:\s*/, "");
+
 export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultTarget = "policyholders" }) {
   const [mode, setMode] = useState("single"); // "single" | "folder"
 
@@ -237,19 +273,25 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
     }
   };
 
-  const allTypesChosen = folderFiles.length > 0 && folderFiles.every((f) => chosenTypes[f.webkitRelativePath || f.name]);
+  // A file the detect step couldn't open is skipped; the rest of the folder still imports.
+  const keyOf = (f) => f.webkitRelativePath || f.name;
+  const unreadable = detected.filter((d) => d.error);
+  const unreadableNames = new Set(unreadable.map((d) => d.filename));
+  const readableFiles = folderFiles.filter((f) => !unreadableNames.has(keyOf(f)));
+  const allTypesChosen = readableFiles.length > 0 && readableFiles.every((f) => chosenTypes[keyOf(f)]);
 
   const importAll = async () => {
     setFolderStage("importing");
     setFolderError(null);
 
     const formData = new FormData();
-    folderFiles.forEach((f) => formData.append("files", f, f.webkitRelativePath || f.name));
-    folderFiles.forEach((f) => formData.append("import_types", chosenTypes[f.webkitRelativePath || f.name]));
+    readableFiles.forEach((f) => formData.append("files", f, keyOf(f)));
+    readableFiles.forEach((f) => formData.append("import_types", chosenTypes[keyOf(f)]));
 
     try {
       const response = await axios.post(`${API_BASE_URL}/import/batch/upload`, formData, { headers: authHeaders() });
-      setBatchResults(response.data.files);
+      const skipped = unreadable.map((d) => ({ filename: d.filename, skipped: true, error: unreadableReason(d.error) }));
+      setBatchResults([...response.data.files, ...skipped]);
       setFolderStage("done");
       onUploadSuccess?.();
     } catch (err) {
@@ -455,11 +497,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
                   {summary.matched} matched, {summary.unmatched_created} new,{" "}
                   {summary.needs_review} needs review, {summary.failed} failed
                 </p>
-                {summary.failed > 0 && summary.errors?.[0] && (
-                  <p className="mt-1 text-xs text-red-500 max-w-[480px] truncate">
-                    Row {summary.errors[0].source_row}: {summary.errors[0].error}
-                  </p>
-                )}
+                <RowMessages summary={summary} />
                 <button
                   type="button"
                   onClick={reset}
@@ -528,7 +566,9 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
                     >
                       <p className="text-xs font-medium text-gray-800 truncate">{d.filename}</p>
                       {d.error ? (
-                        <p className="text-xs text-red-500 mt-1">{d.error}</p>
+                        <p className="text-xs text-red-500 mt-1">
+                          Can't be read: {unreadableReason(d.error)} · will be skipped
+                        </p>
                       ) : (
                         <>
                           <select
@@ -573,7 +613,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
                     className="flex items-center gap-1.5 bg-[#FBBF24] hover:bg-[#f0b30f] disabled:opacity-40 rounded-lg px-4 py-2 text-xs font-bold transition"
                   >
                     {folderStage === "importing" && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                    Import All ({folderFiles.length})
+                    Import All ({readableFiles.length})
                   </button>
                 </div>
               </>
@@ -590,17 +630,23 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
                     <div
                       key={r.filename}
                       className={`rounded-lg border px-3 py-2 text-xs ${
-                        r.error ? "border-red-200 bg-red-50" : "border-gray-200 bg-white"
+                        r.skipped ? "border-gray-200 bg-gray-100"
+                          : r.error ? "border-red-200 bg-red-50" : "border-gray-200 bg-white"
                       }`}
                     >
                       <p className="font-medium text-gray-800 truncate">{r.filename}</p>
-                      {r.error ? (
+                      {r.skipped ? (
+                        <p className="text-gray-500 mt-1">Skipped — can't be read: {r.error}</p>
+                      ) : r.error ? (
                         <p className="text-red-500 mt-1">{r.error}</p>
                       ) : (
-                        <p className="text-gray-600 mt-1">
-                          {r.summary.total_rows} row{r.summary.total_rows !== 1 ? "s" : ""} — {r.summary.matched} matched,{" "}
-                          {r.summary.unmatched_created} new, {r.summary.needs_review} needs review, {r.summary.failed} failed
-                        </p>
+                        <>
+                          <p className="text-gray-600 mt-1">
+                            {r.summary.total_rows} row{r.summary.total_rows !== 1 ? "s" : ""} — {r.summary.matched} matched,{" "}
+                            {r.summary.unmatched_created} new, {r.summary.needs_review} needs review, {r.summary.failed} failed
+                          </p>
+                          <RowMessages summary={r.summary} />
+                        </>
                       )}
                     </div>
                   ))}

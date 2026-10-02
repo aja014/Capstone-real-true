@@ -24,9 +24,12 @@ export function ClaimPossibilityCell({ value }) {
 // is tested once), not the single 25% test split -- those test sets are small (the fraud
 // one has ~12 fraud cases), so one split's score swings a lot. Both are in the report.
 // Recall is worded as "catches X% of <positives>": accuracy alone looks high even for
-// a model that predicts nothing.
+// a model that predicts nothing. AUC (how well the model ranks risky above safe, 0.5 =
+// guessing) doesn't depend on any cutoff.
 // rows: [{ label, model, positives }], model = one GET /ml/models summary (undefined
 // while loading or if the request failed).
+const formatAuc = (v) => (v === null || v === undefined ? "—" : v.toFixed(2));
+
 export function ModelAccuracyCard({ title, rows, loading }) {
   return (
     <div className="bg-white rounded-2xl p-4 shadow-sm flex flex-col gap-3">
@@ -51,6 +54,9 @@ export function ModelAccuracyCard({ title, rows, loading }) {
               </p>
               <p className="text-gray-600 text-xs">
                 catches {formatPercent(model.cross_validation?.recall?.mean)} of {positives}
+              </p>
+              <p className="text-gray-600 text-xs">
+                AUC {formatAuc(model.cross_validation?.roc_auc?.mean)} (0.5 = guessing)
               </p>
               <p className="text-gray-400 text-[10px]">
                 v{model.version} · trained {formatTrainedDate(model.trained_at)}

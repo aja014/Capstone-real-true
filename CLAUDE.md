@@ -53,12 +53,15 @@ Study objectives (keep all in scope):
   location_of_risk similarity) doesn't create a new case; otherwise a new case.
 - Motor import: exact match on plate_no OR motor_engine_no OR serial_chassis_no = same
   vehicle. A re-quote for a known vehicle reuses its case; an exact duplicate quotation
-  (same date + amount) is skipped.
+  (same date + amount) is skipped. The reused vehicle gets its EMPTY plate/engine/chassis
+  filled from the row (never overwrites a different value, never copies one another vehicle
+  owns — both give an ImportSummary warning).
 - Every schema field traces back to the REAL company paper documents (trimmed to what
   prediction needs). Keep `policy_no` / `renewing_policy_no` everywhere (renewal + claims
   anchors).
 - **Never delete business data by cascade.** Deletes are archive-first (JSON snapshot into a
-  `deleted_*` table, then delete); deleting something still referenced returns 409.
+  `deleted_*` table, then delete); deleting something still referenced returns 409. Every
+  archive row's `deleted_by` = the deleting user's username (since 2026-10-02).
 - No Alembic: `Base.metadata.create_all()` creates NEW tables on startup but never ALTERs
   existing ones — any column change needs a manual `ALTER TABLE` (backup first).
 
@@ -156,14 +159,24 @@ fire_property_policies/quotations/surveys/claims, motor_policies/quotations/clai
   conversion rate per line, waiting period W = p95 days quote→issue.
 - **Passwords**: new ones need ≥ 8 chars incl. 2 letters, ≤ 72 bytes; login never checks the
   rule. New accounts are always role `admin`; only SQL can make a manager.
+- **Usernames**: trimmed on create; `get_user_by_username` compares TRIM(username) to the
+  trimmed input (login too), so "X " / " x" = "X" (case via the column collation).
 
 ## Models (current)
 - Three models: `motor_lr`, `fire_lr` (Logistic Regression, Objective 1.2), `fraud_nb`
-  (Naive Bayes, 1.3). LR: gradient descent, lr 0.5, tol 1e-12, ≤ 50,000 epochs, L2 0.01.
+  (Naive Bayes, 1.3). LR: gradient descent, tol 1e-12, ≤ 50,000 epochs; L2 λ chosen on
+  every training run by 5-fold CV from (0.0001, 0.001, 0.01, 0.1, 1, 10) — best mean ROC AUC, ties →
+  larger λ; learning rate min(0.5, 1/λ) (λ = 10 at 0.5 diverged). The λ grid is in the
+  fingerprint; the chosen λ + table are stored (`parameters.model.l2`, `metrics.l2_selection`).
+  On 2026-10-02 data: Motor → 0.01, Fire → 0.001 (both inside the grid; λ = 0.0001 hits
+  the 50,000-epoch cap).
   NB: Laplace α = 1, unseen-value rule, fraud cutoff **0.3**.
 - LR row = ended policy (`period_to` < data date) described by its quotation; label =
   ≥ 1 Paid Claim with final status Closed / Waiting for LOA / Billing / Claim Check. NB row =
   investigated Paid Claim; Fraud = Suspected or Confirmed.
+- `prior_counted_loss` (name kept) = the previous policy had a Paid Claim REPORTED before the
+  quotation date, any outcome (since 2026-10-02; before: only counted losses). NB clues are
+  known by the time a claim is investigated (8 at filing; docs date + repair estimate after).
 - Risk levels: Low < base rate ≤ Medium < 2 × base rate ≤ High (Motor 0.21/0.41, Fire
   0.09/0.18).
 - Active (v4 backup): motor_lr v2 (id 93), fire_lr v2 (94), fraud_nb v3 (95), all trained
@@ -173,13 +186,16 @@ fire_property_policies/quotations/surveys/claims, motor_policies/quotations/clai
   + motor quotation/policy uploads, both claims uploads, folder upload, Needs Review
   resolve) → background refresh after the response; retrains only if the data fingerprint
   changed, then rewrites all predictions. Startup trains only models with no active
-  version. Training rows grow every day after 2026-09-27, so the next refresh retrains
-  Motor (and Fire from ~Oct 5).
+  version. The fix round changed both LR fingerprints, so after a v4 restore the next
+  refresh (upload / warm-up) retrains motor_lr and fire_lr (fraud_nb stays).
 - Reports: `model_reports/<date>_<model>_v<N>.md` (gitignored). `python -m app.ml.training`
   (from `Backend/`) trains all three by hand.
-- Paper notes: the walkthrough doesn't mention L2, Laplace smoothing, the unseen-value rule
-  or the risk-level thresholds — each needs a sentence in Chapter 3/4.
-- Known: a retrain (~15–40 s) slows other requests (same process).
+- Paper notes: the walkthrough doesn't mention L2 (and its CV choice), Laplace smoothing, the
+  unseen-value rule or the risk-level thresholds — each needs a sentence in Chapter 3/4.
+- Known: a retrain slows other requests (same process); with the λ search (31 fits per LR,
+  λ = 0.0001 runs the full 50,000 epochs) a refresh retraining Motor + Fire ≈ 3 min — the
+  defense-morning warm-up measured 3 min 2 s on 2026-10-02 (was 28.6 s).
+- Cards show CV accuracy, recall ("catches X%") and "AUC 0.NN (0.5 = guessing)".
 
 ## How to run
 ```
@@ -194,7 +210,7 @@ before checking out an old commit (see Database).
 
 ## How to test
 - From `Backend/`: `./venv/Scripts/python -m pip install -r requirements-dev.txt` once, then
-  `./venv/Scripts/python -m pytest tests` (155 tests). The `db` fixture runs on the dev DB
+  `./venv/Scripts/python -m pytest tests` (172 tests, ≈ 27 min — the LR λ search makes training tests slow). The `db` fixture runs on the dev DB
   inside one transaction that is always rolled back (no rows left; auto-increment ids are
   used up). API tests use `TestClient(app)` without `with`; stubs of `get_current_user` must
   return a manager-like object.
@@ -250,17 +266,15 @@ Isidro Pelayo (High river); claims MS2602030016 (#83, Suspicious 56%) and MS2501
   contact data.
 
 ## Current status and open items
-- All objectives built; main is at the pre-defense fixes (`244bfdb`), data = v4.
+- All objectives built; main is at the pre-defense fixes (`244bfdb`), data = v4. The fix
+  round for validation Phases 0–8 is on branch `fix-round` (2026-10-02, not yet merged).
 - Open / known (not fixed):
   - Backend requests slow down while a retrain runs (refresh shares the web process).
   - No `insurance_cases` delete endpoint.
   - Phone width hides the sidebar (Settings / Create Account unreachable on a phone).
-  - Proposal page pies have no "No data yet" empty state (validation P5.16).
-  - Fire quotation without its own Location of Risk shows "Address not on file" in the GIS
-    popup (P4.17).
-  - Fraud clues "report → documents" and "estimate ÷ sum insured" aren't known at filing,
-    though the docs say they are (P6.12); prior_counted_loss uses the earlier claim's
-    current status (P6.11); Motor colour control weight is not near 0 (P6.28).
+  - Motor colour control weight is still ≈ +0.37 (P6.28 "Addressed": CV keeps λ = 0.01).
+  - λ = 0.0001 fits stop at the 50,000-epoch cap (not converged; never chosen so far).
+  - Created/changed records store no user (only deletes record `deleted_by`).
   - Policy Forecast card makes the Proposal right column taller (white space under table).
   - Some real barangay addresses no longer geocode via Nominatim (`not_found`).
 
@@ -270,7 +284,8 @@ Full pre-defense validation in 11 phases (0–10), prompts in
 log in `docs/validation/VALIDATION_LOG.md` (not committed). Rules: never change code/tests/
 docs during it (report, don't fix); write phases use only ZZTEST records and end with a v4
 restore + proof (25 counts, highest ids, 3 active models); stop after each phase. Phases
-0–6 COMPLETE (2026-10-01); next is Phase 7.
+0–8 COMPLETE (2026-10-01); their items were fixed in the fix round (branch `fix-round`,
+2026-10-02, each marked in the log). Phases 9–10 run later, on the new v3 dataset.
 
 ## Index — docs/history and references
 - `docs/SYSTEM_REFERENCE.md` — every page, number, method, glossary, §18 found issues.

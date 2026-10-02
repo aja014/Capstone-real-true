@@ -210,6 +210,15 @@ river-flood flipped to "Low" (14.20m, within buffer), storm-surge stayed
 upland control points stayed `None`/`None`, unaffected. Re-running the same
 address twice still gives byte-identical results (determinism unaffected).
 
+**Re-checked 2026-10-01 (validation P4.7) — the examples above are from the original
+investigation; today's geocodes differ a little.** Nominatim now places some Calumpit
+barangays slightly differently: 22 cached Calumpit points lie 1.7–39.7 m outside a
+river-flood zone and count only through the buffer, e.g. Gatbuca 25.75 m → High, Poblacion
+4.98 m → High, Panducot 5.83 m → High, Sergio Bayan 1.74 m → Low, San Marcos 8.07 m → **Low**
+(was Medium above); Iba is no longer in the address pool. A synthetic point 45 m outside a
+High edge → High; 80 m outside → None. Same logic, same 50 m buffer: every near-miss point
+is still caught, nothing at 80 m is.
+
 **Performance — honest finding, not just "still fast"**: classification-
 only cost (excluding geocoding) rose from ~0.1-0.2ms/lookup (contains()
 only) to **6-115ms/lookup** depending on how many zones require the new

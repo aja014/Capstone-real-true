@@ -312,13 +312,13 @@ def list_needs_review(db: Session = Depends(get_db)):
 
 
 @router.delete("/records/{record_id}", response_model=schemas.DeletedImportRecordOut)
-def delete_import_record(record_id: int, db: Session = Depends(get_db)):
+def delete_import_record(record_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     record = db.query(models.ImportRecord).filter(models.ImportRecord.id == record_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="Import record not found")
 
     snapshot = schemas.ImportRecordOut.model_validate(record).model_dump(mode="json")
-    archived = models.DeletedImportRecord(original_id=record.id, data=snapshot)
+    archived = models.DeletedImportRecord(original_id=record.id, data=snapshot, deleted_by=current_user.username)
     db.add(archived)
 
     db.delete(record)

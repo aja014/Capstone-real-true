@@ -154,7 +154,7 @@ class DeletedPolicyholder(Base):
     original_id = Column(Integer, nullable=False)
     data = Column(JSON, nullable=False)
     deleted_at = Column(DateTime, server_default=func.now())
-    deleted_by = Column(String(255), nullable=True)  # populated once auth is required on this router
+    deleted_by = Column(String(255), nullable=True)  # username of the user who deleted it
 
 
 class DeletedImportRecord(Base):

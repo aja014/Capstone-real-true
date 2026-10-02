@@ -55,6 +55,20 @@ def _cv_table(cv):
     return lines + ["", AUC_NOTE, ""]
 
 
+def _l2_table(selection):
+    lines = ["## Choosing the L2 strength λ (5-fold cross-validation)", "",
+             "Same 5 folds for every λ; the λ with the best mean ROC AUC is used (ties → the larger λ). "
+             "A stronger penalty needs a smaller learning rate so gradient descent stays stable. The "
+             "cross-validation scores above are the chosen λ's (slightly optimistic, since the same "
+             "folds chose it).", "",
+             "| λ | Learning rate | ROC AUC (mean ± SD) | Accuracy (mean) | Recall (mean) |", "|---|---|---|---|---|"]
+    for r in selection["table"]:
+        mark = " (chosen)" if r["l2"] == selection["chosen"] else ""
+        lines.append(f"| {r['l2']:g}{mark} | {r['learning_rate']:g} | {auc(r['roc_auc']['mean'])} ± "
+                     f"{auc(r['roc_auc']['sd'])} | {pct(r['accuracy']['mean'])} | {pct(r['recall']['mean'])} |")
+    return lines + [""]
+
+
 def _lr_body(row, result):
     m, t, p = result["metrics"], result["thresholds"], result["parameters"]["model"]
     lines = [
@@ -69,7 +83,8 @@ def _lr_body(row, result):
         "**Step 4: Sigmoid transformation** — P(claim) = 1 / (1 + e^(−z))", "",
         f"**Step 5: Model training** — gradient descent on the log-loss, learning rate {p['learning_rate']}, "
         f"stopped after {p['epochs_run']} epochs when the loss changed by less than {p['tolerance']:g} "
-        f"(final loss {p['final_loss']:.4f}). A small L2 penalty (λ = {p['l2']}) keeps the weights stable.", "",
+        f"(final loss {p['final_loss']:.4f}). An L2 penalty λ = {p['l2']}, chosen by 5-fold "
+        "cross-validation (table below), keeps the weights stable.", "",
         "**Step 6: Output / prediction** — each quotation gets a claim probability (Claim Possibility) "
         "and a risk level (Risk Assessment):", "",
         "| Risk level | Probability |", "|---|---|",
@@ -86,6 +101,7 @@ def _lr_body(row, result):
         "| Risk level | Quotations | With a counted loss | Loss rate |", "|---|---|---|---|",
         *[f"| {lvl} | {v['rows']} | {v['losses']} | {pct(v['loss_rate'])} |" for lvl, v in m["loss_rate_by_level"].items()], "",
         *_cv_table(m["cross_validation"]),
+        *_l2_table(m["l2_selection"]),
         "## Most important clues (largest weights)", "",
         "Positive weight = raises the claim probability. Odds ratio = how the odds of a loss change "
         "when the input is 1 instead of 0 (or 1 standard deviation higher for numbers).", "",

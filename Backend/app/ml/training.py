@@ -2,7 +2,8 @@
 
     python -m app.ml.training          (run from Backend/) trains all three now
 
-Every training run: fixed-seed stratified 75/25 split -> fit on the 75% -> evaluate on
+Every training run (Logistic Regression first picks its L2 strength λ by 5-fold
+cross-validation, choose_l2): fixed-seed stratified 75/25 split -> fit on the 75% -> evaluate on
 the held-back 25% (never seen during training) -> 5-fold stratified cross-validation on
 all rows (mean ± SD, because the Fire and fraud test sets are small) -> save the model
 trained on the 75% (so the stored accuracy belongs to the stored model) -> write
@@ -37,7 +38,10 @@ MODEL_NAMES = ("motor_lr", "fire_lr", "fraud_nb")
 SEED = 42
 TEST_FRACTION = 0.25
 CV_FOLDS = 5
-LR_SETTINGS = {"learning_rate": 0.5, "max_epochs": 50000, "tolerance": 1e-12, "l2": 0.01}
+LR_SETTINGS = {"learning_rate": 0.5, "max_epochs": 50000, "tolerance": 1e-12}
+# L2 strength λ: chosen on every training run by 5-fold cross-validation — the best mean
+# ROC AUC on the same stratified folds (ties -> the larger λ, i.e. the simpler model).
+LR_L2_CHOICES = (0.0001, 0.001, 0.01, 0.1, 1, 10)
 NB_ALPHA = 1.0
 # Stored with each fraud model (thresholds.fraud_cutoff). 0.5 = the documents' rule,
 # P(Fraud) > P(Legitimate). Change it here (next training stores the new value) — the
@@ -74,10 +78,16 @@ def risk_level(probability, thresholds):
     return "High" if probability >= thresholds["high_from"] else "Medium"
 
 
-def _fit_lr(frame, spec, train_idx):
+def lr_settings(l2):
+    # A strong penalty needs a smaller step, or gradient descent overshoots (λ = 10 at a
+    # learning rate of 0.5 diverges). The step stays 0.5 for λ <= 2.
+    return {**LR_SETTINGS, "l2": l2, "learning_rate": min(LR_SETTINGS["learning_rate"], 1 / l2)}
+
+
+def _fit_lr(frame, spec, train_idx, l2):
     train = frame.iloc[train_idx]
     encoder = features.FeatureEncoder(spec).fit(train)
-    model = LogisticRegression(**LR_SETTINGS).fit(encoder.transform(train), train["counted_loss"].to_numpy())
+    model = LogisticRegression(**lr_settings(l2)).fit(encoder.transform(train), train["counted_loss"].to_numpy())
     base = float(train["counted_loss"].mean())
     thresholds = {"medium_from": round(base, 2), "high_from": round(2 * base, 2)}
     return encoder, model, thresholds
@@ -93,6 +103,19 @@ def _lr_eval(frame, encoder, model, thresholds, idx):
     return y, p, result
 
 
+def choose_l2(frame, spec, y):
+    """5-fold CV for every λ in LR_L2_CHOICES on the same folds.
+    Returns (chosen λ, the λ table, the chosen λ's per-fold scores)."""
+    folds = stratified_kfold(y, CV_FOLDS, SEED)
+    table, fold_scores = [], {}
+    for l2 in LR_L2_CHOICES:
+        fold_scores[l2] = [_lr_eval(frame, *_fit_lr(frame, spec, tr, l2), te)[2] for tr, te in folds]
+        table.append({"l2": l2, "learning_rate": lr_settings(l2)["learning_rate"],
+                      **{k: mean_sd(fold_scores[l2], k) for k in ("roc_auc", "accuracy", "recall")}})
+    best = max(table, key=lambda r: (round(r["roc_auc"]["mean"], 4), r["l2"]))["l2"]
+    return best, table, fold_scores[best]
+
+
 def _lr_dataset(db, line, today):
     frame_fn = features.motor_quotation_frame if line == "motor" else features.fire_quotation_frame
     return features.ended_policy_rows(frame_fn(db), today)
@@ -105,14 +128,10 @@ def train_logistic(db, line, today, frame=None):
     y = frame["counted_loss"].to_numpy()
     _check_counts(y, f"{line} ended policies")
 
+    l2, l2_table, folds = choose_l2(frame, spec, y)
     train_idx, test_idx = stratified_split(y, TEST_FRACTION, SEED)
-    encoder, model, thresholds = _fit_lr(frame, spec, train_idx)
+    encoder, model, thresholds = _fit_lr(frame, spec, train_idx, l2)
     y_test, p_test, test = _lr_eval(frame, encoder, model, thresholds, test_idx)
-
-    folds = []
-    for tr, te in stratified_kfold(y, CV_FOLDS, SEED):
-        e, m, t = _fit_lr(frame, spec, tr)
-        folds.append(_lr_eval(frame, e, m, t, te)[2])
 
     levels = np.array([risk_level(p, thresholds) for p in p_test])
     by_level = {
@@ -130,6 +149,7 @@ def train_logistic(db, line, today, frame=None):
         "test_at_0_5": at_half,
         "baseline_accuracy": float(1 - y_test.mean()),  # always predicting "no loss"
         "cross_validation": {k: mean_sd(folds, k) for k in ("accuracy", "precision", "recall", "roc_auc")},
+        "l2_selection": {"chosen": l2, "table": l2_table},
         "loss_rate_by_level": by_level,
         "top_features": [{"feature": n, "weight": float(w), "odds_ratio": math.exp(w)} for n, w in weights[:10]],
     }
@@ -246,7 +266,8 @@ def data_signature(name, frame):
     else:
         spec = features.MOTOR_SPEC if name == "motor_lr" else features.FIRE_SPEC
         cols = ["quotation_id", *spec["categorical"], *spec["numeric"], *spec["binary"], "counted_loss"]
-        settings = {"lr": LR_SETTINGS, "spec": spec}
+        # The λ grid is a setting; the chosen λ follows from the data + grid.
+        settings = {"lr": LR_SETTINGS, "l2_choices": LR_L2_CHOICES, "spec": spec}
     settings.update(code=MODEL_CODE_VERSION, seed=SEED, test_fraction=TEST_FRACTION, cv_folds=CV_FOLDS)
     digest = hashlib.sha256(frame[cols].to_csv(index=False).encode("utf-8"))
     digest.update(json.dumps(settings, sort_keys=True).encode("utf-8"))

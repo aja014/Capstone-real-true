@@ -33,25 +33,26 @@ def test_training_rows_and_labels(db, line):
     ("fire", "fire_property", "fire_property_policy_id", "insurance_case_id"),
 ])
 def test_prior_counted_loss_matches_independent_sql(db, line, table, fk, group):
-    """Most recent earlier policy on the same vehicle / case, counted loss REPORTED BEFORE the quotation date."""
+    """Most recent earlier policy on the same vehicle / case had a Paid Claim REPORTED BEFORE the
+    quotation date (any outcome)."""
     sql = text(f"""
         SELECT q.id AS quotation_id, COALESCE((
             SELECT EXISTS (SELECT 1 FROM {table}_claims c
                            WHERE c.{fk} = p2.id AND c.claim_type = 'Paid Claim'
-                             AND c.final_status IN :statuses AND c.date_reported < q.quotation_date)
+                             AND c.date_reported < q.quotation_date)
             FROM {table}_policies p2 JOIN {table}_quotations q2 ON q2.id = p2.quotation_id
             WHERE q2.{group} = q.{group} AND q2.quotation_date < q.quotation_date
             ORDER BY q2.quotation_date DESC, q2.id DESC LIMIT 1), 0) AS expected
-        FROM {table}_quotations q""").bindparams(bindparam("statuses", expanding=True))
-    expected = pd.read_sql(sql, db.connection(), params={"statuses": features.COUNTED_LOSS_FINAL_STATUSES})
+        FROM {table}_quotations q""")
+    expected = pd.read_sql(sql, db.connection())
     frame = _frame(db, line).merge(expected, on="quotation_id")
     assert len(frame) == len(expected)
     assert (frame["prior_counted_loss"] == frame["expected"]).all()
 
 
 def test_prior_loss_reported_after_the_quotation_is_not_used(db):
-    """Renewal quotations whose previous policy DID have a counted loss, but only reported on/after
-    the quotation date: the feature must be 0 (that loss wasn't known when quoting)."""
+    """Renewal quotations whose previous policy DID have a Paid Claim, but only reported on/after
+    the quotation date: the feature must be 0 (that claim wasn't known when quoting)."""
     sql = text("""
         SELECT q.id AS quotation_id FROM motor_quotations q
         JOIN motor_quotations q2 ON q2.vehicle_id = q.vehicle_id AND q2.quotation_date < q.quotation_date
@@ -60,14 +61,40 @@ def test_prior_loss_reported_after_the_quotation_is_not_used(db):
                        WHERE q3.vehicle_id = q.vehicle_id AND q3.quotation_date < q.quotation_date
                        ORDER BY q3.quotation_date DESC, q3.id DESC LIMIT 1)
           AND EXISTS (SELECT 1 FROM motor_claims c WHERE c.motor_policy_id = p2.id AND c.claim_type = 'Paid Claim'
-                      AND c.final_status IN :s AND c.date_reported >= q.quotation_date)
+                      AND c.date_reported >= q.quotation_date)
           AND NOT EXISTS (SELECT 1 FROM motor_claims c WHERE c.motor_policy_id = p2.id AND c.claim_type = 'Paid Claim'
-                          AND c.final_status IN :s AND c.date_reported < q.quotation_date)
-    """).bindparams(bindparam("s", expanding=True))
-    late = pd.read_sql(sql, db.connection(), params={"s": features.COUNTED_LOSS_FINAL_STATUSES})["quotation_id"]
+                          AND c.date_reported < q.quotation_date)
+    """)
+    late = pd.read_sql(sql, db.connection())["quotation_id"]
     assert len(late) > 0, "the dataset should contain at least one such case"
     frame = features.motor_quotation_frame(db).set_index("quotation_id")
     assert (frame.loc[late, "prior_counted_loss"] == 0).all()
+
+
+@pytest.mark.parametrize("line,table,fk,group", [
+    ("motor", "motor", "motor_policy_id", "vehicle_id"),
+    ("fire", "fire_property", "fire_property_policy_id", "insurance_case_id"),
+])
+def test_prior_claim_counts_whatever_its_outcome(db, line, table, fk, group):
+    """Fix round A2 (P6.11): an earlier Paid Claim that never became a counted loss (Denied,
+    Not Push Through, still open...) still sets the feature — its outcome is not used, since
+    it may only have been decided after the quotation."""
+    sql = text(f"""
+        SELECT q.id AS quotation_id FROM {table}_quotations q
+        JOIN {table}_quotations q2 ON q2.{group} = q.{group} AND q2.quotation_date < q.quotation_date
+        JOIN {table}_policies p2 ON p2.quotation_id = q2.id
+        WHERE q2.id = (SELECT q3.id FROM {table}_quotations q3 JOIN {table}_policies p3 ON p3.quotation_id = q3.id
+                       WHERE q3.{group} = q.{group} AND q3.quotation_date < q.quotation_date
+                       ORDER BY q3.quotation_date DESC, q3.id DESC LIMIT 1)
+          AND EXISTS (SELECT 1 FROM {table}_claims c WHERE c.{fk} = p2.id AND c.claim_type = 'Paid Claim'
+                      AND c.date_reported < q.quotation_date)
+          AND NOT EXISTS (SELECT 1 FROM {table}_claims c WHERE c.{fk} = p2.id AND c.claim_type = 'Paid Claim'
+                          AND c.final_status IN :s AND c.date_reported < q.quotation_date)
+    """).bindparams(bindparam("s", expanding=True))
+    outcome_open = pd.read_sql(sql, db.connection(), params={"s": features.COUNTED_LOSS_FINAL_STATUSES})["quotation_id"]
+    assert len(outcome_open) > 0, "the dataset should contain at least one such case"
+    frame = _frame(db, line).set_index("quotation_id")
+    assert (frame.loc[outcome_open, "prior_counted_loss"] == 1).all()
 
 
 @pytest.mark.parametrize("line", ["motor", "fire"])

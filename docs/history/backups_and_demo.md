@@ -110,6 +110,8 @@ Branch `demo-prep`. No app code change. Defense: October 14–15, 2026.
   Possibility + GIS **View** ("High Risk · Rated from the storm surge map (coastal
   flooding)") → search **Pagsisihan** → GIS View ("Medium Risk · Rated from the 100-year
   river flood map"). The table lists oldest first, so always search by name.
+- **Since the fix round (2026-10-02)** the warm-up retrains with a 5-fold λ search: measured
+  **3 min 2 s** for Motor + Fire (backend idle) — start it at least 5 minutes before the demo.
 - **Measured (rehearsal 2026-09-28, quote date 09-27)**: warm-up 28.6 s (retrained motor_lr);
   folder → types detected 1.5 s; Import All 10.4 s; refresh after upload 40.8 s server-side
   with no retrain → predictions ready ~51 s after clicking Import All; Proposal first load

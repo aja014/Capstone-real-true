@@ -73,6 +73,10 @@ There are two roles: **manager** and **admin**. The live database has 1 user (ro
   coverage designed for real life."; fields **Username**, **Password** (eye icon shows/hides);
   **Login** button ("Logging in..." while waiting). Right: photo.
 - Wrong username or password → browser alert **"Invalid username or password"**.
+- Backend not reachable (off, or no network) → **"Can't reach the server. Please try
+  again."**; any other server error (e.g. 500) → **"Something went wrong on the server.
+  Please try again."** (fix round 2026-10-02).
+- Spaces before/after the username are ignored (" Aaron James " logs in as "Aaron James").
 - Success stores the token, role and username in the browser and opens Overview (manager) or
   Policy Holder Information (admin).
 - No "Forgot password" / reset: the link exists in the code but is commented out.
@@ -106,9 +110,11 @@ Slides in from the left: MAAGAP logo, **"Malolos Branch"** (fixed text), avatar,
 ### Create Account (manager; Settings → Create an Account)
 - Fields: **Username** (required: "Username is required"), **Password** (with the hint),
   **Confirm Password** ("Passwords do not match"), checkbox "I agree to the **Terms of
-  Service** and **Privacy Policy**" (required: "You must agree to the terms"), **Sign Up**.
+  Service** and **Privacy Policy**" (required: "You must agree to the terms"), **Sign Up**
+  (disabled and reads "Creating…" while the request runs, so a double click sends one request).
 - Server errors shown in a red box: "Username is required.", the password rule, "User already
-  exists" (usernames are unique, case-insensitive).
+  exists" (usernames are unique, case-insensitive; spaces before/after the name are removed
+  before saving and before the check, so "X " and " x" both count as "X").
 - Success → "Account Created! Your account has been successfully created." → **Continue**.
 - The new account is role admin.
 - The two links open the document on top of the form (typed values are kept). Each shows the
@@ -170,16 +176,17 @@ Assessment, Claim Possibility), `GET /stats/policy-forecast`, `GET /ml/models`.
 | Card "**Converted Accounts**" | Of those, how many became a policy | quotation has a linked policy (`policies.quotation_id`) | period/month | **291** |
 | Card "**Conversion Rate**" | Share converted | Converted ÷ Total × 100, rounded to a whole % (0 if no quotations) | period/month | **78%** |
 | Chart "**Monthly Quotation Conversion Trend**" (month mode: "**Daily …**") | Per month (per day in month mode), stacked **Converted** (indigo) + **Not Yet Converted** (light indigo); each segment labelled with its own count; the bar height = total | same counts, grouped by `quotation_date` month/day | period/month | Apr 53+18 · May 46+8 · Jun 49+11 · Jul 52+16 · Aug 46+7 · Sep 45+21 |
-| Pie "**Fire & Property**" (right of chart) | Not Yet Converted vs Converted Account, Fire quotations in range | as above, Fire only | period/month | 30 / 144 |
+| Pie "**Fire & Property**" (right of chart) | Not Yet Converted vs Converted Account, Fire quotations in range; a grey "No data yet" circle when the range has none (since 2026-10-02) | as above, Fire only | period/month | 30 / 144 |
 | Pie "**Motor & Car**" | same for Motor | as above | period/month | 51 / 147 |
 | Card "**Average Claim Possibility**" (right, below pies), caption "Based on N quotations · All lines" (or the chosen line) | Mean predicted claim probability of the rows the table currently lists that have a prediction | mean of `claim_probability` over the filtered table rows (all pages), rounded to whole % | period/month **and** every table filter + search | **15%**, based on 372 (Motor alone 20.5% → "21%"; Fire alone 9.2% → "9%") |
-| Card "**<Month> Policy Forecast**" | Next month's expected new policies (statistics, see §14) | `GET /stats/policy-forecast` | **nothing** (fixed) | "October Policy Forecast ≈ 46 new policies · Motor 25 · Fire & Property 21 · Based on ≈ 57 quotations a month and past conversion rates (Motor 77% · Fire & Property 84%), past 12 months · Open now: 8 quotations → ≈ 5 policies within 7 days · Backtest, last 12 months: off by 11% on average" |
-| Card "**Model accuracy (Logistic Regression)**", "5-fold average (cross-validation)" | Per line: "X% accurate", "catches Y% of losses", "vN · trained <date>" | `GET /ml/models`: CV mean accuracy, CV mean recall (see §13) | nothing | Motor Car **64%** accurate, catches **51%** of losses, v2 · trained Sep 27, 2026 · Fire & Property **60%**, **68%**, v2 · Sep 27, 2026 |
+| Card "**<Month> Policy Forecast**" | Next month's expected new policies (statistics, see §14) | `GET /stats/policy-forecast` | **nothing** (fixed) | Example **as of 2026-09-28** (recomputed every day, so today's card differs): "October Policy Forecast ≈ 46 new policies · Motor 25 · Fire & Property 21 · Based on ≈ 57 quotations a month and past conversion rates (Motor 77% · Fire & Property 84%), past 12 months · Open now: 8 quotations → ≈ 5 policies within 7 days · Backtest, last 12 months: off by 11% on average" |
+| Card "**Model accuracy (Logistic Regression)**", "5-fold average (cross-validation)" | Per line: "X% accurate", "catches Y% of losses", "AUC 0.NN (0.5 = guessing)", "vN · trained <date>" | `GET /ml/models`: CV mean accuracy, CV mean recall, CV mean ROC AUC to 2 decimals (see §13) | nothing | Motor Car **64%** accurate, catches **51%** of losses, AUC **0.62**, v2 · trained Sep 27, 2026 · Fire & Property **60%**, **68%**, AUC **0.66**, v2 · Sep 27, 2026 |
 
 **Table** (bottom left). Toolbar: **Select Month**, **Risk Assessment: All** (All/Low/Medium/High),
 **Policy Line: All** (All/Fire & Property/Motor Car), **Status: All** (All/Converted/Not Yet
 Converted), search box "Search Quotation..." (matches any field of the row, including fields
-not shown such as address and middle name); "N results" appears while searching; "Updating
+not shown such as address and middle name; dates also match as shown, MM/DD/YYYY; empty
+fields never match words like "null" — same search as §8, `lib/search.js`); "N results" appears while searching; "Updating
 predictions…" (violet) while a model refresh runs.
 
 | Column | Meaning / source |
@@ -350,9 +357,13 @@ Counts of **all** records, both lines (no filters):
 - **Filter by Date** calendar (not on Client Information / Vehicle Information): keeps rows
   whose date equals the **exact day** picked (Policy: Issue Date; Quotation: Quotation Date;
   Claims: **Date of Loss**; Survey Report: the import timestamp `created_at` — all 481 surveys
-  = 09/27/2026). Rows with an empty date always stay (§18).
-- Search "Search <Type>..." — matches any field of the row (including hidden fields); "N
-  results".
+  = 09/27/2026). Rows with an empty date always stay (§18). The day is read as written
+  (local date): before 2026-10-02 a survey imported before 08:00 landed on the previous day.
+- Search "Search <Type>..." — matches any field of the row (including hidden fields) as it is
+  **shown**: dates also as MM/DD/YYYY, money also as ₱1,234.56 / 1,234.56 / 1234.56, the JSON
+  fields (View popups) by their keys and text values (e.g. "sprinklers"); empty fields never
+  match "null"/"undefined" and JSON fields never match "object" (`lib/search.js`, since
+  2026-10-02); "N results".
 - Messages: "Loading <type>...", "No records found.", "Failed to load …".
 - "Updating fraud predictions…" (Claims tab) after an upload/resolve while the model refresh runs.
 - Every row ends with a trash icon (**Actions**) → confirm "Delete … ? This moves the record
@@ -367,6 +378,11 @@ Counts of **all** records, both lines (no filters):
 - Fire only: Coverage Description · Sum Insured · Unit Cost Premium · Property Insured ·
   Construction · Occupancy.
 - Motor only: Sum Insured · COC No. · COI No. · Endorsement No. · Deductible.
+- **Motor screen order** (21): Policy ID · Policy No. · Quotation ID · Client Name · Insured
+  Name & Address · Line of Insurance · Issue Date · Period From · Period To · Renewing Policy
+  No. · TIN · Agency Code · **Sum Insured** · Total Amount Due · Replacing Cover Note No. ·
+  Premium Invoice No. · Official Receipt No. · COC No. · COI No. · Endorsement No. ·
+  Deductible (Sum Insured sits between Agency Code and Total Amount Due).
 - Delete: archive; blocked (409) if the policy has claims.
 
 ### Tab: Quotation (Fire 19 / Motor 19 columns)
@@ -429,12 +445,18 @@ Two modes (top-left toggle): **Single file** / **Folder**. Files: `.xlsx`, `.xls
   - unsure: "**Select the file type**" + "Couldn't confidently tell which type this is —
     could be A or B." + dropdown "Select type..." + **Confirm** / Start over
   → "Uploading..." → "**Import complete** — N rows — X matched, Y new, Z needs review, W
-  failed" (first error shown in red, "Row n: …") / "Upload failed" + reason + Try again.
+  failed", then **every** failed row in red ("Row n: reason") and every warning in amber
+  (e.g. a Survey's occupancy total, a reused vehicle's conflicting identifier); more than 10
+  lines collapse with "**Show all (N)**" / "Show less" (since 2026-10-02) / "Upload failed" +
+  reason + Try again.
 - **Folder**: "Upload a Folder — Click to choose a folder of Excel/CSV files · Each file's type
   is detected automatically from its columns" → "Reading files..." → "**Confirm file types**"
   (one row per file with a type dropdown; **amber** = couldn't be detected confidently,
-  "Could be A or B" — pick manually) → **Import All (N)** (enabled once every file has a
-  type) → "Import complete" with the same per-file line → "Upload another folder".
+  "Could be A or B" — pick manually; a file that can't be opened shows "**Can't be read:
+  <reason> · will be skipped**") → **Import All (N)** (N = readable files; enabled once each of
+  them has a type) → "Import complete" with the same per-file line, the same list of failed
+  rows / warnings per file, and a grey "**Skipped — can't be read: <reason>**" row for each
+  unreadable file → "Upload another folder".
   Drag-and-drop of a folder is not supported ("Drag-and-drop isn't supported for folders yet
   — click to browse instead."); an empty folder → "This folder is empty — please select a
   folder that contains files."
@@ -467,7 +489,8 @@ Title "Needs Review (N)"; "Nothing needs review right now." when empty. Each row
 ### 9.3 GIS popup ("View" in the Proposal table)
 Left: satellite map (Esri World Imagery via Leaflet, loaded from the internet) with a red pin,
 or the text "No coordinates on file for this quotation yet". Right: the address (Fire =
-Location of Risk, Motor = Address; "Address not on file"), "Flood Risk Assessment", then one
+Location of Risk — or, if the quotation has none, its survey's Location of Risk (since
+2026-10-02); Motor = Address; "Address not on file"), "Flood Risk Assessment", then one
 of:
 
 | State | Headline | Line under it |
@@ -488,7 +511,8 @@ A white box titled with the column name, showing the stored data as formatted JS
 with X or outside.
 
 ### 9.5 Model accuracy cards
-See §13.8.
+Per model: "X% accurate", "catches Y% of …", "**AUC 0.NN (0.5 = guessing)**" (since
+2026-10-02), "vN · trained <date>". See §13.8.
 
 ### 9.6 Pickers
 - "**Select Month**" (month + year; Proposal, Claims, Distribution YTD, Renewal YTD).
@@ -569,6 +593,10 @@ new client**.
       exactly.
     - Known vehicle → its case is reused (a re-quote); same date + same Total Amount Due →
       "matched".
+    - A reused vehicle gets any **empty** Plate / Engine / Chassis No. filled in from the
+      quotation row (so a later re-quote found by any of them reaches it). A different
+      non-empty value never overwrites the stored one, and a number already used by another
+      vehicle is not copied — both give a warning in the import result (since 2026-10-02).
     - Vehicle file: a known vehicle → "matched", nothing created. A new vehicle → case +
       vehicle, **no quotation**.
   - **Policy (Fire / Motor)**:
@@ -643,7 +671,9 @@ Discarding (trash) archives the import row (§11).
 | User account | — | no delete in the app (only by SQL, permanent — no archive) | — |
 
 - "Archived" = a full copy is saved in the matching `deleted_*` table first, then the live
-  row is removed.
+  row is removed. The archive row's `deleted_by` holds the **username** of the user who
+  deleted it (since 2026-10-02; older archive rows have it empty). Creating and changing
+  records do not record a user.
 - Archives can be read back through `GET /deleted-…` endpoints, but there is no screen for
   them.
 - Deleting doesn't trigger a model refresh; the next refresh drops predictions of deleted
@@ -723,7 +753,7 @@ tables.
 | vehicle_age | year of quotation date − `vehicles.model` (model year), at least 0 | number |
 | log_sum_insured | log of `motor_quotations.sum_insured` | number |
 | deductible | `motor_quotations.deductible` | number |
-| prior_counted_loss | the vehicle's most recent earlier policy had a counted loss **reported before** this quotation date | 0/1 |
+| prior_counted_loss | the vehicle's most recent earlier policy had a **Paid Claim reported before** this quotation date — whatever its outcome (not used: it may only be decided after the quote; since 2026-10-02, before: only claims that became a counted loss) | 0/1 |
 
 **Fire** (from the quotation and the **latest survey** of its case):
 
@@ -736,13 +766,15 @@ tables.
 | fire_protection_count | how many of 8 fire items are ticked in the survey's Protection Facilities (fire extinguisher, smoke detector, heat detector, fire alarm, sprinklers, internal hydrants, external hydrants, fire breaks/doors) | number 0–8 |
 | construction_class_b | survey `risk_class` = b | 0/1 |
 | has_loss_record | survey `loss_record` starts with "With loss history" | 0/1 |
-| prior_counted_loss | same property's (insurance case's) earlier policy had a counted loss reported before this quotation date | 0/1 |
+| prior_counted_loss | same property's (insurance case's) earlier policy had a Paid Claim reported before this quotation date, whatever its outcome (as for Motor) | 0/1 |
 
 - Encoding: each category becomes a 0/1 column for every value seen in the training rows (an
   unseen value → all 0). Numbers are scaled to mean 0 / SD 1 using the training rows (missing
   → the training mean). Yes/no stays 0/1.
 
-**Fraud** (10 "clues", all known when the claim is filed):
+**Fraud** (10 "clues", all known **by the time the claim is investigated**: 8 are known when
+the claim is filed; the documents date (days_report_to_documents) and the repair estimate
+(estimate_to_sum_insured) arrive shortly after):
 
 | Clue | Source | Values |
 |---|---|---|
@@ -777,9 +809,20 @@ Never used as inputs: Final Status, LOA, Net Liability, the investigation result
 ### 13.4 Settings
 - **Logistic Regression**:
   - z = Σ weight × input + bias → sigmoid.
-  - Full-batch gradient descent on log-loss, learning rate **0.5**, stops when the loss
+  - Full-batch gradient descent on log-loss, learning rate **0.5** (min(0.5, 1/λ), so 0.1
+    at λ = 10 — a larger step makes gradient descent diverge there), stops when the loss
     changes by less than **1e-12**, at most **50,000** epochs.
-  - **L2** penalty λ = **0.01** (λ/2 × Σw², weights only, not the bias).
+  - **L2** penalty λ/2 × Σw² (weights only, not the bias). **λ is chosen on every training
+    run by 5-fold cross-validation** from **0.0001, 0.001, 0.01, 0.1, 1, 10**: the best mean ROC AUC
+    on the same stratified folds (seed 42) wins, ties → the larger λ. The chosen λ and the
+    whole table are stored with the model (`parameters.model.l2`, `metrics.l2_selection`)
+    and printed in the report. The CV scores shown are the chosen λ's (slightly optimistic,
+    since the same folds chose it). Until 2026-10-02 λ was fixed at 0.01.
+  - λ table on 2026-10-02 data (CV ROC AUC, λ = 0.0001 … 10): Motor 0.619 / 0.624 /
+    **0.637** / 0.628 / 0.601 / 0.592 → **0.01**; Fire 0.680 / **0.681** / 0.673 / 0.662 /
+    0.652 / 0.651 → **0.001**. Both choices are inside the grid. The λ = 0.0001 fits stop at
+    the 50,000-epoch cap (not fully converged; every other λ stops by the tolerance). The v2
+    models (trained 2026-09-27) used λ = 0.01.
 - **Naive Bayes**:
   - prior × product of the per-clue likelihoods for each class.
   - **Laplace smoothing α = 1**: (count + 1) ÷ (claims in class + K), K = number of possible
@@ -823,10 +866,12 @@ the same).
 - "Predicted positive" = Medium or High for Logistic Regression (p ≥ medium_from); p > 0.3
   for Naive Bayes.
 - **5-fold CV**: the mean ± SD over the 5 folds (SD with n−1).
-- The **cards show the CV means** of accuracy and recall.
+- The **cards show the CV means** of accuracy, recall and ROC AUC ("AUC 0.62 (0.5 =
+  guessing)", 2 decimals, since 2026-10-02 — accuracy alone is below the "always predict no"
+  baseline for these rare-event models, see the reports).
 - Reports also show: the 25 % test scores + confusion matrix; the score at a 0.5 cutoff; the
-  "always predict no" baseline; loss rate per risk level; top weights and odds ratios; the
-  Motor colour control check; the Naive Bayes cutoff table (0.5 / 0.4 / 0.3 / 0.2) and its
+  "always predict no" baseline; loss rate per risk level; the λ table (Logistic Regression);
+  top weights and odds ratios; the Motor colour control check; the Naive Bayes cutoff table (0.5 / 0.4 / 0.3 / 0.2) and its
   strongest clues.
 
 **Current active versions (live)**
@@ -845,8 +890,10 @@ the same).
   - **resolving** a Needs Review row.
 - Customer Info and Vehicle uploads, deletes and manual edits do **not** trigger it.
 - Refreshes requested while one is running are merged into one more run.
-- **Fingerprint**: SHA-256 of the training rows (ids, inputs, labels) + all settings (+ a code
-  version number). Same as the last attempt → no retrain, only the predictions are rewritten.
+- **Fingerprint**: SHA-256 of the training rows (ids, inputs, labels) + all settings,
+  including the λ grid (the chosen λ follows from data + grid) (+ a code version number).
+  The fix round (2026-10-02) changed both LR fingerprints (new λ grid, new prior rule), not
+  the fraud one. Same as the last attempt → no retrain, only the predictions are rewritten.
   Different → train a new version (the old one becomes "superseded").
 - Because training uses "policies ended **before today**", the fingerprint changes as days
   pass:
@@ -859,8 +906,12 @@ the same).
 - **Warm-up** (defense morning, from `Backend/`):
   `./venv/Scripts/python -c "from app.ml import jobs; jobs.refresh_now('pre-demo warm-up'); print(jobs.status)"`
   runs that retrain before the demo, so the live upload only rewrites predictions (rehearsal
-  2026-09-28: warm-up 28.6 s; later upload refresh 40.8 s, no retrain).
+  2026-09-28: warm-up 28.6 s; later upload refresh 40.8 s, no retrain). Since the λ search the
+  warm-up takes ≈ 3 min (2026-10-02: 3 min 2 s) — start it early.
 - While a refresh runs, other requests are slower (training shares the web server's process).
+  Since the λ search (2026-10-02, 31 fits per Logistic Regression instead of 6; the six
+  λ = 0.0001 fits each run the full 50,000 epochs) a refresh that retrains Motor + Fire takes
+  ≈ **3 min** (warm-up measured 2026-10-02: 3 min 2 s, backend otherwise idle).
 - **Report files**: `model_reports/<data date>_<model>_v<N>.md` at the repository root
   (gitignored), one per training (e.g. `2026-09-27_motor_lr_v2.md`), plus
   `2026-09-27_policy_forecast_backtest.md`.
@@ -869,27 +920,30 @@ the same).
 
 ## 14. Policy Forecast (method) — Proposal card, statistics not ML
 
-Per line (Motor Car, Fire & Property), from (quotation date, policy issue date) pairs:
+Per line (Motor Car, Fire & Property), from (quotation date, policy issue date) pairs. The
+numbers below are **examples as of 2026-09-28**; the card recomputes them every day, so
+today's card shows different values (the method is the same).
+
 - **W (waiting period)** = 95th percentile of days from quotation to policy, rounded up.
-  Live: **7** days both lines.
+  Example (2026-09-28): **7** days both lines.
 - **Conversion rate**:
   - Numerator: quotations that became a policy within W days.
   - Denominator: quotations old enough to be decided (age W … W + 364 days).
-  - Live: Motor 302 ÷ 390 = **77.4 %**, Fire 254 ÷ 301 = **84.4 %**.
-- **Quotations per month** = quotations of the past 365 days ÷ 12. Live: Motor 386 ÷ 12 =
+  - Example (2026-09-28): Motor 302 ÷ 390 = **77.4 %**, Fire 254 ÷ 301 = **84.4 %**.
+- **Quotations per month** = quotations of the past 365 days ÷ 12. Example (2026-09-28): Motor 386 ÷ 12 =
   32.2, Fire 302 ÷ 12 = 25.2 (total **57.3**).
-- **Next month's expected new policies** = per month × rate. Live: Motor 24.9, Fire 21.2 →
+- **Next month's expected new policies** = per month × rate. Example (2026-09-28): Motor 24.9, Fire 21.2 →
   **October 2026 ≈ 46**.
 - **Open now**:
-  - Quotations without a policy and younger than W (live **8**: Motor 5, Fire 3).
+  - Quotations without a policy and younger than W (example 2026-09-28: **8**: Motor 5, Fire 3).
   - Each counts with P(converts | still open at its age) = (share of past quotations that
     converted after that age) ÷ (share still unconverted at that age).
-  - Live ≈ **4.6 → "≈ 5 policies within 7 days"**. Not added to the monthly number.
+  - Example (2026-09-28) ≈ **4.6 → "≈ 5 policies within 7 days"**. Not added to the monthly number.
 - **Backtest**:
   - For each of the last 12 complete months, forecast it on the 1st of the month before,
     using only data known that day, and compare with the policies actually issued.
   - Average monthly error = mean of |forecast − actual| ÷ actual.
-  - Live: total **10.7 %** ("off by 11%"), Motor 14.0 %, Fire 24.2 %.
+  - Example (2026-09-28): total **10.7 %** ("off by 11%"), Motor 14.0 %, Fire 24.2 %.
   - 12-month total error: −3.3 % (Motor −1.9 %, Fire −5.1 %).
 - Not affected by any page filter. Quotations with no date are left out. A policy with no
   issue date counts as issued on its quotation date.
@@ -986,8 +1040,9 @@ Per line (Motor Car, Fire & Property), from (quotation date, policy issue date) 
 
 ## 18. Found while inventorying — unclear, inconsistent or possibly wrong
 
-Items marked **Fixed 2026-09-28** were fixed on branch `predefense-fixes`; the others are
-still open (left as is on purpose).
+Items marked **Fixed 2026-09-28** were fixed on branch `predefense-fixes`, items marked
+**Fixed 2026-10-02** on branch `fix-round` (validation Phases 0–8, see
+`docs/validation/VALIDATION_LOG.md`); the others are still open (left as is on purpose).
 
 1. **"Renewed" means two different things.**
    - Policy Distribution: a policy that **has** a Renewing Policy No. (it is itself a
@@ -1030,11 +1085,16 @@ still open (left as is on purpose).
      (searching "Pelayo" returns 9 rows, some only by middle name).
    - The Claims page searches 4 fields.
    - The Distribution/Renewal tables search the policy number and client only.
+   - **Fixed 2026-10-02** (Proposal + Policy Holder Information): the search now matches what
+     is shown (dates MM/DD/YYYY, ₱ amounts, JSON popup text) and never "null"/"object". The
+     field sets still differ between pages.
 10. **Policy Holder Information "Filter by Date"**:
     - It picks one exact day (not a month).
     - Rows with an **empty** date are never filtered out.
     - On Survey Report it uses the import timestamp (all 481 surveys = 09/27/2026), so it
       doesn't reflect any survey date.
+    - **Fixed 2026-10-02**: the Survey timestamp was read in UTC, so a survey imported before
+      08:00 showed on the previous day (Sep 27 → 0 rows); it now uses the date as written.
 11. **Manager-only pages are enforced only in the browser.** `/stats/*`, `/ml/*` and every
     CRUD/delete/import endpoint accept any logged-in user, so an admin token can call them
     directly. The only server-side role check is Create Account.
@@ -1065,6 +1125,8 @@ still open (left as is on purpose).
     - Motor ≈ 79 % and Fire ≈ 91 % of rows have no loss. The Logistic Regression cards say
       64 % / 60 % because they count Medium/High as "predicted loss" (to catch more losses).
     - Correct as designed, but likely to be questioned; the recall line is the meaningful one.
+    - **Fixed 2026-10-02**: the cards add "AUC 0.NN (0.5 = guessing)", which doesn't depend on
+      the cutoff.
 18. **Average Claim Possibility mixes lines when Policy Line = All.** Fire's base rate is about
     9 % and Motor's about 21 %, so the "15 %" average depends on the line mix.
 19. **Fraud Warning shows P(Fraud) on both labels.** "Not suspicious · 29 %" is possible
@@ -1087,3 +1149,22 @@ still open (left as is on purpose).
 25. **Vehicle Information shows "Policyholder ID"** where the other tabs show Case ID.
 26. **Vehicle Information files can never be auto-detected** (their headers are a subset of
     Motor Quotation's), so a manual type pick is always needed.
+27. **Fix round 2026-10-02 — other items fixed** (details in the sections named):
+    - `deleted_by` is filled with the deleting user's username on every archive (§11).
+    - A reused vehicle gets its empty Plate/Engine/Chassis No. from the quotation row (§10.4).
+    - Usernames: surrounding spaces removed on create and ignored at login (§2).
+    - Upload results list every failed row and warning; an unreadable file in a folder is
+      skipped instead of blocking Import All (§9.1).
+    - Sign Up can't be double-clicked; Login says "Can't reach the server" when the backend is
+      off (§2).
+    - GIS popup: a Fire quotation without its own Location of Risk shows its survey's (§9.3).
+    - Proposal pies show "No data yet" (§4).
+    - Models: prior_counted_loss counts any earlier Paid Claim reported before the quote,
+      whatever its outcome; λ chosen by 5-fold CV; fraud clue wording (§13).
+    - Terms 7/8 and Privacy 7 reworded to match the system (Terms 8 heading "Account removal.").
+28. **λ = 0.0001 does not converge within 50,000 epochs.** It was added so Fire's choice
+    (0.001) isn't at the edge of the grid; its fits stop at the epoch cap (CV AUC 0.680 vs
+    0.681 at 0.001, so it is not chosen) and make each LR training slower.
+29. **The Motor colour control weight is still not near 0** (Black ≈ +0.37 at the chosen
+    λ = 0.01). Larger λ shrinks it (+0.12 at 0.1) but lowers the CV AUC at every step, so the
+    CV keeps 0.01; the weight is the noise level of ~840 rows (validation P6.28, "Addressed").

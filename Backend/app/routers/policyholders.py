@@ -45,7 +45,7 @@ def get_policyholder(policyholder_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/policyholders/{policyholder_id}", response_model=schemas.DeletedPolicyholderOut)
-def delete_policyholder(policyholder_id: int, db: Session = Depends(get_db)):
+def delete_policyholder(policyholder_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     db_policyholder = db.query(models.Policyholder).filter(
         models.Policyholder.id == policyholder_id
     ).first()
@@ -64,7 +64,7 @@ def delete_policyholder(policyholder_id: int, db: Session = Depends(get_db)):
         )
 
     snapshot = schemas.PolicyholderOut.model_validate(db_policyholder).model_dump(mode="json")
-    archived = models.DeletedPolicyholder(original_id=db_policyholder.id, data=snapshot)
+    archived = models.DeletedPolicyholder(original_id=db_policyholder.id, data=snapshot, deleted_by=current_user.username)
     db.add(archived)
 
     # Import records referencing this policyholder are independent audit

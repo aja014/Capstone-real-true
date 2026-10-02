@@ -107,12 +107,12 @@ def update_motor_claim(
 
 
 @router.delete("/motor/claims/{claim_id}", response_model=schemas.DeletedMotorClaimOut)
-def delete_motor_claim(claim_id: int, db: Session = Depends(get_db)):
+def delete_motor_claim(claim_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     db_claim = get_motor_claim_or_404(db, claim_id)
 
     # Nothing depends on a claim, so no blocking condition is needed here.
     snapshot = schemas.MotorClaimOut.model_validate(db_claim).model_dump(mode="json")
-    archived = models.DeletedMotorClaim(original_id=db_claim.id, data=snapshot)
+    archived = models.DeletedMotorClaim(original_id=db_claim.id, data=snapshot, deleted_by=current_user.username)
     db.add(archived)
 
     db.delete(db_claim)
@@ -207,12 +207,12 @@ def update_fire_property_claim(
 
 
 @router.delete("/fire-property/claims/{claim_id}", response_model=schemas.DeletedFirePropertyClaimOut)
-def delete_fire_property_claim(claim_id: int, db: Session = Depends(get_db)):
+def delete_fire_property_claim(claim_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     db_claim = get_fire_property_claim_or_404(db, claim_id)
 
     # Nothing depends on a claim, so no blocking condition is needed here.
     snapshot = schemas.FirePropertyClaimOut.model_validate(db_claim).model_dump(mode="json")
-    archived = models.DeletedFirePropertyClaim(original_id=db_claim.id, data=snapshot)
+    archived = models.DeletedFirePropertyClaim(original_id=db_claim.id, data=snapshot, deleted_by=current_user.username)
     db.add(archived)
 
     db.delete(db_claim)

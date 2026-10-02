@@ -3,11 +3,14 @@
 Leakage rule: a Logistic Regression feature may only use information that existed on the
 QUOTATION date. So every feature comes from the quotation itself, its vehicle (Motor) or
 the case's survey (Fire) — never from the policy (construction, renewing_policy_no, issue
-date, premium) — and "renews a policy with a counted loss" only counts claims REPORTED
-BEFORE the quotation date. One training row = one ended policy, described by the
-quotation it came from; a new quotation is described the same way at prediction time.
+date, premium) — and "the previous policy had a claim" only counts Paid Claims REPORTED
+BEFORE the quotation date, whatever their outcome (often decided later). One training
+row = one ended policy, described by the quotation it came from; a new quotation is
+described the same way at prediction time.
 
-Naive Bayes clues are all known when a claim is filed; nothing decided later (final
+Naive Bayes clues are all known by the time the claim is investigated: 8 are known when
+the claim is filed; the documents date (days_report_to_documents) and the repair
+estimate (estimate_to_sum_insured) arrive shortly after. Nothing decided later (final
 status, LOA, net liability, the investigation result itself) is ever a clue.
 """
 import json
@@ -55,7 +58,7 @@ FEATURE_SOURCES = {
         "vehicle_age": "year of motor_quotations.quotation_date − vehicles.model (model year)",
         "log_sum_insured": "log of motor_quotations.sum_insured",
         "deductible": "motor_quotations.deductible",
-        "prior_counted_loss": "the vehicle's previous policy had a counted loss reported before this quotation date",
+        "prior_counted_loss": "the vehicle's previous policy had a Paid Claim reported before this quotation date (outcome not used)",
     },
     "fire": {
         "flood_category": "fire_property_surveys.flood_risk_category (worst of river flood / storm surge)",
@@ -65,7 +68,7 @@ FEATURE_SOURCES = {
         "fire_protection_count": "number of the 8 fire-protection items ticked in the Survey's protection_facilities",
         "construction_class_b": "fire_property_surveys.risk_class = 'b' (concrete & wood/light materials)",
         "has_loss_record": "fire_property_surveys.loss_record starts with 'With loss history'",
-        "prior_counted_loss": "the property's previous policy had a counted loss reported before this quotation date",
+        "prior_counted_loss": "the property's previous policy had a Paid Claim reported before this quotation date (outcome not used)",
     },
 }
 
@@ -86,26 +89,29 @@ def _flood_category(latitude, category):
     return category if isinstance(category, str) and category else "None"
 
 
-def _counted_claims(db, claims_table, policy_fk):
+def _paid_claims(db, claims_table, policy_fk):
+    """Every Paid Claim: its policy, report date, and whether it is a counted loss."""
     df = _read(
         db,
-        f"SELECT {policy_fk} AS policy_id, date_reported FROM {claims_table} "
-        "WHERE claim_type = :paid AND final_status IN :statuses",
-        paid=PAID_CLAIM, statuses=COUNTED_LOSS_FINAL_STATUSES,
+        f"SELECT {policy_fk} AS policy_id, date_reported, final_status FROM {claims_table} "
+        "WHERE claim_type = :paid",
+        paid=PAID_CLAIM,
     )
     df["date_reported"] = pd.to_datetime(df["date_reported"])
+    df["counted"] = df["final_status"].isin(COUNTED_LOSS_FINAL_STATUSES)
     return df
 
 
-def _add_label_and_prior_loss(frame, counted, group_col):
+def _add_label_and_prior_loss(frame, paid, group_col):
     """counted_loss: this row's own policy has a counted loss (the training label).
     prior_counted_loss: the most recent EARLIER policy for the same vehicle/property had a
-    counted loss whose claim was reported before this row's quotation date."""
+    Paid Claim reported before this row's quotation date. Its outcome is not used: whether
+    it became a counted loss may only have been decided after the quotation."""
     frame = frame.copy()
     frame["quotation_date"] = pd.to_datetime(frame["quotation_date"])
     frame["period_to"] = pd.to_datetime(frame["period_to"])
-    frame["counted_loss"] = frame["policy_id"].isin(counted["policy_id"]).astype(int)
-    first_report = counted.groupby("policy_id")["date_reported"].min()
+    frame["counted_loss"] = frame["policy_id"].isin(paid.loc[paid["counted"], "policy_id"]).astype(int)
+    first_report = paid.groupby("policy_id")["date_reported"].min()
 
     prior = pd.Series(0, index=frame.index)
     for _, group in frame.sort_values(["quotation_date", "quotation_id"]).groupby(group_col):
@@ -139,8 +145,7 @@ def motor_quotation_frame(db):
     df["vehicle_age"] = (pd.to_datetime(df["quotation_date"]).dt.year - model_year).clip(lower=0)
     df["log_sum_insured"] = np.log(pd.to_numeric(df["sum_insured"], errors="coerce").where(lambda s: s > 0))
     df["deductible"] = pd.to_numeric(df["deductible"], errors="coerce")
-    counted = _counted_claims(db, "motor_claims", "motor_policy_id")
-    return _add_label_and_prior_loss(df, counted, "vehicle_id")
+    return _add_label_and_prior_loss(df, _paid_claims(db, "motor_claims", "motor_policy_id"), "vehicle_id")
 
 
 def _fire_protection_count(value):
@@ -168,7 +173,7 @@ def fire_quotation_frame(db):
     df["fire_protection_count"] = df["protection_facilities"].map(_fire_protection_count)
     df["construction_class_b"] = (df["risk_class"] == "b").astype(int)
     df["has_loss_record"] = df["loss_record"].fillna("").str.startswith("With loss history").astype(int)
-    return _add_label_and_prior_loss(df, _counted_claims(db, "fire_property_claims", "fire_property_policy_id"),
+    return _add_label_and_prior_loss(df, _paid_claims(db, "fire_property_claims", "fire_property_policy_id"),
                                      "insurance_case_id")
 
 

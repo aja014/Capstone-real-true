@@ -54,7 +54,7 @@ def get_vehicle(vehicle_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/motor/vehicles/{vehicle_id}", response_model=schemas.DeletedVehicleOut)
-def delete_vehicle(vehicle_id: int, db: Session = Depends(get_db)):
+def delete_vehicle(vehicle_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     db_vehicle = db.query(models.Vehicle).filter(
         models.Vehicle.id == vehicle_id
     ).first()
@@ -76,7 +76,7 @@ def delete_vehicle(vehicle_id: int, db: Session = Depends(get_db)):
         )
 
     snapshot = schemas.VehicleOut.model_validate(db_vehicle).model_dump(mode="json")
-    archived = models.DeletedVehicle(original_id=db_vehicle.id, data=snapshot)
+    archived = models.DeletedVehicle(original_id=db_vehicle.id, data=snapshot, deleted_by=current_user.username)
     db.add(archived)
 
     db.delete(db_vehicle)
@@ -144,7 +144,7 @@ def get_quotations_for_case(case_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/motor/quotations/{quotation_id}", response_model=schemas.DeletedMotorQuotationOut)
-def delete_quotation(quotation_id: int, db: Session = Depends(get_db)):
+def delete_quotation(quotation_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     db_quotation = db.query(models.MotorQuotation).filter(
         models.MotorQuotation.id == quotation_id
     ).first()
@@ -164,7 +164,7 @@ def delete_quotation(quotation_id: int, db: Session = Depends(get_db)):
         )
 
     snapshot = schemas.MotorQuotationOut.model_validate(db_quotation).model_dump(mode="json")
-    archived = models.DeletedMotorQuotation(original_id=db_quotation.id, data=snapshot)
+    archived = models.DeletedMotorQuotation(original_id=db_quotation.id, data=snapshot, deleted_by=current_user.username)
     db.add(archived)
 
     db.delete(db_quotation)
@@ -217,7 +217,7 @@ def get_policy(policy_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/motor/policies/{policy_id}", response_model=schemas.DeletedMotorPolicyOut)
-def delete_policy(policy_id: int, db: Session = Depends(get_db)):
+def delete_policy(policy_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     db_policy = db.query(models.MotorPolicy).filter(
         models.MotorPolicy.id == policy_id
     ).first()
@@ -235,7 +235,7 @@ def delete_policy(policy_id: int, db: Session = Depends(get_db)):
         )
 
     snapshot = schemas.MotorPolicyOut.model_validate(db_policy).model_dump(mode="json")
-    archived = models.DeletedMotorPolicy(original_id=db_policy.id, data=snapshot)
+    archived = models.DeletedMotorPolicy(original_id=db_policy.id, data=snapshot, deleted_by=current_user.username)
     db.add(archived)
 
     db.delete(db_policy)

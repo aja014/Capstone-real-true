@@ -73,7 +73,9 @@ export async function fetchAllQuotations() {
     client_name: resolveClientName(q.insurance_case_id),
     converted_policy_no: fpPolicyByQuotation.get(q.id) ?? null,
     is_converted: fpConvertedByQuotation.has(q.id),
-    address_label: q.location_of_risk,
+    // A Fire quotation without its own Location of Risk shows its survey's (the map and
+    // rating already come from that survey).
+    address_label: q.location_of_risk || surveyByCase.get(q.insurance_case_id)?.location_of_risk || null,
     ...gisFromSurvey(q.insurance_case_id),
   }));
   const motor = motorQRes.data.map((q) => ({

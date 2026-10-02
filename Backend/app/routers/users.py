@@ -22,14 +22,15 @@ def create_user( user: schemas.UserCreate, db: Session = Depends(get_db), curren
             detail="Only managers can create admin accounts."
         )
 
-    if not user.username.strip():
+    username = user.username.strip()  # "X " and "X" are the same name
+    if not username:
         raise HTTPException(status_code=400, detail="Username is required.")
 
     rule_error = password_rule_error(user.password)
     if rule_error:
         raise HTTPException(status_code=400, detail=rule_error)
 
-    existing_user = get_user_by_username(db, user.username)
+    existing_user = get_user_by_username(db, username)
 
     if existing_user:
         raise HTTPException(
@@ -40,7 +41,7 @@ def create_user( user: schemas.UserCreate, db: Session = Depends(get_db), curren
     hashed_password = hash_password(user.password) 
 
     db_user = models.User(
-        username=user.username,
+        username=username,
         password=hashed_password,
         role="admin"
     )

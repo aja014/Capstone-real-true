@@ -59,7 +59,7 @@ def get_survey(survey_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/fire-property/surveys/{survey_id}", response_model=schemas.DeletedFirePropertySurveyOut)
-def delete_survey(survey_id: int, db: Session = Depends(get_db)):
+def delete_survey(survey_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     db_survey = db.query(models.FirePropertySurvey).filter(
         models.FirePropertySurvey.id == survey_id
     ).first()
@@ -69,7 +69,7 @@ def delete_survey(survey_id: int, db: Session = Depends(get_db)):
     # Unconditional — nothing in the schema has a FK pointing at a survey
     # (unlike Vehicle/Quotation, which have real dependents), same as Policy.
     snapshot = schemas.FirePropertySurveyOut.model_validate(db_survey).model_dump(mode="json")
-    archived = models.DeletedFirePropertySurvey(original_id=db_survey.id, data=snapshot)
+    archived = models.DeletedFirePropertySurvey(original_id=db_survey.id, data=snapshot, deleted_by=current_user.username)
     db.add(archived)
 
     db.delete(db_survey)
@@ -128,7 +128,7 @@ def get_quotations_for_case(case_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/fire-property/quotations/{quotation_id}", response_model=schemas.DeletedFirePropertyQuotationOut)
-def delete_quotation(quotation_id: int, db: Session = Depends(get_db)):
+def delete_quotation(quotation_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     db_quotation = db.query(models.FirePropertyQuotation).filter(
         models.FirePropertyQuotation.id == quotation_id
     ).first()
@@ -149,7 +149,7 @@ def delete_quotation(quotation_id: int, db: Session = Depends(get_db)):
         )
 
     snapshot = schemas.FirePropertyQuotationOut.model_validate(db_quotation).model_dump(mode="json")
-    archived = models.DeletedFirePropertyQuotation(original_id=db_quotation.id, data=snapshot)
+    archived = models.DeletedFirePropertyQuotation(original_id=db_quotation.id, data=snapshot, deleted_by=current_user.username)
     db.add(archived)
 
     db.delete(db_quotation)
@@ -202,7 +202,7 @@ def get_policy(policy_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/fire-property/policies/{policy_id}", response_model=schemas.DeletedFirePropertyPolicyOut)
-def delete_policy(policy_id: int, db: Session = Depends(get_db)):
+def delete_policy(policy_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     db_policy = db.query(models.FirePropertyPolicy).filter(
         models.FirePropertyPolicy.id == policy_id
     ).first()
@@ -220,7 +220,7 @@ def delete_policy(policy_id: int, db: Session = Depends(get_db)):
         )
 
     snapshot = schemas.FirePropertyPolicyOut.model_validate(db_policy).model_dump(mode="json")
-    archived = models.DeletedFirePropertyPolicy(original_id=db_policy.id, data=snapshot)
+    archived = models.DeletedFirePropertyPolicy(original_id=db_policy.id, data=snapshot, deleted_by=current_user.username)
     db.add(archived)
 
     db.delete(db_policy)

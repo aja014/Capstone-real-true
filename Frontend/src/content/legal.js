@@ -37,11 +37,11 @@ export const TERMS_OF_SERVICE = {
     },
     {
       heading: "Monitoring.",
-      text: "Account activity may be reviewed by management to protect the system and client data.",
+      text: "Management may review the records in the system to protect client data.",
     },
     {
-      heading: "Suspension or removal.",
-      text: "A manager may suspend or remove an account that breaks these terms or is no longer needed.",
+      heading: "Account removal.",
+      text: "When an account is no longer needed, the manager arranges its removal with the system administrator.",
     },
     {
       heading: "Changes.",
@@ -89,7 +89,7 @@ export const PRIVACY_POLICY = {
     },
     {
       heading: "Keeping records.",
-      text: "Records are kept only as long as needed for insurance, legal, and company requirements.",
+      text: "Records, including archived (deleted) records, are kept for as long as required by insurance, legal and company requirements.",
     },
     {
       heading: "Rights of data subjects.",

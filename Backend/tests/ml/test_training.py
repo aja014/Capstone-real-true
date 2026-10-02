@@ -36,6 +36,14 @@ def test_train_all_saves_models_and_reports(db, tmp_path):
     assert set(motor.thresholds) == {"medium_from", "high_from"}
     assert len(motor.metrics["control_check"]) == 9
     assert "Control check" in open(motor.report_path, encoding="utf-8").read()
+    for lr in (motor, fire):  # Fix round A3: λ chosen by 5-fold CV
+        sel = lr.metrics["l2_selection"]
+        assert [r["l2"] for r in sel["table"]] == list(training.LR_L2_CHOICES)
+        best = max(sel["table"], key=lambda r: (round(r["roc_auc"]["mean"], 4), r["l2"]))
+        assert sel["chosen"] == best["l2"] == lr.parameters["model"]["l2"]
+        assert lr.parameters["model"]["learning_rate"] == min(0.5, 1 / best["l2"])
+        assert lr.metrics["cross_validation"]["roc_auc"]["mean"] == best["roc_auc"]["mean"]
+        assert "Choosing the L2 strength" in open(lr.report_path, encoding="utf-8").read()
     assert nb.thresholds == {"fraud_cutoff": training.NB_FRAUD_CUTOFF}
     assert [r["cutoff"] for r in nb.metrics["cutoff_table"]] == [0.5, 0.4, 0.3, 0.2]
     recalls = [r["recall"]["mean"] for r in nb.metrics["cutoff_table"]]
@@ -71,3 +79,12 @@ def test_not_enough_data_is_a_failed_run(db, tmp_path, monkeypatch):
     assert training.train_model(db, "fraud_nb", TODAY, tmp_path) is None
     failed = db.query(models.MLModel).filter_by(model_name="fraud_nb", status="failed").one()
     assert "NotEnoughData" in failed.error
+
+
+def test_l2_tie_goes_to_the_larger_lambda(db, monkeypatch):
+    """Equal mean AUC (to 4 decimals) for every λ -> the largest λ (the simpler model)."""
+    frame = training.build_dataset(db, "fire_lr", TODAY)
+    monkeypatch.setattr(training, "_fit_lr", lambda *a: (None, None, None))
+    monkeypatch.setattr(training, "_lr_eval", lambda *a: (None, None, {"roc_auc": 0.61234, "accuracy": 0.5, "recall": 0.5}))
+    chosen, table, folds = training.choose_l2(frame, None, frame["counted_loss"].to_numpy())
+    assert chosen == max(training.LR_L2_CHOICES) and len(table) == len(training.LR_L2_CHOICES)

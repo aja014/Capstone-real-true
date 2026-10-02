@@ -28,7 +28,7 @@ export default function CreateAccountModal({ isOpen, onClose }) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [errors, setErrors] = useState({});
-  const [loading, setLoading] = useState(false); // ✅ ADD THIS LINE
+  const [loading, setLoading] = useState(false); // disables Sign Up while the request runs
   const [legalDoc, setLegalDoc] = useState(null); // Terms / Privacy shown on top; form state kept
 
   if (!isOpen) return null;
@@ -281,9 +281,10 @@ export default function CreateAccountModal({ isOpen, onClose }) {
             {/* Submit */}
             <button
               type="submit"
-              className="mt-2 w-full bg-yellow-400 hover:bg-yellow-500 active:scale-[0.98] text-white font-bold text-sm rounded-xl py-3 transition-all"
+              disabled={loading}
+              className="mt-2 w-full bg-yellow-400 hover:bg-yellow-500 active:scale-[0.98] text-white font-bold text-sm rounded-xl py-3 transition-all disabled:opacity-60"
             >
-              Sign Up
+              {loading ? "Creating…" : "Sign Up"}
             </button>
           </form>
 

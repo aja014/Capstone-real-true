@@ -114,3 +114,13 @@ def test_requests_during_a_run_are_coalesced_into_one_more_run(monkeypatch):
     assert reasons == ["startup", "upload"]  # exactly one extra run, not three
     assert running_seen == [True, True]  # "running" never dropped between the two runs
     assert jobs._running is False and jobs.status["running"] is False
+
+
+def test_the_l2_grid_is_part_of_the_lr_fingerprint_only(db, monkeypatch):
+    """Fix round A3: changing the λ grid retrains the Logistic Regression models, not Naive Bayes."""
+    frames = {n: training.build_dataset(db, n, TODAY) for n in ("motor_lr", "fraud_nb")}
+    before = {n: training.data_signature(n, f) for n, f in frames.items()}
+    monkeypatch.setattr(training, "LR_L2_CHOICES", (0.01, 0.1))
+    after = {n: training.data_signature(n, f) for n, f in frames.items()}
+    assert before["motor_lr"] != after["motor_lr"]
+    assert before["fraud_nb"] == after["fraud_nb"]

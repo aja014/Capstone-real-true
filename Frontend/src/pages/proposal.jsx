@@ -13,6 +13,7 @@ import {
   fetchQuotationPredictions, fetchModels, waitForModelRefresh, formatPercent, RISK_LEVELS,
 } from "../lib/ml";
 import { RiskLevelCell, ClaimPossibilityCell, ModelAccuracyCard } from "../components/ModelShared";
+import { rowMatchesSearch } from "../lib/search";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -61,11 +62,24 @@ function StatCard({ sub, value, label }) {
 }
 
 function MiniPie({ title, data, sub }) {
+  // All-zero data (e.g. a month with no quotations yet): the same grey "No data yet"
+  // circle as the shared MiniPie, sized to this pie, so the legend doesn't move.
+  const total = data.reduce((sum, d) => sum + (d.value || 0), 0);
   return (
     <div className="bg-white rounded-2xl p-4 shadow-sm">
       <p className="text-gray-400 text-[10px] mb-0.5">{sub}</p>
       <p className="font-bold text-black text-sm mb-2">{title}</p>
       <div className="flex items-center gap-3">
+        {total === 0 ? (
+          <div style={{ width: 110, height: 95 }} className="flex items-center justify-center flex-shrink-0">
+            <svg width={88} height={88}>
+              <circle cx={44} cy={44} r={44} fill="#e5e7eb" />
+              <text x={44} y={44} textAnchor="middle" dominantBaseline="central" fontSize={9} fontWeight={700} fill="#9ca3af">
+                No data yet
+              </text>
+            </svg>
+          </div>
+        ) : (
         <ResponsiveContainer width={110} height={95}>
           <PieChart>
             <Pie data={data} dataKey="value" cx="50%" cy="50%" outerRadius={44} labelLine={false}
@@ -79,6 +93,7 @@ function MiniPie({ title, data, sub }) {
             </Pie>
           </PieChart>
         </ResponsiveContainer>
+        )}
         <div className="flex flex-col gap-2">
           {data.map((d, i) => (
             <div key={d.name} className="flex items-center gap-1.5">
@@ -293,13 +308,9 @@ export default function QuotationsProposal() {
     const matchStatus = statusFilter === "Status: All"
       || (statusFilter === "Converted" && q.is_converted)
       || (statusFilter === "Not Yet Converted" && !q.is_converted);
-    // Same substring-across-all-fields pattern as Policy Holder Info's
-    // Quotation tab search (policy.jsx) -- not restricted to Client Name/
-    // Quote Number, matches whatever the existing convention already does.
-    const searchText = search.toLowerCase();
-    const matchSearch = searchText === "" || Object.values(q).some((v) =>
-      String(v).toLowerCase().includes(searchText)
-    );
+    // Same all-fields search as Policy Holder Info (lib/search.js): matches what is
+    // shown, e.g. the date as MM/DD/YYYY; empty fields never match "null".
+    const matchSearch = rowMatchesSearch(q, search);
     return matchRange && matchLine && matchRisk && matchStatus && matchSearch;
   });
 

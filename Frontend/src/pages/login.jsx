@@ -25,7 +25,7 @@ export default function MaagapLogin() {
 
     try {
       const response = await axios.post("http://127.0.0.1:8000/login", {
-        username,
+        username: username.trim(),
         password,
       });
 
@@ -34,7 +34,7 @@ export default function MaagapLogin() {
 
       localStorage.setItem("role", role);
       localStorage.setItem("token", token);
-      localStorage.setItem("username", username);
+      localStorage.setItem("username", username.trim());
 
       if (role === "manager") {
         navigate("/overview");
@@ -42,7 +42,13 @@ export default function MaagapLogin() {
         navigate("/policy");
       }
     } catch (error) {
-      alert("Invalid username or password");
+      if (!error.response) {
+        alert("Can't reach the server. Please try again.");
+      } else if (error.response.status === 401) {
+        alert("Invalid username or password");
+      } else {
+        alert("Something went wrong on the server. Please try again.");
+      }
     } finally {
       setIsLoading(false);
     }
