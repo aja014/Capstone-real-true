@@ -1,7 +1,2 @@
-# Test-only dependencies: NOT needed to run the app. Install from Backend/ with:
-#   ./venv/Scripts/python -m pip install -r requirements-dev.txt
-# scikit-learn is used ONLY in tests/ml/ to cross-check our own Logistic Regression /
-# Naive Bayes (app/ml/); the app itself never imports it.
-httpx==0.28.1  # needed by FastAPI's TestClient (tests/ml/test_ml_api.py)
-pytest==9.1.1
-scikit-learn==1.9.1
+# Merged into requirements.txt (2026-10-03). Kept so the old install command still works.
+-r requirements.txt

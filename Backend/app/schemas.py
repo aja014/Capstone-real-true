@@ -18,6 +18,21 @@ class PasswordChange(BaseModel):
     new_password: str
 
 
+class UserOut(BaseModel):
+    """The only user fields the API may send back: never the password hash."""
+    id: int
+    username: str
+    role: str
+
+    class Config:
+        from_attributes = True
+
+
+class UserCreated(BaseModel):
+    message: str
+    user: UserOut
+
+
 # ------------------------------------------------------------
 # Enums (must match the values used in models.py)
 # ------------------------------------------------------------

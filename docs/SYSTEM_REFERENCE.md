@@ -117,6 +117,9 @@ Slides in from the left: MAAGAP logo, **"Malolos Branch"** (fixed text), avatar,
   before saving and before the check, so "X " and " x" both count as "X").
 - Success → "Account Created! Your account has been successfully created." → **Continue**.
 - The new account is role admin.
+- The server reply contains only the new account's id, username and role — never the
+  password or its hash (`UserOut` schema, since 2026-10-03). Login returns only the token,
+  token type and role; Change Password only a message.
 - The two links open the document on top of the form (typed values are kept). Each shows the
   title, "Effective: September 2026", 10 numbered sections, and **Close**. Clicking outside
   closes only the document. The wording lives in `Frontend/src/content/legal.js`.
@@ -129,6 +132,7 @@ Slides in from the left: MAAGAP logo, **"Malolos Branch"** (fixed text), avatar,
   incorrect." (this does **not** log you out).
 - Success → "Password Changed — Use your new password the next time you log in." →
   **Continue**. You stay logged in.
+- The server reply is only `{"message": "Password changed."}` — no password or hash.
 
 ---
 

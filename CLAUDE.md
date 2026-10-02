@@ -32,7 +32,8 @@ Study objectives (keep all in scope):
 - GIS: `shapely` + `pyogrio` (GDAL wheels; geopandas/fiona have no Python 3.14 wheels),
   OpenStreetMap Nominatim for geocoding.
 - ML: our own numpy Logistic Regression + Naive Bayes in `Backend/app/ml/`; scikit-learn is
-  used ONLY in tests (`Backend/requirements-dev.txt`) to cross-check them.
+  used ONLY in tests (listed in the "Tests only" part of `Backend/requirements.txt`) to
+  cross-check them.
 
 ## Critical architecture decisions (do not relitigate)
 - **Insurance Case**: internal grouping Policyholder → Insurance Case (`line_type`
@@ -207,10 +208,14 @@ npm run build / npm run lint
 ```
 `--reload` doesn't watch `Backend/.env` — restart uvicorn after changing it. Stop uvicorn
 before checking out an old commit (see Database).
+First-time setup (Python 3.14), from `Backend/`: `python -m venv venv`, then
+`./venv/Scripts/python -m pip install -r requirements.txt` — it pins EVERY package (app +
+tests + their dependencies) with `==`; `requirements-dev.txt` is only `-r requirements.txt`.
+Frontend: `npm ci` (uses the committed `package-lock.json`).
 
 ## How to test
-- From `Backend/`: `./venv/Scripts/python -m pip install -r requirements-dev.txt` once, then
-  `./venv/Scripts/python -m pytest tests` (172 tests, ≈ 27 min — the LR λ search makes training tests slow). The `db` fixture runs on the dev DB
+- From `Backend/`: `./venv/Scripts/python -m pip install -r requirements.txt` once, then
+  `./venv/Scripts/python -m pytest tests` (175 tests, ≈ 27 min — the LR λ search makes training tests slow). The `db` fixture runs on the dev DB
   inside one transaction that is always rolled back (no rows left; auto-increment ids are
   used up). API tests use `TestClient(app)` without `with`; stubs of `get_current_user` must
   return a manager-like object.
@@ -262,6 +267,9 @@ Isidro Pelayo (High river); claims MS2602030016 (#83, Suspicious 56%) and MS2501
   old MySQL root password, which was already rotated earlier in the project, so it no
   longer works.
 - JWTs are stateless, 60 min, never revoked; no forgot-password flow.
+- No response ever contains a password hash: `POST /users` returns `schemas.UserOut` (id,
+  username, role) via `response_model`; reuse `UserOut` for any future user endpoint
+  (`tests/test_user_responses.py`, 2026-10-03).
 - Geocoding sends only the address and a generic User-Agent to Nominatim — no personal
   contact data.
 
