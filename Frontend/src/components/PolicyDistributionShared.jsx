@@ -1,5 +1,5 @@
 import { useState } from "react";
-import axios from "axios";
+import { sharedGet } from "../lib/sharedGet";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { ChevronDown, Search } from "lucide-react";
 
@@ -125,12 +125,12 @@ export async function fetchDistributionPolicies() {
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
   const [firePolRes, fireQuoRes, motorPolRes, motorQuoRes, casesRes, phRes] = await Promise.all([
-    axios.get(`${API_BASE_URL}/fire-property/policies`, { headers }),
-    axios.get(`${API_BASE_URL}/fire-property/quotations`, { headers }),
-    axios.get(`${API_BASE_URL}/motor/policies`, { headers }),
-    axios.get(`${API_BASE_URL}/motor/quotations`, { headers }),
-    axios.get(`${API_BASE_URL}/insurance-cases`, { headers }),
-    axios.get(`${API_BASE_URL}/policyholders`, { headers }),
+    sharedGet(`${API_BASE_URL}/fire-property/policies`, { headers }),
+    sharedGet(`${API_BASE_URL}/fire-property/quotations`, { headers }),
+    sharedGet(`${API_BASE_URL}/motor/policies`, { headers }),
+    sharedGet(`${API_BASE_URL}/motor/quotations`, { headers }),
+    sharedGet(`${API_BASE_URL}/insurance-cases`, { headers }),
+    sharedGet(`${API_BASE_URL}/policyholders`, { headers }),
   ]);
 
   const policyholderByCase = new Map(casesRes.data.map((c) => [c.id, c.policyholder_id]));
@@ -203,11 +203,16 @@ export function Dropdown({ label, options, value, onChange }) {
 
 // ── StatCard ──────────────────────────────────────────────────────────────────
 // `note` (optional) is a small caption under the label, e.g. what the card counts.
+// A long value (a ₱ amount in the millions) shrinks to fit the card instead of spilling
+// past it: the card is a size container, and the font is the usual size or, if the value
+// is too long for it, the card's width (cqw) divided by its length (~0.6em per character).
 export function StatCard({ sub, value, label, note }) {
+  const fitWidth = `${(100 / (0.6 * Math.max(String(value).length, 1))).toFixed(1)}cqw`;
   return (
-    <div className="bg-white rounded-2xl px-5 py-4 shadow-sm flex flex-col justify-between min-h-[110px]">
+    <div className="@container bg-white rounded-2xl px-5 py-4 shadow-sm flex flex-col justify-between min-h-[110px]">
       <p className="text-gray-400 text-xs">{sub}</p>
-      <p className="text-black font-black text-xl md:text-4xl leading-none my-2">{value}</p>
+      <p className="text-black font-black leading-none my-2 whitespace-nowrap [--stat-max:1.25rem] md:[--stat-max:2.25rem]"
+        style={{ fontSize: `min(var(--stat-max), ${fitWidth})` }}>{value}</p>
       <div>
         <p className="text-gray-500 text-xs">{label}</p>
         {note && <p className="text-gray-400 text-[10px] leading-snug">{note}</p>}

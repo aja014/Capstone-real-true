@@ -1,4 +1,4 @@
-import axios from "axios";
+import { sharedGet } from "./sharedGet";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -18,7 +18,7 @@ export const RISK_LEVELS = ["Low", "Medium", "High"];
 // "Motor Car-123" -> { claim_probability, risk_level }
 export async function fetchQuotationPredictions() {
   try {
-    const res = await axios.get(`${API_BASE_URL}/ml/predictions/quotations`, { headers: authHeaders() });
+    const res = await sharedGet(`${API_BASE_URL}/ml/predictions/quotations`, { headers: authHeaders() });
     return new Map(res.data.map((p) => [`${p.line}-${p.quotation_id}`, p]));
   } catch {
     return new Map();
@@ -28,7 +28,7 @@ export async function fetchQuotationPredictions() {
 // "Fire & Property-45" -> { fraud_probability, label }
 export async function fetchClaimPredictions() {
   try {
-    const res = await axios.get(`${API_BASE_URL}/ml/predictions/claims`, { headers: authHeaders() });
+    const res = await sharedGet(`${API_BASE_URL}/ml/predictions/claims`, { headers: authHeaders() });
     return new Map(res.data.map((p) => [`${p.line}-${p.claim_id}`, p]));
   } catch {
     return new Map();
@@ -38,7 +38,7 @@ export async function fetchClaimPredictions() {
 // { byName: { motor_lr, fire_lr, fraud_nb } (schemas.MLModelSummary), refresh: { running, ... } }
 export async function fetchModels() {
   try {
-    const res = await axios.get(`${API_BASE_URL}/ml/models`, { headers: authHeaders() });
+    const res = await sharedGet(`${API_BASE_URL}/ml/models`, { headers: authHeaders() });
     return { byName: Object.fromEntries(res.data.models.map((m) => [m.model_name, m])), refresh: res.data.refresh };
   } catch {
     return { byName: {}, refresh: null };
@@ -74,6 +74,21 @@ export async function waitForModelRefresh({
 
 export function formatPercent(value) {
   return value === null || value === undefined ? "—" : `${Math.round(value * 100)}%`;
+}
+
+// A prediction's probability next to its level: one decimal, rounded DOWN. The level
+// thresholds are whole hundredths (Low/Medium/High from 0.21, 0.41 ...; fraud above 0.30,
+// app/ml/training.py), so a value just under one never displays as reaching it
+// (0.20985 -> "20.9%", where rounding would show "21.0%" next to a Medium "21.0%").
+export function formatProbability(value) {
+  if (value === null || value === undefined) return "—";
+  return `${(Math.floor(value * 1000 + 1e-9) / 10).toFixed(1)}%`;
+}
+
+// Model accuracy cards: the same rounding as the report files (app/ml/report.py) —
+// percentages with one decimal, AUC with three.
+export function formatScorePercent(value) {
+  return value === null || value === undefined ? "—" : `${(value * 100).toFixed(1)}%`;
 }
 
 export function formatTrainedDate(iso) {

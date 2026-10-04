@@ -2,7 +2,7 @@ import calendar
 from datetime import date as date_type
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from typing import Literal
 
 from app.database import get_db
@@ -194,8 +194,18 @@ def get_renewal_ratio(
     # policies in the line, not just ones in the selected period — a
     # policy issued/expiring far outside this window can still be the one
     # that renews a policy whose expiry DOES fall in range.
-    fire_policies = db.query(models.FirePropertyPolicy).all()
-    motor_policies = db.query(models.MotorPolicy).all()
+    # Each row's Client Name walks policy → quotation → case → policyholder; load that
+    # chain up front (3 extra queries per line) instead of 3 lazy queries per policy.
+    fire_policies = db.query(models.FirePropertyPolicy).options(
+        selectinload(models.FirePropertyPolicy.quotation)
+        .selectinload(models.FirePropertyQuotation.insurance_case)
+        .selectinload(models.InsuranceCase.policyholder)
+    ).all()
+    motor_policies = db.query(models.MotorPolicy).options(
+        selectinload(models.MotorPolicy.quotation)
+        .selectinload(models.MotorQuotation.insurance_case)
+        .selectinload(models.InsuranceCase.policyholder)
+    ).all()
 
     # Renewed/Lost/Pending is always judged against the REAL current date,
     # never against `date` (which, for MTD, may now be a past month the
@@ -472,11 +482,17 @@ def get_quotation_proposal_stats(
         # cutoff below, this rolling window was never "as of today" scoped.
         _, range_end = _month_bounds(today.year, today.month)
 
-    fire_quotations = db.query(models.FirePropertyQuotation).filter(
+    # "Converted" reads q.policy for every quotation -- load those in one query per
+    # line instead of one lazy query per quotation.
+    fire_quotations = db.query(models.FirePropertyQuotation).options(
+        selectinload(models.FirePropertyQuotation.policy)
+    ).filter(
         models.FirePropertyQuotation.quotation_date >= range_start,
         models.FirePropertyQuotation.quotation_date <= range_end,
     ).all()
-    motor_quotations = db.query(models.MotorQuotation).filter(
+    motor_quotations = db.query(models.MotorQuotation).options(
+        selectinload(models.MotorQuotation.policy)
+    ).filter(
         models.MotorQuotation.quotation_date >= range_start,
         models.MotorQuotation.quotation_date <= range_end,
     ).all()

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ChevronDown, Search, Upload, Trash2, X } from "lucide-react";
 import axios from "axios";
+import { sharedGet } from "../lib/sharedGet";
 import Sidebar from "../components/sidebar";
 import UploadModal from "../components/UploadFileModal";
 import NeedsReviewModal from "../components/NeedsReviewModal";
@@ -559,7 +560,7 @@ export default function PolicyHolderInformation() {
     setClientError(null);
     try {
       const token = localStorage.getItem("token");
-      const response = await axios.get(`${API_BASE_URL}/policyholders`, {
+      const response = await sharedGet(`${API_BASE_URL}/policyholders`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       setClientRecords(response.data);
@@ -581,10 +582,10 @@ export default function PolicyHolderInformation() {
       const token = localStorage.getItem("token");
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       const [policyRes, quotationRes, casesRes, phRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/fire-property/policies`, { headers }),
-        axios.get(`${API_BASE_URL}/fire-property/quotations`, { headers }),
-        axios.get(`${API_BASE_URL}/insurance-cases`, { headers }),
-        axios.get(`${API_BASE_URL}/policyholders`, { headers }),
+        sharedGet(`${API_BASE_URL}/fire-property/policies`, { headers }),
+        sharedGet(`${API_BASE_URL}/fire-property/quotations`, { headers }),
+        sharedGet(`${API_BASE_URL}/insurance-cases`, { headers }),
+        sharedGet(`${API_BASE_URL}/policyholders`, { headers }),
       ]);
       // A policy only stores quotation_id — walk quotation → case →
       // policyholder to resolve the real Client Name, same join Vehicle
@@ -619,10 +620,10 @@ export default function PolicyHolderInformation() {
       const token = localStorage.getItem("token");
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       const [policyRes, quotationRes, casesRes, phRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/motor/policies`, { headers }),
-        axios.get(`${API_BASE_URL}/motor/quotations`, { headers }),
-        axios.get(`${API_BASE_URL}/insurance-cases`, { headers }),
-        axios.get(`${API_BASE_URL}/policyholders`, { headers }),
+        sharedGet(`${API_BASE_URL}/motor/policies`, { headers }),
+        sharedGet(`${API_BASE_URL}/motor/quotations`, { headers }),
+        sharedGet(`${API_BASE_URL}/insurance-cases`, { headers }),
+        sharedGet(`${API_BASE_URL}/policyholders`, { headers }),
       ]);
       // Same join as fetchFirePropertyPolicies above (and Vehicle
       // Information): quotation_id → insurance_case → policyholder.
@@ -674,10 +675,10 @@ export default function PolicyHolderInformation() {
       const token = localStorage.getItem("token");
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       const [surveyRes, casesRes, fpQRes, phRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/fire-property/surveys`, { headers }),
-        axios.get(`${API_BASE_URL}/insurance-cases`, { headers }),
-        axios.get(`${API_BASE_URL}/fire-property/quotations`, { headers }),
-        axios.get(`${API_BASE_URL}/policyholders`, { headers }),
+        sharedGet(`${API_BASE_URL}/fire-property/surveys`, { headers }),
+        sharedGet(`${API_BASE_URL}/insurance-cases`, { headers }),
+        sharedGet(`${API_BASE_URL}/fire-property/quotations`, { headers }),
+        sharedGet(`${API_BASE_URL}/policyholders`, { headers }),
       ]);
       const policyholderByCase = new Map(casesRes.data.map((c) => [c.id, c.policyholder_id]));
       const nameByPolicyholder = new Map(
@@ -720,10 +721,10 @@ export default function PolicyHolderInformation() {
       const token = localStorage.getItem("token");
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       const [vehicleRes, casesRes, motorQRes, phRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/motor/vehicles`, { headers }),
-        axios.get(`${API_BASE_URL}/insurance-cases`, { headers }),
-        axios.get(`${API_BASE_URL}/motor/quotations`, { headers }),
-        axios.get(`${API_BASE_URL}/policyholders`, { headers }),
+        sharedGet(`${API_BASE_URL}/motor/vehicles`, { headers }),
+        sharedGet(`${API_BASE_URL}/insurance-cases`, { headers }),
+        sharedGet(`${API_BASE_URL}/motor/quotations`, { headers }),
+        sharedGet(`${API_BASE_URL}/policyholders`, { headers }),
       ]);
       const policyholderByCase = new Map(casesRes.data.map((c) => [c.id, c.policyholder_id]));
       const nameByPolicyholder = new Map(
@@ -812,7 +813,7 @@ export default function PolicyHolderInformation() {
     setNeedsReviewLoading(true);
     try {
       const token = localStorage.getItem("token");
-      const response = await axios.get(`${API_BASE_URL}/import/policyholders/needs-review`, {
+      const response = await sharedGet(`${API_BASE_URL}/import/policyholders/needs-review`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       setNeedsReviewRecords(response.data);

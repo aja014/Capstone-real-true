@@ -201,13 +201,20 @@ fire_property_policies/quotations/surveys/claims, motor_policies/quotations/clai
 ## How to run
 ```
 cd Backend
-./venv/Scripts/python -m uvicorn main:app --reload      # http://127.0.0.1:8000
+./venv/Scripts/python -m uvicorn main:app --reload --reload-dir app   # dev, http://127.0.0.1:8000
+./venv/Scripts/python -m uvicorn main:app                             # DEMO / defense: no reloader
 cd Frontend
 npm run dev                                              # http://localhost:5173
 npm run build / npm run lint
 ```
-`--reload` doesn't watch `Backend/.env` — restart uvicorn after changing it. Stop uvicorn
-before checking out an old commit (see Database).
+- Always `--reload-dir app` with `--reload`: `watchfiles` isn't installed, so uvicorn's fallback
+  reloader polls every `.py` under the watched folder 4×/s — the whole `Backend/` (6,240 files,
+  venv included) used ≈ 92 % of a CPU core while idle and slowed every page; `app/` only ≈ 9 %,
+  no reloader ≈ 0 %. Edits to `main.py` (outside `app/`) need a manual restart.
+- `--reload` doesn't watch `Backend/.env` — restart uvicorn after changing it. Stop uvicorn
+  before checking out an old commit (see Database).
+- `npm run lint` reports 45 old errors (mostly react-hooks `set-state-in-effect`); a change
+  should not add any.
 First-time setup (Python 3.14), from `Backend/`: `python -m venv venv`, then
 `./venv/Scripts/python -m pip install -r requirements.txt` — it pins EVERY package (app +
 tests + their dependencies) with `==`; `requirements-dev.txt` is only `-r requirements.txt`.
@@ -215,7 +222,7 @@ Frontend: `npm ci` (uses the committed `package-lock.json`).
 
 ## How to test
 - From `Backend/`: `./venv/Scripts/python -m pip install -r requirements.txt` once, then
-  `./venv/Scripts/python -m pytest tests` (175 tests, ≈ 27 min — the LR λ search makes training tests slow). The `db` fixture runs on the dev DB
+  `./venv/Scripts/python -m pytest tests` (182 tests, ≈ 27 min — the LR λ search makes training tests slow). The `db` fixture runs on the dev DB
   inside one transaction that is always rolled back (no rows left; auto-increment ids are
   used up). API tests use `TestClient(app)` without `with`; stubs of `get_current_user` must
   return a manager-like object.
@@ -249,7 +256,8 @@ run it without an explicit instruction. Any new table must be added to it (or li
 Script `data_prep/demo/make_demo_upload.py --quote-date <yesterday> --copy-to
 "C:/Users/aaron/OneDrive/Desktop/FIREMAP_demo_upload"` writes 4 Excel files (2 new clients:
 Dimaculangan / Panghulo → High storm surge; Pagsisihan / Canalate → Medium river).
-Morning: restore v4 → start backend → warm-up from `Backend/`:
+Morning: restore v4 → start backend the demo way (`./venv/Scripts/python -m uvicorn main:app`,
+no `--reload`) → warm-up from `Backend/`:
 `./venv/Scripts/python -c "from app.ml import jobs; jobs.refresh_now('pre-demo warm-up'); print(jobs.status)"`
 → regenerate the folder → open Proposal once. Live: Policy Holder Info → Upload → Folder →
 Import All → Proposal, search the client names, GIS View. Fallbacks: FQ-1002 Reynaldo

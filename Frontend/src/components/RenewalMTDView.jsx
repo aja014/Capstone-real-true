@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import axios from "axios";
+import { sharedGet } from "../lib/sharedGet";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { StatCard, PolicyTable, MiniPie, formatMonthYear, dateToISO, todayISO } from "./PolicyDistributionShared";
 import { mapRenewalRow, RenewalRateCard, RENEWAL_STATUS_OPTIONS, RENEWAL_PIE_COLORS, MonthExpiryFilterMTD } from "./RenewalRatioShared";
@@ -33,7 +33,7 @@ export default function RenewalMTDView({ ytdRenewalRate }) {
     try {
       const token = localStorage.getItem("token");
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      const res = await axios.get(`${API_BASE_URL}/stats/renewal-ratio`, { headers, params: { period: "mtd", date } });
+      const res = await sharedGet(`${API_BASE_URL}/stats/renewal-ratio`, { headers, params: { period: "mtd", date } });
       setStats(res.data);
     } catch {
       setError("Failed to load Renewal Ratio data.");

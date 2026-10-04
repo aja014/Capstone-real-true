@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import axios from "axios";
+import { sharedGet } from "../lib/sharedGet";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import {
   StatCard, PolicyTable, MiniPie, fetchDistributionPolicies,
@@ -31,7 +31,7 @@ export default function YTDView() {
       const token = localStorage.getItem("token");
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       const [statsRes, rows] = await Promise.all([
-        axios.get(`${API_BASE_URL}/stats/policy-distribution`, { headers, params: { period: "ytd", date } }),
+        sharedGet(`${API_BASE_URL}/stats/policy-distribution`, { headers, params: { period: "ytd", date } }),
         fetchDistributionPolicies(),
       ]);
       setStats(statsRes.data);

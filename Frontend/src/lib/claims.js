@@ -1,5 +1,5 @@
-import axios from "axios";
-import { fetchClaimPredictions, formatPercent } from "./ml";
+import { sharedGet } from "./sharedGet";
+import { fetchClaimPredictions, formatProbability } from "./ml";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -32,7 +32,7 @@ export const NOT_YET_INVESTIGATED = "Not yet investigated";
 //                          cutoff), false = not, null = no prediction
 export async function fetchAllClaims() {
   const headers = authHeaders();
-  const get = (path) => axios.get(`${API_BASE_URL}${path}`, { headers });
+  const get = (path) => sharedGet(`${API_BASE_URL}${path}`, { headers });
   const [[motorC, fireC, motorP, fireP, motorQ, fireQ, casesRes, phRes], predictions] = await Promise.all([
     Promise.all([
       get("/motor/claims"), get("/fire-property/claims"),
@@ -66,7 +66,7 @@ export async function fetchAllClaims() {
       client_name: nameByPolicyholder.get(policyholderByCase.get(caseId)) || null,
       investigation_display: isCnc ? CNC_INVESTIGATION_LABEL : claim.claim_investigation_result ?? null,
       fraud_warning: prediction
-        ? `${flagged ? "Suspicious" : "Not suspicious"} · ${formatPercent(prediction.fraud_probability)} fraud chance`
+        ? `${flagged ? "Suspicious" : "Not suspicious"} · ${formatProbability(prediction.fraud_probability)} fraud chance`
         : null,
       fraud_flag: flagged,
     };

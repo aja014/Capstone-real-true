@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import axios from "axios";
+import { sharedGet } from "../lib/sharedGet";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend, LabelList,
@@ -198,7 +198,7 @@ export default function QuotationsProposal() {
   const fetchStats = useCallback(async (params) => {
     setStatsError(null);
     try {
-      const res = await axios.get(`${API_BASE_URL}/stats/quotation-proposal`, {
+      const res = await sharedGet(`${API_BASE_URL}/stats/quotation-proposal`, {
         params,
         headers: authHeaders(),
       });
@@ -237,7 +237,7 @@ export default function QuotationsProposal() {
 
   // Policy Forecast: fetched once, independent of every filter on this page.
   useEffect(() => {
-    axios.get(`${API_BASE_URL}/stats/policy-forecast`, { headers: authHeaders() })
+    sharedGet(`${API_BASE_URL}/stats/policy-forecast`, { headers: authHeaders() })
       .then((res) => setForecast(res.data))
       .catch(() => setForecastError("Forecast not available."));
   }, []);
@@ -425,9 +425,14 @@ export default function QuotationsProposal() {
               <table className="w-full text-xs text-center">
                 <thead>
                   <tr className="border-b border-gray-100">
-                    {["Quote Number","Client Name","Insurance Line","Quotation Date","Status","Risk Assessment","Claim Possibility","Geospatial Information"].map(h => (
-                      <th key={h} className="py-2 px-2 text-gray-500 font-semibold whitespace-nowrap">{h}</th>
+                    {["Quote Number","Client Name","Insurance Line","Quotation Date","Status","Risk Assessment","Claim Possibility"].map(h => (
+                      <th key={h} className="py-2 px-2 text-gray-500 font-semibold">{h}</th>
                     ))}
+                    {/* Headers may wrap so the table fits a 1280 px screen; the View column is also pinned to
+                        the right edge, so it stays visible if a narrower window makes the table scroll. */}
+                    <th className="py-2 px-2 text-gray-500 font-semibold sticky right-0 bg-white border-l border-gray-100">
+                      Geospatial Information
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -435,7 +440,7 @@ export default function QuotationsProposal() {
                     <tr><td colSpan={8} className="py-6 text-gray-400 text-xs">Loading quotations…</td></tr>
                   )}
                   {!quotationsLoading && pageRows.map((r) => (
-                    <tr key={`${r.line}-${r.id}`} className="border-b border-gray-50 hover:bg-gray-50 transition">
+                    <tr key={`${r.line}-${r.id}`} className="group border-b border-gray-50 hover:bg-gray-50 transition">
                       <td className="py-2.5 px-2 whitespace-nowrap">{r.quote_number}</td>
                       <td className="py-2.5 px-2">{r.client_name || "—"}</td>
                       <td className="py-2.5 px-2">{r.line}</td>
@@ -443,7 +448,7 @@ export default function QuotationsProposal() {
                       <td className="py-2.5 px-2">{r.is_converted ? (r.converted_policy_no || "Converted") : "Not Yet Converted"}</td>
                       <td className="py-2.5 px-2"><RiskLevelCell value={r.risk_level} /></td>
                       <td className="py-2.5 px-2"><ClaimPossibilityCell value={r.claim_probability} /></td>
-                      <td className="py-2.5 px-2">
+                      <td className="py-2.5 px-2 sticky right-0 bg-white group-hover:bg-gray-50 transition border-l border-gray-100">
                         <button onClick={() => setFloodModalQuotation(r)}
                           className="bg-black text-white text-[11px] px-3 py-1 rounded-lg hover:bg-gray-800 transition">View</button>
                       </td>

@@ -1,4 +1,4 @@
-import { formatPercent, formatTrainedDate } from "../lib/ml";
+import { formatProbability, formatScorePercent, formatTrainedDate } from "../lib/ml";
 
 // Risk Assessment = the Logistic Regression risk level. Low / Medium / High are set
 // per line from its training loss rate (see the model report); "—" = no prediction
@@ -17,7 +17,7 @@ export function RiskLevelCell({ value }) {
 // Claim Possibility = the model's predicted probability of a counted loss.
 export function ClaimPossibilityCell({ value }) {
   if (value === null || value === undefined) return <span className="text-gray-400">—</span>;
-  return <span>{formatPercent(value)}</span>;
+  return <span>{formatProbability(value)}</span>;
 }
 
 // Small "how good is the model" card: the 5-fold cross-validation AVERAGES (every row
@@ -28,7 +28,8 @@ export function ClaimPossibilityCell({ value }) {
 // guessing) doesn't depend on any cutoff.
 // rows: [{ label, model, positives }], model = one GET /ml/models summary (undefined
 // while loading or if the request failed).
-const formatAuc = (v) => (v === null || v === undefined ? "—" : v.toFixed(2));
+// Same rounding as the report files: AUC with three decimals.
+const formatAuc = (v) => (v === null || v === undefined ? "—" : v.toFixed(3));
 
 export function ModelAccuracyCard({ title, rows, loading }) {
   return (
@@ -48,12 +49,12 @@ export function ModelAccuracyCard({ title, rows, loading }) {
             <>
               <p className="text-black text-xs">
                 <span className="font-black text-2xl leading-none">
-                  {formatPercent(model.cross_validation?.accuracy?.mean)}
+                  {formatScorePercent(model.cross_validation?.accuracy?.mean)}
                 </span>
                 <span className="text-gray-600"> accurate</span>
               </p>
               <p className="text-gray-600 text-xs">
-                catches {formatPercent(model.cross_validation?.recall?.mean)} of {positives}
+                catches {formatScorePercent(model.cross_validation?.recall?.mean)} of {positives}
               </p>
               <p className="text-gray-600 text-xs">
                 AUC {formatAuc(model.cross_validation?.roc_auc?.mean)} (0.5 = guessing)

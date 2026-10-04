@@ -9,10 +9,17 @@ from the running API or with a `SELECT` on that day. A live value will drift as 
 **Conventions used throughout the app**
 - "—" (grey dash) = the value is empty/not on file, or there is nothing to show (e.g. no prediction).
 - Money = `₱1,234.56` (Philippine locale, always 2 decimals). An empty money field shows "—";
-  an aggregate total with nothing to add up shows `₱0.00`.
+  an aggregate total with nothing to add up shows `₱0.00`. On a stat card a long value (a ₱
+  amount in the millions) is drawn in a smaller font so the full amount fits the card — it is
+  never shortened or cut off (since 2026-10-04).
 - Dates in tables = `MM/DD/YYYY`.
 - Percentages on cards are rounded to whole numbers unless stated (Renewal Rate: 2 decimals,
-  Fraud Rate: 1 decimal).
+  Fraud Rate: 1 decimal; model accuracy cards: 1 decimal, AUC 3 decimals — the same as the
+  report files).
+- A model's **prediction** percentage (Claim Possibility on the Proposal table, the "% fraud
+  chance" on claims) shows **1 decimal, rounded down** (since 2026-10-04): the level thresholds
+  are whole hundredths (e.g. Medium from 0.21), so a value just under one never shows as
+  reaching it (0.20985 → "20.9%" Low, never "21.0%").
 - "…" = still loading.
 - Two insurance lines everywhere: **Fire & Property** and **Motor Car** (also written
   "Motor & Car" on some charts).
@@ -184,7 +191,7 @@ Assessment, Claim Possibility), `GET /stats/policy-forecast`, `GET /ml/models`.
 | Pie "**Motor & Car**" | same for Motor | as above | period/month | 51 / 147 |
 | Card "**Average Claim Possibility**" (right, below pies), caption "Based on N quotations · All lines" (or the chosen line) | Mean predicted claim probability of the rows the table currently lists that have a prediction | mean of `claim_probability` over the filtered table rows (all pages), rounded to whole % | period/month **and** every table filter + search | **15%**, based on 372 (Motor alone 20.5% → "21%"; Fire alone 9.2% → "9%") |
 | Card "**<Month> Policy Forecast**" | Next month's expected new policies (statistics, see §14) | `GET /stats/policy-forecast` | **nothing** (fixed) | Example **as of 2026-09-28** (recomputed every day, so today's card differs): "October Policy Forecast ≈ 46 new policies · Motor 25 · Fire & Property 21 · Based on ≈ 57 quotations a month and past conversion rates (Motor 77% · Fire & Property 84%), past 12 months · Open now: 8 quotations → ≈ 5 policies within 7 days · Backtest, last 12 months: off by 11% on average" |
-| Card "**Model accuracy (Logistic Regression)**", "5-fold average (cross-validation)" | Per line: "X% accurate", "catches Y% of losses", "AUC 0.NN (0.5 = guessing)", "vN · trained <date>" | `GET /ml/models`: CV mean accuracy, CV mean recall, CV mean ROC AUC to 2 decimals (see §13) | nothing | Motor Car **64%** accurate, catches **51%** of losses, AUC **0.62**, v2 · trained Sep 27, 2026 · Fire & Property **60%**, **68%**, AUC **0.66**, v2 · Sep 27, 2026 |
+| Card "**Model accuracy (Logistic Regression)**", "5-fold average (cross-validation)" | Per line: "X% accurate", "catches Y% of losses", "AUC 0.NN (0.5 = guessing)", "vN · trained <date>" | `GET /ml/models`: CV mean accuracy and recall to 1 decimal, CV mean ROC AUC to 3 decimals — the same rounding as the report file (see §13) | nothing | Motor Car **63.6%** accurate, catches **50.6%** of losses, AUC **0.622**, v2 · trained Sep 27, 2026 · Fire & Property **59.7%**, **68.5%**, AUC **0.660**, v2 · Sep 27, 2026 |
 
 **Table** (bottom left). Toolbar: **Select Month**, **Risk Assessment: All** (All/Low/Medium/High),
 **Policy Line: All** (All/Fire & Property/Motor Car), **Status: All** (All/Converted/Not Yet
@@ -201,8 +208,8 @@ predictions…" (violet) while a model refresh runs.
 | Quotation Date | `quotation_date` |
 | Status | The policy number if converted, otherwise "Not Yet Converted" |
 | Risk Assessment | Logistic Regression risk level: Low (grey), **Medium (amber)**, **High (red)**; "—" = no prediction (the quotation's policy has already ended) |
-| Claim Possibility | Predicted probability of a counted loss, whole %; "—" = no prediction |
-| Geospatial Information | Black **View** button → GIS popup (§9.3) |
+| Claim Possibility | Predicted probability of a counted loss, 1 decimal rounded down (e.g. "20.9%"); "—" = no prediction |
+| Geospatial Information | Black **View** button → GIS popup (§9.3). The column is pinned to the table's right edge, so View stays visible when the table scrolls sideways on a small screen |
 
 - Live, Past 6 Months: Low **216** rows (avg 10%), Medium **140** (21%), High **16** (28%);
   every one of the 372 has a prediction. Status: Converted 291, Not Yet Converted 81.
@@ -272,7 +279,7 @@ whole year Jan 1 – Dec 31.
 | Card "**Pending**" | 2 | 3 | 137 |
 | Chart "**MTD/YTD Policy Retention: Renewed vs. Lost** (Stacked by Day/Month, As of …)" — Renewed (indigo), Lost (red), Pending (grey) by expiry day/month | — | ✔ | ✔ |
 | Pies "Fire & Property" / "Motor & Car" (Renewed Policy / Lost Policy / Pending) | — | Fire 26/5/0 · Motor 18/11/3 | Fire 143/42/58 · Motor 143/83/79 |
-| Card "**Current Renewal Rate**" — "Renewal Rate = Renewed ÷ (Renewed + Lost) × 100 · Pending excluded" | **always the YTD figure on all 3 tabs: 69.59%** (286 ÷ 411) | same | same |
+| Card "**Current Renewal Rate (YTD)**" (label says YTD since 2026-10-04) — "Renewal Rate = Renewed ÷ (Renewed + Lost) × 100 · Pending excluded" | **always the YTD figure on all 3 tabs: 69.59%** (286 ÷ 411) | same | same |
 
 - Card captions: "As of September 28 2026" (Daily), "As of September 2026" (MTD), "As of 2026" (YTD).
 - MTD's own rate (44 ÷ 60 = 73.33%) is calculated by the server but not shown anywhere.
@@ -308,7 +315,7 @@ It drives the 5 cards, the chart, the pie and Fraud Rate — **not the table**.
 | Chart "**Filed Claims per Month** (by Date Reported)" | bars stacked **Motor & Car** (indigo) + **Fire & Property** (light) with each segment's own count; red line "**Investigated as Fraud (human label)**" = Suspected + Confirmed Fraud (CNC rows excluded) per month | — | Apr 12+1 (3) · May 3+2 (1) · Jun 9+4 (2) · Jul 10+8 (1) · Aug 7+3 (0) · Sep 5+3 (0) | — |
 | Pie "**Claim Investigation Result**" (Legitimate indigo, Suspected Fraud amber, Confirmed Fraud red, Not Yet Investigated grey), note "CNC Issuance rows are excluded (N in this period)." | human label counts of non-CNC claims in range; blank label = Not Yet Investigated | 23/0/1/10, CNC 2 | **44/2/5/11**, CNC **5** | 97/3/7/15, CNC 11 |
 | Card "**Fraud Rate**" ("Filed Past N Months · investigated claims, CNC excluded"; footnote "(Suspected + Confirmed Fraud) ÷ investigated × 100") | investigated = Legitimate + Suspected + Confirmed; 1 decimal; "—" if none investigated | 4.2% | **13.7%** (7 ÷ 51) | 9.3% |
-| Card "**Fraud model accuracy (Naive Bayes)**", "5-fold average (cross-validation)", row "Motor Car and Fire & Property" | CV mean accuracy / recall ("catches X% of fraud"), version, trained date | **85%** accurate, catches **39%** of fraud, v3 · trained Sep 27, 2026 | | |
+| Card "**Fraud model accuracy (Naive Bayes)**", "5-fold average (cross-validation)", row "Motor Car and Fire & Property" | CV mean accuracy / recall ("catches X% of fraud"), AUC, version, trained date | **85.2%** accurate, catches **38.9%** of fraud, AUC **0.759**, v3 · trained Sep 27, 2026 | | |
 
 **Table** ("All claims, both lines — not limited by the period above."), newest Date
 Reported first, 8 per page.
@@ -325,8 +332,8 @@ Reported first, 8 per page.
 - **Claim Investigation Result** = the human label. Legitimate grey, **Suspected Fraud
   amber**, **Confirmed Fraud red**; CNC Issuance rows show "Not applicable (CNC)"
   (light grey); blank = "—".
-- **Fraud Warning** = the Naive Bayes prediction. "**Suspicious · 56% fraud chance**" (red) when
-  P(Fraud) > 0.3, "Not suspicious · 6% fraud chance" (grey) otherwise (wording since 2026-09-28); the % is always P(Fraud). Hover text
+- **Fraud Warning** = the Naive Bayes prediction. "**Suspicious · 56.2% fraud chance**" (red) when
+  P(Fraud) > 0.3, "Not suspicious · 5.6% fraud chance" (grey, e.g. fire claim #90 at 0.05620) otherwise (wording since 2026-09-28; 1 decimal rounded down since 2026-10-04); the % is always P(Fraud). Hover text
   "Naive Bayes P(Fraud) — a prediction, not an investigation result". "—" for CNC rows, claims
   already investigated, or no model.
 - Live: 441 claims (Motor 351, Fire 90); Fraud Warning on **23** (the uninvestigated Paid
@@ -515,8 +522,9 @@ A white box titled with the column name, showing the stored data as formatted JS
 with X or outside.
 
 ### 9.5 Model accuracy cards
-Per model: "X% accurate", "catches Y% of …", "**AUC 0.NN (0.5 = guessing)**" (since
-2026-10-02), "vN · trained <date>". See §13.8.
+Per model: "X.X% accurate", "catches Y.Y% of …", "**AUC 0.NNN (0.5 = guessing)**" (AUC since
+2026-10-02; 1 decimal / 3 decimals since 2026-10-04, the same rounding as the report file),
+"vN · trained <date>". See §13.8.
 
 ### 9.6 Pickers
 - "**Select Month**" (month + year; Proposal, Claims, Distribution YTD, Renewal YTD).
@@ -870,8 +878,9 @@ the same).
 - "Predicted positive" = Medium or High for Logistic Regression (p ≥ medium_from); p > 0.3
   for Naive Bayes.
 - **5-fold CV**: the mean ± SD over the 5 folds (SD with n−1).
-- The **cards show the CV means** of accuracy, recall and ROC AUC ("AUC 0.62 (0.5 =
-  guessing)", 2 decimals, since 2026-10-02 — accuracy alone is below the "always predict no"
+- The **cards show the CV means** of accuracy, recall and ROC AUC ("AUC 0.622 (0.5 =
+  guessing)"; AUC since 2026-10-02; since 2026-10-04 percentages with 1 decimal and AUC with 3,
+  exactly as the report file — accuracy alone is below the "always predict no"
   baseline for these rare-event models, see the reports).
 - Reports also show: the 25 % test scores + confusion matrix; the score at a 0.5 cutoff; the
   "always predict no" baseline; loss rate per risk level; the λ table (Logistic Regression);

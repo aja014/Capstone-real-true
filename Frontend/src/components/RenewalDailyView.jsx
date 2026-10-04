@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import axios from "axios";
+import { sharedGet } from "../lib/sharedGet";
 import { StatCard, PolicyTable, formatHumanDate, todayISO } from "./PolicyDistributionShared";
 import { mapRenewalRow, RenewalRateCard, RENEWAL_STATUS_OPTIONS, ExpiryDateFilter, filterRowsByExpiryDate } from "./RenewalRatioShared";
 
@@ -20,7 +20,7 @@ export default function RenewalDailyView({ ytdRenewalRate }) {
     try {
       const token = localStorage.getItem("token");
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      const res = await axios.get(`${API_BASE_URL}/stats/renewal-ratio`, { headers, params: { period: "daily", date } });
+      const res = await sharedGet(`${API_BASE_URL}/stats/renewal-ratio`, { headers, params: { period: "daily", date } });
       setStats(res.data);
     } catch {
       setError("Failed to load Renewal Ratio data.");

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import axios from "axios";
+import { sharedGet } from "../lib/sharedGet";
 import {
   BarChart,
   Bar,
@@ -88,7 +88,7 @@ export default function Overview() {
     try {
       const token = localStorage.getItem("token");
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      const res = await axios.get(`${API_BASE_URL}/stats/overview`, { headers });
+      const res = await sharedGet(`${API_BASE_URL}/stats/overview`, { headers });
       setStats(res.data);
     } catch {
       setError("Failed to load Overview data.");

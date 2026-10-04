@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import axios from "axios";
+import { sharedGet } from "../lib/sharedGet";
 import {
   StatCard, PolicyTable, fetchDistributionPolicies,
   getPeriodRange, filterRowsByRange, formatCurrencyPH, formatHumanDate, todayISO,
@@ -23,7 +23,7 @@ export default function DailyView() {
       const token = localStorage.getItem("token");
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       const [statsRes, allRows] = await Promise.all([
-        axios.get(`${API_BASE_URL}/stats/policy-distribution`, { headers, params: { period: "daily", date } }),
+        sharedGet(`${API_BASE_URL}/stats/policy-distribution`, { headers, params: { period: "daily", date } }),
         fetchDistributionPolicies(),
       ]);
       setStats(statsRes.data);

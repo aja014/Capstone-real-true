@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import axios from "axios";
+import { sharedGet } from "../lib/sharedGet";
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, LabelList,
@@ -63,7 +63,7 @@ export default function Claims() {
   const fetchStats = useCallback(async (months) => {
     setStatsError(null);
     try {
-      const res = await axios.get(`${API_BASE_URL}/stats/claims`, { params: { months }, headers: authHeaders() });
+      const res = await sharedGet(`${API_BASE_URL}/stats/claims`, { params: { months }, headers: authHeaders() });
       setStats(res.data);
     } catch {
       setStatsError("Failed to load claims stats.");

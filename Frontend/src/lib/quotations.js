@@ -1,4 +1,4 @@
-import axios from "axios";
+import { sharedGet } from "./sharedGet";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -19,13 +19,13 @@ function authHeaders() {
 export async function fetchAllQuotations() {
   const headers = authHeaders();
   const [fpQRes, motorQRes, fpPRes, motorPRes, casesRes, phRes, surveyRes] = await Promise.all([
-    axios.get(`${API_BASE_URL}/fire-property/quotations`, { headers }),
-    axios.get(`${API_BASE_URL}/motor/quotations`, { headers }),
-    axios.get(`${API_BASE_URL}/fire-property/policies`, { headers }),
-    axios.get(`${API_BASE_URL}/motor/policies`, { headers }),
-    axios.get(`${API_BASE_URL}/insurance-cases`, { headers }),
-    axios.get(`${API_BASE_URL}/policyholders`, { headers }),
-    axios.get(`${API_BASE_URL}/fire-property/surveys`, { headers }),
+    sharedGet(`${API_BASE_URL}/fire-property/quotations`, { headers }),
+    sharedGet(`${API_BASE_URL}/motor/quotations`, { headers }),
+    sharedGet(`${API_BASE_URL}/fire-property/policies`, { headers }),
+    sharedGet(`${API_BASE_URL}/motor/policies`, { headers }),
+    sharedGet(`${API_BASE_URL}/insurance-cases`, { headers }),
+    sharedGet(`${API_BASE_URL}/policyholders`, { headers }),
+    sharedGet(`${API_BASE_URL}/fire-property/surveys`, { headers }),
   ]);
 
   // Same case → policyholder join Policy/Vehicle/Survey tabs already use.

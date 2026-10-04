@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import axios from "axios";
+import { sharedGet } from "../lib/sharedGet";
 import { formatDateSlash, formatCurrencyPH, todayISO } from "./PolicyDistributionShared";
 import { FullCalendarPicker, MonthYearPicker, MTDMonthPicker } from "./DatePicker";
 
@@ -129,7 +129,7 @@ export function useYtdRenewalRate() {
       try {
         const token = localStorage.getItem("token");
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
-        const res = await axios.get(`${API_BASE_URL}/stats/renewal-ratio`, {
+        const res = await sharedGet(`${API_BASE_URL}/stats/renewal-ratio`, {
           headers,
           params: { period: "ytd", date: todayISO() },
         });
@@ -148,7 +148,7 @@ export function useYtdRenewalRate() {
 export function RenewalRateCard({ rate }) {
   return (
     <div className="w-64 h-fit flex-shrink-0 bg-white rounded-2xl p-5 shadow-sm flex flex-col justify-center">
-      <p className="text-black font-bold text-sm">Current Renewal Rate</p>
+      <p className="text-black font-bold text-sm">Current Renewal Rate (YTD)</p>
       <p className="text-black font-black text-5xl mt-3">{rate}</p>
       <p className="text-gray-400 text-[10px] mt-2">Renewal Rate = Renewed ÷ (Renewed + Lost) × 100 · Pending excluded</p>
     </div>
