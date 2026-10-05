@@ -8,7 +8,6 @@ import {
 const API_BASE_URL = "http://127.0.0.1:8000";
 
 export default function DailyView() {
-  const [search, setSearch] = useState("");
   const [stats, setStats] = useState(null);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -50,7 +49,7 @@ export default function DailyView() {
         <StatCard sub={sub} value={loading ? "…" : formatCurrencyPH(stats?.total_amount_due, false)} label="Total Amount Due" />
       </div>
 
-      <PolicyTable search={search} setSearch={setSearch} data={rows} />
+      <PolicyTable data={rows} />
     </div>
   );
 }

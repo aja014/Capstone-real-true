@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, memo } from "react";
 import { sharedGet } from "../lib/sharedGet";
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -36,6 +36,36 @@ function authHeaders() {
   const token = localStorage.getItem("token");
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
+
+// Memoized for the same reason as Proposal's trend chart: the table's search/filters don't
+// change it, and re-rendering a Recharts chart on every key of fast typing could stack its
+// store updates past React's limit ("Maximum update depth exceeded", blank page).
+const ClaimsTrendChart = memo(function ClaimsTrendChart({ data }) {
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <ComposedChart data={data} barCategoryGap="30%">
+        <CartesianGrid vertical={false} stroke="#f3f4f6" />
+        <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+        <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false}
+          label={{ value: "count", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: "#9ca3af" } }} />
+        <Tooltip contentStyle={{ borderRadius: 10, border: "none", fontSize: 12 }} />
+        <Legend wrapperStyle={{ fontSize: 11 }} />
+        {/* Explicit LabelList per segment: a stacked Bar's built-in label shows the
+            running total (Motor + Fire) on the upper segment, not its own count. */}
+        <Bar dataKey="motor_count" name="Motor & Car" stackId="a" fill="#6366f1">
+          <LabelList dataKey="motor_count" position="center" formatter={(v) => v || ""}
+            style={{ fontSize: 10, fill: "#fff", fontWeight: 700 }} />
+        </Bar>
+        <Bar dataKey="fire_count" name="Fire & Property" stackId="a" fill="#a5b4fc" radius={[4, 4, 0, 0]}>
+          <LabelList dataKey="fire_count" position="center" formatter={(v) => v || ""}
+            style={{ fontSize: 10, fill: "#fff", fontWeight: 700 }} />
+        </Bar>
+        <Line dataKey="fraud_labelled_count" name="Investigated as Fraud (human label)"
+          stroke="#ef4444" strokeWidth={2} dot={{ r: 4, fill: "#ef4444" }} />
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+});
 
 // Claims Module. Cards, trend chart, investigation pie and fraud rate all come
 // from GET /stats/claims and share one basis: claims FILED (Date Reported) in
@@ -112,12 +142,12 @@ export default function Claims() {
 
   // Stacked Motor/Fire bars sum to the real monthly total; the line is the
   // human "Investigated as Fraud" label (Suspected + Confirmed), not a prediction.
-  const trendData = (stats?.trend ?? []).map((t) => ({
+  const trendData = useMemo(() => (stats?.trend ?? []).map((t) => ({
     label: t.label,
     motor_count: t.motor_count,
     fire_count: t.fire_count,
     fraud_labelled_count: t.fraud_labelled_count,
-  }));
+  })), [stats]);
 
   const filtered = claims.filter((r) => {
     let matchMonth = true;
@@ -171,34 +201,13 @@ export default function Claims() {
             </div>
             {/* Grows with the right-hand column of cards (min 270px) instead of leaving a gap. */}
             <div className="flex-1 min-h-[270px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={trendData} barCategoryGap="30%">
-                <CartesianGrid vertical={false} stroke="#f3f4f6" />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false}
-                  label={{ value: "count", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: "#9ca3af" } }} />
-                <Tooltip contentStyle={{ borderRadius: 10, border: "none", fontSize: 12 }} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                {/* Explicit LabelList per segment: a stacked Bar's built-in label shows the
-                    running total (Motor + Fire) on the upper segment, not its own count. */}
-                <Bar dataKey="motor_count" name="Motor & Car" stackId="a" fill="#6366f1">
-                  <LabelList dataKey="motor_count" position="center" formatter={(v) => v || ""}
-                    style={{ fontSize: 10, fill: "#fff", fontWeight: 700 }} />
-                </Bar>
-                <Bar dataKey="fire_count" name="Fire & Property" stackId="a" fill="#a5b4fc" radius={[4, 4, 0, 0]}>
-                  <LabelList dataKey="fire_count" position="center" formatter={(v) => v || ""}
-                    style={{ fontSize: 10, fill: "#fff", fontWeight: 700 }} />
-                </Bar>
-                <Line dataKey="fraud_labelled_count" name="Investigated as Fraud (human label)"
-                  stroke="#ef4444" strokeWidth={2} dot={{ r: 4, fill: "#ef4444" }} />
-              </ComposedChart>
-            </ResponsiveContainer>
+            <ClaimsTrendChart data={trendData} />
             </div>
           </div>
           <div className="flex flex-col gap-3 w-64 flex-shrink-0">
             <MiniPie
               title="Claim Investigation Result"
-              data={stats?.investigation_pie ?? []}
+              data={stats?.investigation_pie}
               colors={PIE_COLORS}
               sub={`Filed ${periodLabel}`}
               note={stats ? `CNC Issuance rows are excluded (${stats.cnc_excluded} in this period).` : null}

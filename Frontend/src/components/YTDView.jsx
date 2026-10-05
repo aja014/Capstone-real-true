@@ -12,7 +12,6 @@ const FIRE_COLORS = ["#a5b4fc", "#f87171"];
 const MOTOR_COLORS = ["#f87171", "#a5b4fc"];
 
 export default function YTDView() {
-  const [search, setSearch] = useState("");
   const [month, setMonth] = useState(null); // null => table shows the full year
   const [stats, setStats] = useState(null);
   const [allRows, setAllRows] = useState([]);
@@ -49,8 +48,8 @@ export default function YTDView() {
   const sub = `As of ${formatYearOnly(date)}`;
   const rows = month ? filterRowsByIssuedMonth(allRows, month) : allRows;
   const barData = (stats?.bar_chart ?? []).map((b) => ({ month: b.label, fire: b.fire_count, motor: b.motor_count }));
-  const firePie = stats?.fire_pie ?? [];
-  const motorPie = stats?.motor_pie ?? [];
+  const firePie = stats?.fire_pie;
+  const motorPie = stats?.motor_pie;
 
   return (
     <div className="flex flex-col gap-4">
@@ -87,8 +86,6 @@ export default function YTDView() {
       </div>
 
       <PolicyTable
-        search={search}
-        setSearch={setSearch}
         data={rows}
         extraFilters={
           <div className="flex items-center gap-2 ml-auto">

@@ -12,7 +12,6 @@ const FIRE_COLORS = ["#a5b4fc", "#c4b5fd"];
 const MOTOR_COLORS = ["#f87171", "#fca5a5"];
 
 export default function MTDView() {
-  const [search, setSearch] = useState("");
   const [month, setMonth] = useState(null); // null => the real current month
   const [stats, setStats] = useState(null);
   const [rows, setRows] = useState([]);
@@ -49,8 +48,8 @@ export default function MTDView() {
 
   const sub = `As of ${formatMonthYear(date)}`;
   const barData = (stats?.bar_chart ?? []).map((b) => ({ day: b.label, fire: b.fire_count, motor: b.motor_count }));
-  const firePie = stats?.fire_pie ?? [];
-  const motorPie = stats?.motor_pie ?? [];
+  const firePie = stats?.fire_pie;
+  const motorPie = stats?.motor_pie;
 
   return (
     <div className="flex flex-col gap-4">
@@ -95,8 +94,6 @@ export default function MTDView() {
       </div>
 
       <PolicyTable
-        search={search}
-        setSearch={setSearch}
         data={rows}
         extraFilters={
           <div className="flex items-center gap-2 ml-auto">

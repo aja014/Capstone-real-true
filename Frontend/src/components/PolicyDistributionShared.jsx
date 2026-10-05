@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, memo } from "react";
 import { sharedGet } from "../lib/sharedGet";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { ChevronDown, Search } from "lucide-react";
@@ -224,11 +224,15 @@ export function StatCard({ sub, value, label, note }) {
 
 // ── PolicyTable ───────────────────────────────────────────────────────────────
 export function PolicyTable({
-  search, setSearch, extraFilters, data,
+  extraFilters, data,
   statusOptions = ["Status: All", "New", "Renewal"],
   premiumLabel = "Total Amount Due",
 }) {
   const [page, setPage] = useState(1);
+  // The search lives here, not in the view: typing then re-renders only this table, never
+  // the view's Recharts charts (re-rendering those on every key of fast typing could stack
+  // their store updates past React's limit — "Maximum update depth exceeded", blank page).
+  const [search, setSearch] = useState("");
   const [lineFilter, setLine] = useState("Policy Line: All");
   const [statusFilter, setStatus] = useState("Status: All");
   const [expirySort, setExpirySort] = useState(null); // null | "asc" | "desc"
@@ -325,7 +329,11 @@ export function PolicyTable({
 
 // ── MiniPie ───────────────────────────────────────────────────────────────────
 // `note` (optional) is a small caption under the chart -- e.g. what's excluded.
-export function MiniPie({ title, data, colors, sub, note }) {
+// Memoized: a page re-render (e.g. typing in its search) doesn't re-render the pie when its
+// props are unchanged — see PolicyTable's search note above.
+// Callers pass `stats?.x_pie` as is (undefined while loading): a `?? []` there would be a new
+// array on every render and defeat the memo, so the empty fallback is this default instead.
+export const MiniPie = memo(function MiniPie({ title, data = [], colors, sub, note }) {
   // All-zero total (e.g. zero quotations this month): Recharts can't
   // compute slice angles from an all-zero pie and draws nothing, leaving a
   // blank gap. Swap in a neutral placeholder circle sized to match the real
@@ -389,4 +397,4 @@ export function MiniPie({ title, data, colors, sub, note }) {
       {note && <p className="text-gray-400 text-[10px] mt-2">{note}</p>}
     </div>
   );
-}
+});

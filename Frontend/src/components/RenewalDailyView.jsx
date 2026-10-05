@@ -6,7 +6,6 @@ import { mapRenewalRow, RenewalRateCard, RENEWAL_STATUS_OPTIONS, ExpiryDateFilte
 const API_BASE_URL = "http://127.0.0.1:8000";
 
 export default function RenewalDailyView({ ytdRenewalRate }) {
-  const [search, setSearch] = useState("");
   const [expiryFilterDate, setExpiryFilterDate] = useState(null);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -48,8 +47,6 @@ export default function RenewalDailyView({ ytdRenewalRate }) {
 
       <div className="flex gap-4">
         <PolicyTable
-          search={search}
-          setSearch={setSearch}
           data={rows}
           statusOptions={RENEWAL_STATUS_OPTIONS}
           premiumLabel="Premium"

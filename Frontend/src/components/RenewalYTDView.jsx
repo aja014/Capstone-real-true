@@ -13,7 +13,6 @@ function legendLabel(v) {
 }
 
 export default function RenewalYTDView({ ytdRenewalRate }) {
-  const [search, setSearch] = useState("");
   const [expiryFilterMonth, setExpiryFilterMonth] = useState(null);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -45,8 +44,8 @@ export default function RenewalYTDView({ ytdRenewalRate }) {
   const barData = (stats?.bar_chart ?? []).map((b) => ({
     month: b.label, renewed: b.renewed_count, lost: b.lost_count, pending: b.pending_count,
   }));
-  const firePie = stats?.fire_pie ?? [];
-  const motorPie = stats?.motor_pie ?? [];
+  const firePie = stats?.fire_pie;
+  const motorPie = stats?.motor_pie;
   const rows = filterRowsByExpiryMonth((stats?.policies ?? []).map(mapRenewalRow), expiryFilterMonth);
   // Renewal Rate card always shows YTD (this view IS the YTD view, but it
   // uses the same shared fetch as Daily/MTD for consistency and to
@@ -91,8 +90,6 @@ export default function RenewalYTDView({ ytdRenewalRate }) {
 
       <div className="flex gap-4">
         <PolicyTable
-          search={search}
-          setSearch={setSearch}
           data={rows}
           statusOptions={RENEWAL_STATUS_OPTIONS}
           premiumLabel="Premium"

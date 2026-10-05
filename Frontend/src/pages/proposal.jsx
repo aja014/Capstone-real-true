@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, memo } from "react";
 import { sharedGet } from "../lib/sharedGet";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -61,7 +61,9 @@ function StatCard({ sub, value, label }) {
   );
 }
 
-function MiniPie({ title, data, sub }) {
+// Memoized; callers pass `stats?.x_pie` as is (a `?? []` there would be a new array on every
+// render and defeat the memo), so the empty fallback is this default instead.
+const MiniPie = memo(function MiniPie({ title, data = [], sub }) {
   // All-zero data (e.g. a month with no quotations yet): the same grey "No data yet"
   // circle as the shared MiniPie, sized to this pie, so the legend doesn't move.
   const total = data.reduce((sum, d) => sum + (d.value || 0), 0);
@@ -105,7 +107,7 @@ function MiniPie({ title, data, sub }) {
       </div>
     </div>
   );
-}
+});
 
 function formatQuoteDate(value) {
   if (!value) return "—";
@@ -169,6 +171,35 @@ function PolicyForecastCard({ forecast, error }) {
     </div>
   );
 }
+
+// The trend chart doesn't depend on the table's search/filters, so it is memoized and
+// skips the page's re-render on every keystroke. Recharts 3 copies the axes', labels' and
+// legend's props into its own store in effects; re-rendering it on each key of fast typing
+// stacked those updates past React's limit ("Maximum update depth exceeded", blank page).
+const TrendChart = memo(function TrendChart({ data }) {
+  return (
+    <ResponsiveContainer width="100%" height={270}>
+      <BarChart data={data} barCategoryGap="30%">
+        <CartesianGrid vertical={false} stroke="#f3f4f6" />
+        <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+        <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false}
+          label={{ value: "count", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: "#9ca3af" } }} />
+        <Tooltip contentStyle={{ borderRadius: 10, border: "none", fontSize: 12 }} />
+        <Legend wrapperStyle={{ fontSize: 11 }} />
+        {/* Explicit LabelList per segment: a stacked Bar's built-in label shows the
+            running total on the upper segment, not its own count. */}
+        <Bar dataKey="converted_count" name="Converted" stackId="a" fill="#6366f1">
+          <LabelList dataKey="converted_count" position="center" formatter={(v) => v || ""}
+            style={{ fontSize: 10, fill: "#fff", fontWeight: 700 }} />
+        </Bar>
+        <Bar dataKey="not_converted_count" name="Not Yet Converted" stackId="a" fill="#a5b4fc" radius={[4,4,0,0]}>
+          <LabelList dataKey="not_converted_count" position="center" formatter={(v) => v || ""}
+            style={{ fontSize: 10, fill: "#fff", fontWeight: 700 }} />
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+});
 
 export default function QuotationsProposal() {
   const [page, setPage]           = useState(1);
@@ -281,11 +312,11 @@ export default function QuotationsProposal() {
   // counts, since quotation_count already includes the converted ones;
   // stack converted_count + (total - converted) instead, so the two
   // segments sum exactly to the total.
-  const trendData = (stats?.trend ?? []).map((t) => ({
+  const trendData = useMemo(() => (stats?.trend ?? []).map((t) => ({
     label: t.label,
     converted_count: t.converted_count,
     not_converted_count: Math.max(0, t.quotation_count - t.converted_count),
-  }));
+  })), [stats]);
 
   // Table rows are scoped to the exact same range_start/range_end the
   // backend used for the KPI cards/pies/trend above (rolling window OR the
@@ -363,30 +394,11 @@ export default function QuotationsProposal() {
                 disabled={!!month}
               />
             </div>
-            <ResponsiveContainer width="100%" height={270}>
-              <BarChart data={trendData} barCategoryGap="30%">
-                <CartesianGrid vertical={false} stroke="#f3f4f6" />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false}
-                  label={{ value: "count", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: "#9ca3af" } }} />
-                <Tooltip contentStyle={{ borderRadius: 10, border: "none", fontSize: 12 }} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                {/* Explicit LabelList per segment: a stacked Bar's built-in label shows the
-                    running total on the upper segment, not its own count. */}
-                <Bar dataKey="converted_count" name="Converted" stackId="a" fill="#6366f1">
-                  <LabelList dataKey="converted_count" position="center" formatter={(v) => v || ""}
-                    style={{ fontSize: 10, fill: "#fff", fontWeight: 700 }} />
-                </Bar>
-                <Bar dataKey="not_converted_count" name="Not Yet Converted" stackId="a" fill="#a5b4fc" radius={[4,4,0,0]}>
-                  <LabelList dataKey="not_converted_count" position="center" formatter={(v) => v || ""}
-                    style={{ fontSize: 10, fill: "#fff", fontWeight: 700 }} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <TrendChart data={trendData} />
           </div>
           <div className="flex flex-col gap-3 w-64 flex-shrink-0">
-            <MiniPie title="Fire & Property" data={stats?.fire_pie ?? []} sub={periodLabel} />
-            <MiniPie title="Motor & Car"     data={stats?.motor_pie ?? []} sub={periodLabel} />
+            <MiniPie title="Fire & Property" data={stats?.fire_pie} sub={periodLabel} />
+            <MiniPie title="Motor & Car"     data={stats?.motor_pie} sub={periodLabel} />
           </div>
         </div>
 
