@@ -249,7 +249,10 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
       setFolderError("This folder is empty — please select a folder that contains files.");
       return;
     }
-    if (files.length === 0) return;
+    if (files.length === 0) {
+      setFolderError("No spreadsheet files (.xlsx, .xls or .csv) were found in this folder.");
+      return;
+    }
 
     setFolderFiles(files);
     setFolderError(null);

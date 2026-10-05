@@ -12,6 +12,7 @@ import { InvestigationResultCell, FraudWarningCell } from "../components/ClaimsS
 import { fetchAllClaims, investigationFilterValue, NOT_YET_INVESTIGATED } from "../lib/claims";
 import { fetchModels, waitForModelRefresh } from "../lib/ml";
 import { ModelAccuracyCard } from "../components/ModelShared";
+import { fieldsMatchSearch } from "../lib/search";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 const PAGE_SIZE = 8;
@@ -128,9 +129,8 @@ export default function Claims() {
     const matchStatus = statusFilter === "Final Status: All" || r.final_status === statusFilter;
     const matchInvestigation = investigationFilter === "Investigation Result: All"
       || investigationFilterValue(r) === investigationFilter;
-    const searchText = search.toLowerCase();
-    const matchSearch = searchText === "" || [r.policy_no, r.client_name, r.assured, r.accuterm_claim_no]
-      .some((v) => String(v ?? "").toLowerCase().includes(searchText));
+    // Every typed word must appear in one of these four fields (lib/search.js).
+    const matchSearch = fieldsMatchSearch([r.policy_no, r.client_name, r.assured, r.accuterm_claim_no], search);
     return matchMonth && matchLine && matchStatus && matchInvestigation && matchSearch;
   });
 

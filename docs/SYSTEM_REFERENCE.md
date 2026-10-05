@@ -79,12 +79,15 @@ There are two roles: **manager** and **admin**. The live database has 1 user (ro
 - Left: MAAGAP logo, "Be Ready. Be Protected.", "Protect your vehicle and your future with
   coverage designed for real life."; fields **Username**, **Password** (eye icon shows/hides);
   **Login** button ("Logging in..." while waiting). Right: photo.
-- Wrong username or password → browser alert **"Invalid username or password"**.
+- Wrong username or password → **"Invalid username or password"**.
 - Backend not reachable (off, or no network) → **"Can't reach the server. Please try
   again."**; any other server error (e.g. 500) → **"Something went wrong on the server.
   Please try again."** (fix round 2026-10-02).
+- These three appear as a red message in the form, between Password and the Login button
+  (since 2026-10-05, polish-4; before: a browser alert), and clear at the next Login click.
 - Spaces before/after the username are ignored (" Aaron James " logs in as "Aaron James").
-- Success stores the token, role and username in the browser and opens Overview (manager) or
+- Success stores the token, role and username in the browser (the username as **stored**, read
+  from the token's `sub` — "aaron james" typed shows "Aaron James" in Settings; since 2026-10-05) and opens Overview (manager) or
   Policy Holder Information (admin).
 - No "Forgot password" / reset: the link exists in the code but is commented out.
 
@@ -195,8 +198,9 @@ Assessment, Claim Possibility), `GET /stats/policy-forecast`, `GET /ml/models`.
 
 **Table** (bottom left). Toolbar: **Select Month**, **Risk Assessment: All** (All/Low/Medium/High),
 **Policy Line: All** (All/Fire & Property/Motor Car), **Status: All** (All/Converted/Not Yet
-Converted), search box "Search Quotation..." (matches any field of the row, including fields
-not shown such as address and middle name; dates also match as shown, MM/DD/YYYY; empty
+Converted), search box "Search Quotation..." (every typed word must appear in some field of the
+row — words may be in different fields and in any order — including fields not shown such as
+address and middle name; dates also match as shown, MM/DD/YYYY; empty
 fields never match words like "null" — same search as §8, `lib/search.js`); "N results" appears while searching; "Updating
 predictions…" (violet) while a model refresh runs.
 
@@ -253,7 +257,8 @@ of `fire_property_policies` + `motor_policies`. Method details in §16.
 
 ### Table (all three views)
 - Toolbar: **Policy Line: All**, **Status: All** (All / New / Renewal), search "Search Policy
-  Number" (matches policy number **or** client name).
+  Number" (every typed word must appear in the policy number or the client name; since
+  2026-10-05, before: the whole text in one of them).
 - Columns: **Policy Number** · **Client Name** · **Policy Line** · **Issued Date** ·
   **Expiry Date** (click to sort ▲ ascending / ▼ descending / off; blanks last) · **Total
   Amount Due** · **Sum Insured** (from the policy, both lines; Motor was always "—" before 2026-09-28) ·
@@ -284,7 +289,7 @@ whole year Jan 1 – Dec 31.
 - Card captions: "As of September 28 2026" (Daily), "As of September 2026" (MTD), "As of 2026" (YTD).
 - MTD's own rate (44 ÷ 60 = 73.33%) is calculated by the server but not shown anywhere.
 - Table (same component as Distribution): **Policy Line**, **Status** (All/Renewed/Lost/
-  Pending), search (policy number or client), columns Policy Number · Client Name · Policy
+  Pending), search (every word in the policy number or client, as on Distribution), columns Policy Number · Client Name · Policy
   Line · Issued Date · Expiry Date (sortable) · **Premium** (= Total Amount Due) · Sum
   Insured (both lines from the policy) · Status. Rows: Daily 2, MTD 63, YTD 548.
 - Extra filter per tab:
@@ -323,7 +328,7 @@ Reported first, 8 per page.
   · **Final Status: All** (the 11 statuses) · **Investigation Result: All** (Legitimate /
   Suspected Fraud / Confirmed Fraud / Not yet investigated — the last never includes CNC rows)
   · search "Search policy, client, claim no." (Policy No., Client Name, Assured, Accuterm
-  Claim No. only).
+  Claim No. only; every typed word must appear in one of them, since 2026-10-05).
 - "N results · reported in <Month Year>" appears while any filter is on; "Updating fraud
   predictions…" while a model refresh runs.
 - Columns: Claim ID · Accuterm Claim No. · Policy No. · Client Name · Policy Line · Date of
@@ -368,9 +373,13 @@ Counts of **all** records, both lines (no filters):
 - **Filter by Date** calendar (not on Client Information / Vehicle Information): keeps rows
   whose date equals the **exact day** picked (Policy: Issue Date; Quotation: Quotation Date;
   Claims: **Date of Loss**; Survey Report: the import timestamp `created_at` — all 481 surveys
-  = 09/27/2026). Rows with an empty date always stay (§18). The day is read as written
+  = 09/27/2026). Once a day is picked, rows with an **empty** date are hidden; clearing the
+  date shows them again (since 2026-10-05; before, they always stayed — §18). The day is read as written
   (local date): before 2026-10-02 a survey imported before 08:00 landed on the previous day.
-- Search "Search <Type>..." — matches any field of the row (including hidden fields) as it is
+- Search "Search <Type>..." — the text is split into words; a row matches when **every** word
+  appears in some field of the row (words may be in different fields, any order; since
+  2026-10-05 — "Antonio Gonzales Umali" now finds client #1 on Client Information, before 0).
+  One word works as before. It matches any field (including hidden fields) as it is
   **shown**: dates also as MM/DD/YYYY, money also as ₱1,234.56 / 1,234.56 / 1234.56, the JSON
   fields (View popups) by their keys and text values (e.g. "sprinklers"); empty fields never
   match "null"/"undefined" and JSON fields never match "object" (`lib/search.js`, since
@@ -378,7 +387,10 @@ Counts of **all** records, both lines (no filters):
 - Messages: "Loading <type>...", "No records found.", "Failed to load …".
 - "Updating fraud predictions…" (Claims tab) after an upload/resolve while the model refresh runs.
 - Every row ends with a trash icon (**Actions**) → confirm "Delete … ? This moves the record
-  to the deleted archive." (rules in §11).
+  to the deleted archive." (browser confirm, rules in §11). A refused or failed delete shows
+  an in-app box **"Not deleted"** with the server's reason (e.g. "Cannot delete: this
+  policyholder has N insurance case(s) on file. …") and an **OK** button (since 2026-10-05;
+  before: a browser alert).
 
 ### Tab: Policy (Fire & Property 22 columns / Motor Car 21 columns)
 - Common: Policy ID · Policy No. · Quotation ID · **Client Name** (resolved client via
@@ -431,9 +443,9 @@ Counts of **all** records, both lines (no filters):
   Risk · District/Block No. · Tel/Fax No. · Current Block Accumulation · Zone · T.I. · Risk
   Class (a = concrete, b = concrete & wood/light materials) · Maximum Amount Subject · Loss
   Record · Description.
-- **View** popups: Occupancy Breakdown · Boundaries · Protection Facilities (all 32 items
-  true/false) · Perils Assessment (18 perils, low/moderate/high) · Hazard Assessment (6
-  items, good/fair/poor).
+- **View** popups (§9.4): Occupancy Breakdown · Boundaries · Protection Facilities (all 32
+  items ✓/✗) · Perils Assessment (18 perils, Low/Moderate/High) · Hazard Assessment (6
+  items, Good/Fair/Poor).
 - Then Overall Risk Assessment · Surveyor Risk Acceptability · Latitude · Longitude · Flood
   Risk Flag · Flood Risk Category.
 - Delete: archive, always allowed.
@@ -470,7 +482,9 @@ Two modes (top-left toggle): **Single file** / **Folder**. Files: `.xlsx`, `.xls
   unreadable file → "Upload another folder".
   Drag-and-drop of a folder is not supported ("Drag-and-drop isn't supported for folders yet
   — click to browse instead."); an empty folder → "This folder is empty — please select a
-  folder that contains files."
+  folder that contains files."; a folder with files but none `.xlsx` / `.xls` / `.csv` →
+  "**No spreadsheet files (.xlsx, .xls or .csv) were found in this folder.**" (since
+  2026-10-05; before: nothing happened).
 - "**Processing — this may take longer for larger files due to flood-risk lookups.**" shows
   while importing when a file is a Fire & Property Survey or Motor Quotation (the two types
   that geocode addresses). It waits for the whole import request (all rows of all files); it
@@ -518,8 +532,22 @@ of:
 - Close with X or by clicking outside.
 
 ### 9.4 JSON "View" popup (Quotation → Conditions; Survey → the 5 checklist fields)
-A white box titled with the column name, showing the stored data as formatted JSON. Close
-with X or outside.
+A white box titled with the column name, showing the stored values as a labelled list (since
+2026-10-05; before: raw JSON). Display only — nothing stored changes. Labels are the Survey
+Report form wording (upload headers / `schemas.PROTECTION_FACILITY_OPTIONS`), an abbreviation
+followed by its meaning, e.g. "FFF (Furniture, Fixtures & Fittings)"; one map in
+`Frontend/src/lib/viewFormat.js`. Empty values show "—"; every form item is listed in form
+order, and a stored key the form doesn't list is still shown at the end.
+- **Occupancy Breakdown**: item | amount as ₱1,234.56; **Total** last, bold.
+- **Boundaries**: Front / Right / Left / Rear / Sketch.
+- **Perils Assessment** / **Hazard Assessment**: table **Peril** (or **Hazard**) | **Rating** |
+  **Remarks**; ratings in title case, Low/Good green, Moderate/Fair amber, High/Poor red
+  (same colours as the GIS popup).
+- **Protection Facilities**: two-column checklist, ✓ (green) = true, ✗ (grey) = false.
+- **Conditions** (and any other shape): labelled list ("general_conditions" → "General
+  Conditions"), nested parts indented, true/false as ✓/✗. Empty for every v4 quotation.
+
+Close with X or outside.
 
 ### 9.5 Model accuracy cards
 Per model: "X.X% accurate", "catches Y.Y% of …", "**AUC 0.NNN (0.5 = guessing)**" (AUC since
@@ -1093,7 +1121,8 @@ Items marked **Fixed 2026-09-28** were fixed on branch `predefense-fixes`, items
 8. **Proposal "Quote Number" is the internal id**, and Fire and Motor ids overlap (all 1,032
    Fire ids also exist as Motor ids), so two rows can show the same number.
    - **Fixed 2026-09-28**: shown as **FQ-<id>** / **MQ-<id>** (display only); search matches it.
-9. **Searches behave differently.**
+9. **Searches behave differently.** (Since 2026-10-05 every search box uses the multi-word
+   rule — every typed word must appear; the field sets below still differ.)
    - Proposal and Policy Holder Information match **every** field, including hidden ones
      (searching "Pelayo" returns 9 rows, some only by middle name).
    - The Claims page searches 4 fields.
@@ -1103,7 +1132,8 @@ Items marked **Fixed 2026-09-28** were fixed on branch `predefense-fixes`, items
      field sets still differ between pages.
 10. **Policy Holder Information "Filter by Date"**:
     - It picks one exact day (not a month).
-    - Rows with an **empty** date are never filtered out.
+    - Rows with an **empty** date are never filtered out. **Fixed 2026-10-05**: once a day is
+      picked they are hidden; clearing the date shows them again.
     - On Survey Report it uses the import timestamp (all 481 surveys = 09/27/2026), so it
       doesn't reflect any survey date.
     - **Fixed 2026-10-02**: the Survey timestamp was read in UTC, so a survey imported before

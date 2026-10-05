@@ -2,6 +2,7 @@ import { useState } from "react";
 import { sharedGet } from "../lib/sharedGet";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { ChevronDown, Search } from "lucide-react";
+import { fieldsMatchSearch } from "../lib/search";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 const PAGE_SIZE = 8;
@@ -235,9 +236,8 @@ export function PolicyTable({
   let filtered = (data ?? []).filter((r) => {
     const matchLine = lineFilter === "Policy Line: All" || r.line === lineFilter;
     const matchStatus = statusFilter === "Status: All" || r.status === statusFilter;
-    const matchSearch =
-      r.policy.toLowerCase().includes(search.toLowerCase()) ||
-      r.client.toLowerCase().includes(search.toLowerCase());
+    // Every typed word must appear in the policy number or the client (lib/search.js).
+    const matchSearch = fieldsMatchSearch([r.policy, r.client], search);
     return matchLine && matchStatus && matchSearch;
   });
 

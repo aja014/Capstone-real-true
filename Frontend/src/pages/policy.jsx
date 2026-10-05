@@ -10,6 +10,9 @@ import { fetchAllQuotations } from "../lib/quotations";
 import { fetchAllClaims } from "../lib/claims";
 import { waitForModelRefresh } from "../lib/ml";
 import { rowMatchesSearch } from "../lib/search";
+import { matchesPickedDate } from "../lib/dateFilter";
+import JsonDetails from "../components/JsonDetails";
+import NoticeModal from "../components/NoticeModal";
 import { InvestigationResultCell, FraudWarningCell } from "../components/ClaimsShared";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
@@ -68,29 +71,6 @@ function formatCell(value, type) {
   return formatOrDash(value);
 }
 
-// The date filter's underlying rows aren't all formatted the same way —
-// most tabs pre-format their date field to "MM/DD/YYYY" during fetch, but
-// Policy shows raw API rows (like Client Information) with an ISO date
-// string instead. Rather than reformatting Policy's data to match, this
-// parses either shape into the same {month, day, year} so one filter works
-// against both.
-function extractDateParts(value) {
-  if (!value) return null;
-  if (typeof value === "string" && value.includes("/")) {
-    const [mm, dd, yyyy] = value.split("/").map(Number);
-    if (!mm || !dd || !yyyy) return null;
-    return { month: mm, day: dd, year: yyyy };
-  }
-  // "YYYY-MM-DD" or the server's local timestamp "YYYY-MM-DDTHH:MM:SS" (no time zone):
-  // read the date as written. new Date() + getUTC* moved a survey imported before 08:00
-  // (UTC+8) to the previous day.
-  const iso = typeof value === "string" && value.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) return { month: Number(iso[2]), day: Number(iso[3]), year: Number(iso[1]) };
-  const d = new Date(value);
-  if (isNaN(d)) return null;
-  return { month: d.getUTCMonth() + 1, day: d.getUTCDate(), year: d.getUTCFullYear() };
-}
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function Dropdown({ label, options, value, onChange }) {
   const [open, setOpen] = useState(false);
@@ -121,19 +101,19 @@ function Dropdown({ label, options, value, onChange }) {
 // Occupancy Breakdown/Boundaries/Protection Facilities) — shows a "View"
 // button when there's data, — when there isn't, instead of dumping raw
 // unformatted JSON into the cell. One shared implementation, not one per field.
-function JsonViewButton({ value, title, onView }) {
+function JsonViewButton({ field, value, title, onView }) {
   const isEmpty = value === null || value === undefined ||
     (typeof value === "object" && Object.keys(value).length === 0);
   if (isEmpty) return <span className="text-gray-400">—</span>;
   return (
-    <button type="button" onClick={() => onView(title, value)}
+    <button type="button" onClick={() => onView({ field, title, value })}
       className="text-blue-500 hover:underline font-medium">
       View
     </button>
   );
 }
 
-function JsonModal({ title, value, onClose }) {
+function JsonModal({ field, title, value, onClose }) {
   if (value === null || value === undefined) return null;
   return (
     <div
@@ -147,9 +127,9 @@ function JsonModal({ title, value, onClose }) {
             <X className="w-4 h-4" />
           </button>
         </div>
-        <pre className="overflow-auto text-xs bg-gray-50 rounded-xl p-4 flex-1 whitespace-pre-wrap break-words text-gray-700">
-          {JSON.stringify(value, null, 2)}
-        </pre>
+        <div className="overflow-auto bg-gray-50 rounded-xl p-4 flex-1">
+          <JsonDetails field={field} value={value} />
+        </div>
       </div>
     </div>
   );
@@ -177,6 +157,13 @@ const CLIENT_COLUMNS = [
   { key: "tin", header: "TIN", width: "min-w-[110px]" },
   { key: "sss_no", header: "SSS No.", width: "min-w-[110px]" },
 ];
+
+// The backend's reason for a refused delete (e.g. 409 "Cannot delete: …"), or the fallback
+// text when there is none or it isn't plain text.
+function deleteErrorText(err, fallback) {
+  const detail = err.response?.data?.detail;
+  return typeof detail === "string" && detail ? detail : fallback;
+}
 
 function clientDisplayName(row) {
   return [row.last_name, row.first_name].filter(Boolean).join(", ") || `Client #${row.id}`;
@@ -433,7 +420,7 @@ function GenericPolicyTable({ columns, rows, onDelete, onViewJson, deleteLabel =
               {col.render
                 ? col.render(r)
                 : col.type === "json"
-                ? <JsonViewButton value={r[col.dataKey]} title={col.header} onView={onViewJson} />
+                ? <JsonViewButton field={col.dataKey} value={r[col.dataKey]} title={col.header} onView={onViewJson} />
                 : formatCell(r[col.dataKey], col.type)}
             </td>
           ))}
@@ -504,7 +491,7 @@ const SEARCH_TYPE_BY_KEY = Object.fromEntries(
 // quotation_date, and the natural "when did this policy start" anchor;
 // period_from/period_to are a coverage window rather than a single date.
 // Its rows are raw ISO date strings rather than the "MM/DD/YYYY" strings
-// other tabs pre-format — extractDateParts() (above) is what lets the same
+// other tabs pre-format — extractDateParts() (lib/dateFilter.js) is what lets the same
 // filter logic below handle both without reformatting Policy's data.
 const DATE_FIELD_MAP = {
   "Policy": "issue_date",
@@ -546,8 +533,10 @@ export default function PolicyHolderInformation() {
   const [uploadOpen, setUploadOpen] = useState(false);
   // Shared JSON-field viewer — Quotation's Conditions, Survey Report's
   // Occupancy Breakdown/Boundaries/Protection Facilities. null means closed.
-  const [jsonModal, setJsonModal] = useState(null); // { title, value } | null
-  const openJsonModal = useCallback((title, value) => setJsonModal({ title, value }), []);
+  const [jsonModal, setJsonModal] = useState(null); // { field, title, value } | null
+  const openJsonModal = useCallback((modal) => setJsonModal(modal), []);
+  // A refused/failed delete's message, shown in NoticeModal ("Not deleted"). null = closed.
+  const [deleteNotice, setDeleteNotice] = useState(null);
 
   const [fromDate, setFromDate] = useState(null);
 
@@ -784,7 +773,7 @@ export default function PolicyHolderInformation() {
     } catch (err) {
       // A 409 here means the quotation already has a policy on file —
       // surface the backend's specific reason, same as Vehicle's delete.
-      alert(err.response?.data?.detail || "Failed to delete this quotation.");
+      setDeleteNotice(deleteErrorText(err, "Failed to delete this quotation."));
     }
   }, [fetchQuotations, fetchVehicles]);
 
@@ -801,7 +790,7 @@ export default function PolicyHolderInformation() {
       // doesn't linger there until a reload.
       fetchVehicles();
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to delete this quotation.");
+      setDeleteNotice(deleteErrorText(err, "Failed to delete this quotation."));
     }
   }, [fetchQuotations, fetchVehicles]);
 
@@ -866,7 +855,7 @@ export default function PolicyHolderInformation() {
       });
       fetchClaims();
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to delete this claim.");
+      setDeleteNotice(deleteErrorText(err, "Failed to delete this claim."));
     }
   }, [fetchClaims]);
 
@@ -909,7 +898,7 @@ export default function PolicyHolderInformation() {
       });
       refreshClientData();
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to delete this client.");
+      setDeleteNotice(deleteErrorText(err, "Failed to delete this client."));
     }
   }, [refreshClientData]);
 
@@ -922,7 +911,7 @@ export default function PolicyHolderInformation() {
       });
       fetchFirePropertyPolicies();
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to delete this policy.");
+      setDeleteNotice(deleteErrorText(err, "Failed to delete this policy."));
     }
   }, [fetchFirePropertyPolicies]);
 
@@ -935,7 +924,7 @@ export default function PolicyHolderInformation() {
       });
       fetchMotorPolicies();
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to delete this policy.");
+      setDeleteNotice(deleteErrorText(err, "Failed to delete this policy."));
     }
   }, [fetchMotorPolicies]);
 
@@ -950,7 +939,7 @@ export default function PolicyHolderInformation() {
     } catch (err) {
       // Unconditional delete — nothing references a survey — so this is
       // only ever a genuine failure, not an expected 409 like Vehicle/Quotation.
-      alert(err.response?.data?.detail || "Failed to delete this survey.");
+      setDeleteNotice(deleteErrorText(err, "Failed to delete this survey."));
     }
   }, [fetchSurveys]);
 
@@ -965,7 +954,7 @@ export default function PolicyHolderInformation() {
     } catch (err) {
       // A 409 here means the vehicle still has motor_quotations pointing at
       // it — surface the backend's specific reason rather than a generic message.
-      alert(err.response?.data?.detail || "Failed to delete this vehicle.");
+      setDeleteNotice(deleteErrorText(err, "Failed to delete this vehicle."));
     }
   }, [fetchVehicles]);
 
@@ -1054,23 +1043,11 @@ export default function PolicyHolderInformation() {
   const allRows = DATA_MAP[type] || [];
   const dateField = DATE_FIELD_MAP[type];
 
-  const selectedMonth = fromDate ? fromDate.getMonth() + 1 : null;
-  const selectedDay = fromDate ? fromDate.getDate() : null;
-  const selectedYear = fromDate ? fromDate.getFullYear() : null;
-
   const filtered = allRows.filter((row) => {
     const matchSearch = rowMatchesSearch(row, search, SEARCH_TYPE_BY_KEY);
 
-    let matchDate = true;
-
-    if (dateField && row[dateField] && selectedMonth && selectedDay && selectedYear) {
-      const parts = extractDateParts(row[dateField]);
-      matchDate =
-        !!parts &&
-        parts.month === selectedMonth &&
-        parts.day === selectedDay &&
-        parts.year === selectedYear;
-    }
+    // Once a date is picked, a row with no date is hidden (lib/dateFilter.js).
+    const matchDate = !dateField || matchesPickedDate(row[dateField], fromDate);
 
     const matchLine = !showLineFilter || row.line === lineFilter;
 
@@ -1255,9 +1232,15 @@ export default function PolicyHolderInformation() {
         onResolved={refreshAfterImport}
       />
       <JsonModal
+        field={jsonModal?.field}
         title={jsonModal?.title}
         value={jsonModal?.value ?? null}
         onClose={() => setJsonModal(null)}
+      />
+      <NoticeModal
+        title="Not deleted"
+        message={deleteNotice}
+        onClose={() => setDeleteNotice(null)}
       />
     </div>
   );

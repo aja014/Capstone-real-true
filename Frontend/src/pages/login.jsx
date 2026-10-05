@@ -4,6 +4,7 @@ import Background_Cars from "../img/Background_Cars.jpg";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { SESSION_EXPIRED_KEY } from "../api/api";
+import { usernameFromToken } from "../lib/session";
 
 import Logo from "../img/MAAGAP_LOGO.png";
 
@@ -12,6 +13,8 @@ export default function MaagapLogin() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  // Shown in red above the Login button (was a browser alert()); cleared on the next try.
+  const [loginError, setLoginError] = useState(null);
   // Set by the shared 401 handler (api/api.js) when a login expired or became invalid.
   const [sessionNotice] = useState(() =>
     sessionStorage.getItem(SESSION_EXPIRED_KEY) ? "Your session has expired. Please log in again." : null
@@ -22,6 +25,7 @@ export default function MaagapLogin() {
 
   const handleLogin = async () => {
     setIsLoading(true);
+    setLoginError(null);
 
     try {
       const response = await axios.post("http://127.0.0.1:8000/login", {
@@ -34,7 +38,8 @@ export default function MaagapLogin() {
 
       localStorage.setItem("role", role);
       localStorage.setItem("token", token);
-      localStorage.setItem("username", username.trim());
+      // Settings shows the stored spelling (token "sub"), not what was typed.
+      localStorage.setItem("username", usernameFromToken(token, username.trim()));
 
       if (role === "manager") {
         navigate("/overview");
@@ -43,11 +48,11 @@ export default function MaagapLogin() {
       }
     } catch (error) {
       if (!error.response) {
-        alert("Can't reach the server. Please try again.");
+        setLoginError("Can't reach the server. Please try again.");
       } else if (error.response.status === 401) {
-        alert("Invalid username or password");
+        setLoginError("Invalid username or password");
       } else {
-        alert("Something went wrong on the server. Please try again.");
+        setLoginError("Something went wrong on the server. Please try again.");
       }
     } finally {
       setIsLoading(false);
@@ -145,6 +150,12 @@ export default function MaagapLogin() {
               )}
             </button>
           </div>
+
+          {loginError && (
+            <p role="alert" className="text-xs font-semibold text-red-700 bg-white/70 rounded-lg px-3 py-2">
+              {loginError}
+            </p>
+          )}
 
           {/* Login Button */}
           <div className="mt-2">

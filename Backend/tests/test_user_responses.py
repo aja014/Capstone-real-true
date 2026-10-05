@@ -4,6 +4,9 @@ Covers POST /users, POST /login and POST /users/me/password; there is no user li
 endpoint. Every user is a temporary ZZTEST user inside the rolled-back `db` fixture; the hash
 values are compared in memory and never printed.
 TestClient is used WITHOUT `with`, so the app's startup model refresh never runs."""
+import base64
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -63,6 +66,22 @@ def test_login_returns_no_hash(client, db):
     r = client.post("/login", json={"username": "ZZTEST Juliet Login", "password": PASSWORD})
     assert r.status_code == 200
     assert set(r.json()) == {"access_token", "token_type", "role"}
+    _assert_no_secret(r, user.password)
+
+
+def _token_payload(token):
+    # Read the payload the same way the frontend does (lib/session.js): base64url JSON, no key.
+    part = token.split(".")[1]
+    return json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
+
+
+def test_login_token_carries_stored_username(client, db):
+    # Settings shows the token's "sub" (polish-4): the stored spelling, even when the login
+    # was typed in another case and with spaces; the reply still has no hash.
+    user = _add_user(db, "ZZTEST Lima Stored", PASSWORD)
+    r = client.post("/login", json={"username": "  zztest lima stored ", "password": PASSWORD})
+    assert r.status_code == 200
+    assert _token_payload(r.json()["access_token"])["sub"] == "ZZTEST Lima Stored"
     _assert_no_secret(r, user.password)
 
 
