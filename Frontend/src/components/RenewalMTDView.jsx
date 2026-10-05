@@ -93,7 +93,6 @@ export default function RenewalMTDView({ ytdRenewalRate }) {
         <PolicyTable
           data={rows}
           statusOptions={RENEWAL_STATUS_OPTIONS}
-          premiumLabel="Premium"
           extraFilters={<MonthExpiryFilterMTD value={month} onChange={setMonth} />}
         />
         <RenewalRateCard rate={rate} />

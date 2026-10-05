@@ -139,7 +139,8 @@ FIRE_POLICY_COLUMN_MAP = {
     "agencycode": "agency_code",
     "coveragedescription": "coverage_description",
     "suminsured": "sum_insured",
-    "unitcostpremium": "unit_cost_premium",
+    # Total Premium before taxes. The old "Unit Cost Premium" header held a rate, so it is not mapped.
+    "premium": "premium",
     "replacingcovernoteno": "replacing_cover_note_no",
     "premiuminvoiceno": "premium_invoice_no",
     "officialreceiptno": "official_receipt_no",
@@ -378,7 +379,7 @@ def row_to_fire_policy_fields(row) -> dict:
             if cleaned is not None:
                 fields[mapped] = cleaned
 
-    for money_field in ("total_amount_due", "sum_insured", "unit_cost_premium"):
+    for money_field in ("total_amount_due", "sum_insured", "premium"):
         if money_field in fields:
             cleaned = re.sub(r"[^\d.]", "", fields[money_field])
             fields[money_field] = cleaned if cleaned else None

@@ -290,7 +290,7 @@ whole year Jan 1 – Dec 31.
 - MTD's own rate (44 ÷ 60 = 73.33%) is calculated by the server but not shown anywhere.
 - Table (same component as Distribution): **Policy Line**, **Status** (All/Renewed/Lost/
   Pending), search (every word in the policy number or client, as on Distribution), columns Policy Number · Client Name · Policy
-  Line · Issued Date · Expiry Date (sortable) · **Premium** (= Total Amount Due) · Sum
+  Line · Issued Date · Expiry Date (sortable) · **Total Amount Due** (header was "Premium" before 2026-10-05) · Sum
   Insured (both lines from the policy) · Status. Rows: Daily 2, MTD 63, YTD 548.
 - Extra filter per tab:
   - **Daily**: "Filter by Date" calendar + Clear — shows only rows expiring on that exact
@@ -398,8 +398,8 @@ Counts of **all** records, both lines (no filters):
   policy; may differ from Client Name) · Line of Insurance · Issue Date · Period From ·
   Period To · Renewing Policy No. · TIN · Agency Code · Total Amount Due ·
   Replacing Cover Note No. · Premium Invoice No. · Official Receipt No.
-- Fire only: Coverage Description · Sum Insured · Unit Cost Premium · Property Insured ·
-  Construction · Occupancy.
+- Fire only: Coverage Description · Sum Insured · **Premium** (₱; the policy's Total Premium
+  before taxes — see §10.1) · Property Insured · Construction · Occupancy.
 - Motor only: Sum Insured · COC No. · COI No. · Endorsement No. · Deductible.
 - **Motor screen order** (21): Policy ID · Policy No. · Quotation ID · Client Name · Insured
   Name & Address · Line of Insurance · Issue Date · Period From · Period To · Renewing Policy
@@ -572,7 +572,7 @@ known headers are read; others are ignored. `*` = the row needs it to do anythin
 | **Customer / Policyholder Information** | Last Name*, First Name, Middle Name, Nationality, Marital Status, Complete Name of Spouse, Gender, Present Address, Permanent Address, Residence Phone Number, Mobile Number, Email Address, Zip Code, Occupation, TIN, SSS No., Employer (*a name is required: Last or First) |
 | **Fire & Property Survey** | Name of Insured*, Contact Person, Brief Description of Owner's Business, Location of Risk (geocoded), District No./Block No., Tel/Fax No., Current Block Accumulation, Zone, T.I., Risk Class (a/b), Description, Maximum Amount Subject, Loss Record; 18 perils (Fire, Earthquake, Typhoon, Flood, Landslide/Subsidence, Smoke/Aircraft/Vehicle Impact/Explosion, RSMD, Burglary/Robbery, Volcanic Eruption, Tsunami, Terrorist Attack, Spontaneous Combustion, Machinery Breakdown, General Liability, Money, Fidelity Guarantee, Goods Transit, Others → Low/Moderate/High); 6 hazards (Maintenance, Housekeeping, Storage Arrangement, Safety/Security, Block Condition, Surrounding Community → Good/Fair/Poor); Overall Risk Assessment; Surveyor Risk Acceptability; Protection Facilities (comma list of the 32 names or "None"); Occupancy - Building / Main Occupancy / Stocks / M/E / FFF / BI/LOP / Others / Total; Boundary - Front / Right / Left / Rear / Sketch |
 | **Fire & Property Quotation** | Date, Name of Insured*, Location of Risk, Period of Cover (or Period Cover), Property Sums Insured, Basis of Evaluation, Deductibles, Subjective, Occupancy, Total Sum Insured, Mortgagee, Perils Covered, Line of Insurance, Total Premium |
-| **Fire & Property Policy** | Issue Date, Insured Name & Address* ("NAME, ADDRESS" — split at the first comma), Line of Insurance, Policy No., Renewing Policy No., Period From, Period To, TIN, Total Amount Due, Agency Code, Coverage Description, Sum Insured, Unit Cost Premium, Replacing Cover Note No., Premium Invoice No., Official Receipt No., Property Insured, Construction, Occupancy |
+| **Fire & Property Policy** | Issue Date, Insured Name & Address* ("NAME, ADDRESS" — split at the first comma), Line of Insurance, Policy No., Renewing Policy No., Period From, Period To, TIN, Total Amount Due, Agency Code, Coverage Description, Sum Insured, Premium, Replacing Cover Note No., Premium Invoice No., Official Receipt No., Property Insured, Construction, Occupancy |
 | **Motor Quotation** | Date, Insured Name*, Address (geocoded), Unit, Classification, Color, Deductible, Plate No., Bank, Total Amount Due, Sum Insured, Model, Make, Body Type, Motor/Engine No., Serial/Chassis No. (or Serial/Chasis No.), Authorized Capacity |
 | **Motor Policy** | Issue Date, Insured Name & Address*, Line of Insurance, Policy No., Renewing Policy No., Period From, Period To, TIN, Agency Code, COC No., COI No., Endorsement No., Total Amount Due, Sum Insured, Replacing Cover Note No., Premium Invoice No., Official Receipt No., Deductible |
 | **Vehicle Information** | Insured Name*, Make, Model, Body Type, Color, Plate No., Motor/Engine No., Serial/Chassis No., Authorized Capacity |
@@ -584,6 +584,16 @@ known headers are read; others are ignored. `*` = the row needs it to do anythin
   Assured only if there is no Assured column.
 - ⚠️ In every importer the cell texts None, NA, N/A, null, nan … are read as **blank** (pandas
   default). The only exception is Protection Facilities, where "None" means "no facilities".
+- **Fire Policy "Premium"** (since 2026-10-05) = the policy's **Total Premium in pesos, before
+  taxes**, read as money like Total Amount Due (₱ and commas allowed). On Maagap's real fire
+  policy the taxes are a percentage of the Total Premium — Doc. Stamps 12.5%, FST 2%, VAT 12%,
+  Local Gov't Tax 0.5% — so **Total Amount Due = Premium × 1.27** (their example: Total Premium
+  12,900.00 → Total Amount Due 16,383.00). Coverage rows (Fire/Lightning, Earthquake, Typhoon,
+  Flood, Extended Cover, RSMD), Qty and Unit Cost are not stored (Qty is always 1). The old
+  header "Unit Cost Premium" (a made-up rate per ₱1,000 in the synthetic data) is **ignored**,
+  like any unknown column. Rows loaded before the change got Premium = Total Amount Due ÷ 1.27
+  (`Backend/scripts/2026-10-05_premium_field.sql`). Fire **quotation** "Total Premium" is
+  unchanged: the full amount with taxes, as on Maagap's quotation form.
 
 ### 10.2 Auto-detect (folder mode and single-file mode)
 - For each type: score = (file headers that belong to that type ÷ all headers in the file) ×

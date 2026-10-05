@@ -355,7 +355,7 @@ class FirePropertyPolicy(Base):
     agency_code = Column(String(50))
     coverage_description = Column(Text)
     sum_insured = Column(DECIMAL(15, 2))
-    unit_cost_premium = Column(DECIMAL(15, 2))
+    premium = Column(DECIMAL(15, 2))  # Total Premium before taxes; Total Amount Due = premium x 1.27 on Maagap's form
 
     replacing_cover_note_no = Column(String(100))
     premium_invoice_no = Column(String(100))

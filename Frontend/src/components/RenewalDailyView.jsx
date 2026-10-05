@@ -49,7 +49,6 @@ export default function RenewalDailyView({ ytdRenewalRate }) {
         <PolicyTable
           data={rows}
           statusOptions={RENEWAL_STATUS_OPTIONS}
-          premiumLabel="Premium"
           extraFilters={<ExpiryDateFilter value={expiryFilterDate} onChange={setExpiryFilterDate} />}
         />
         <RenewalRateCard rate={rate} />

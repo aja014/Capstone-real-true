@@ -236,7 +236,7 @@ class FirePropertyPolicyCreate(BaseModel):
     agency_code: Optional[str] = None
     coverage_description: Optional[str] = None
     sum_insured: Optional[Decimal] = None
-    unit_cost_premium: Optional[Decimal] = None
+    premium: Optional[Decimal] = None
     replacing_cover_note_no: Optional[str] = None
     premium_invoice_no: Optional[str] = None
     official_receipt_no: Optional[str] = None

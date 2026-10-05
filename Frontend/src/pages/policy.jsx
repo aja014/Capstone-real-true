@@ -227,7 +227,7 @@ const FIRE_POLICY_COLUMNS = [
   { id: "official_receipt_no", dataKey: "official_receipt_no", header: "Official Receipt No.", width: "min-w-[150px]" },
   { id: "coverage_description", dataKey: "coverage_description", header: "Coverage Description", width: "min-w-[220px]", align: "text-left" },
   { id: "sum_insured", dataKey: "sum_insured", header: "Sum Insured", type: "currency", width: "min-w-[150px]" },
-  { id: "unit_cost_premium", dataKey: "unit_cost_premium", header: "Unit Cost Premium", type: "currency", width: "min-w-[150px]" },
+  { id: "premium", dataKey: "premium", header: "Premium", type: "currency", width: "min-w-[150px]" },
   { id: "property_insured", dataKey: "property_insured", header: "Property Insured", width: "min-w-[170px]", align: "text-left" },
   { id: "construction", dataKey: "construction", header: "Construction", width: "min-w-[130px]" },
   { id: "occupancy", dataKey: "occupancy", header: "Occupancy", width: "min-w-[130px]" },

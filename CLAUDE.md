@@ -80,6 +80,12 @@ fire_property_policies/quotations/surveys/claims, motor_policies/quotations/clai
   `river_flood_category`, `storm_surge_category`. Fire quotations borrow GIS from their
   case's latest survey.
 - `motor_quotations` / `motor_policies` have `sum_insured`.
+- `fire_property_policies.premium` (was `unit_cost_premium` until 2026-10-05; renamed by
+  `Backend/scripts/2026-10-05_premium_field.sql`) = Total Premium in pesos, before taxes. Maagap's
+  real fire policy: Total Amount Due = Premium × 1.27 (DST 12.5% + FST 2% + VAT 12% + LGT 0.5%);
+  v4 rows were filled with ROUND(total_amount_due / 1.27, 2). Upload header "Premium"; the old
+  "Unit Cost Premium" header (a rate) is ignored. Fire quotation `total_premium` is unchanged (with
+  taxes, as on Maagap's quotation form; policy↔quotation matching compares it with Total Amount Due).
 - `import_records.import_type` is a native MySQL ENUM — a new import type needs a manual
   `ALTER TABLE ... MODIFY import_type ENUM(...)` as well as the Python enums.
 - `users.username` has a unique index; the collation is case-insensitive.
@@ -222,23 +228,29 @@ Frontend: `npm ci` (uses the committed `package-lock.json`).
 
 ## How to test
 - From `Backend/`: `./venv/Scripts/python -m pip install -r requirements.txt` once, then
-  `./venv/Scripts/python -m pytest tests` (182 tests, ≈ 27 min — the LR λ search makes training tests slow). The `db` fixture runs on the dev DB
+  `./venv/Scripts/python -m pytest tests` (186 tests, ≈ 14 min alone, ≈ 30 min while the backend runs — the LR λ search makes training tests slow). The `db` fixture runs on the dev DB
   inside one transaction that is always rolled back (no rows left; auto-increment ids are
   used up). API tests use `TestClient(app)` without `with`; stubs of `get_current_user` must
   return a manager-like object.
 - Test records use a `ZZTEST` prefix; give unrelated test entities distinct name roots
   (Alpha/Bravo/…) — a shared prefix word makes rapidfuzz match them to each other.
 - Build small Excel files that target the exact edge case; verify with direct queries, not
-  just summary counts. Delete test rows by exact id, or restore v4 afterwards.
+  just summary counts. Delete test rows by exact id, or restore v4b afterwards.
 - MySQL Workbench Safe Update Mode blocks `DELETE ... WHERE id NOT IN (...)`.
 
-## How to restore (v4 presentation backup)
-`Desktop\insurance_db_backup_loaded_v4_20260928_195453.sql` = v2 synthetic dataset +
-trained models (25 tables; users = Aaron James only, with the password as of the backup).
-Stop uvicorn first, then:
+## How to restore (v4b presentation backup — the one to use until the Oct 12 load)
+`Desktop\insurance_db_backup_loaded_v4b_premium_20261005_233915.sql` = v4 (v2 synthetic dataset +
+trained models) after the 2026-10-05 Premium migration (`fire_property_policies.premium`, 876 rows
+filled). 25 tables; users = Aaron James only, with the password as of the backup. Test-restored
+into a scratch database on 2026-10-05: all 25 counts and CHECKSUM TABLE values identical.
+**Do not restore the old v4 file** (`…_v4_20260928_195453.sql`): it still has `unit_cost_premium`,
+and the app now expects `premium`. Stop uvicorn first, then:
 ```
-& "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -p insurance_db -e "source C:/Users/aaron/OneDrive/Desktop/insurance_db_backup_loaded_v4_20260928_195453.sql"
+& "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -p insurance_db -e "source C:/Users/aaron/OneDrive/Desktop/insurance_db_backup_loaded_v4b_premium_20261005_233915.sql"
 ```
+⚠️ Never pipe a dump into mysql with PowerShell 5.1 (`Get-Content … | mysql`): it sends ASCII and
+turns "ñ" into "?" (seen 2026-10-05 in a test restore). Use `-e "source <path>"` (path without
+spaces) or Workbench. Write dumps with `mysqldump --result-file=…`, not `>` (UTF-16).
 (Workbench: Server → Data Import → Self-Contained File → target `insurance_db`.) Start the
 backend; it doesn't retrain (models are active), it only rewrites predictions (~10 s).
 Expected counts: policyholders 1,129 · cases 1,224 · surveys 481 · vehicles 743 · motor
@@ -256,7 +268,7 @@ run it without an explicit instruction. Any new table must be added to it (or li
 Script `data_prep/demo/make_demo_upload.py --quote-date <yesterday> --copy-to
 "C:/Users/aaron/OneDrive/Desktop/FIREMAP_demo_upload"` writes 4 Excel files (2 new clients:
 Dimaculangan / Panghulo → High storm surge; Pagsisihan / Canalate → Medium river).
-Morning: restore v4 → start backend the demo way (`./venv/Scripts/python -m uvicorn main:app`,
+Morning: restore v4b → start backend the demo way (`./venv/Scripts/python -m uvicorn main:app`,
 no `--reload`) → warm-up from `Backend/`:
 `./venv/Scripts/python -c "from app.ml import jobs; jobs.refresh_now('pre-demo warm-up'); print(jobs.status)"`
 → regenerate the folder → open Proposal once. Live: Policy Holder Info → Upload → Folder →
@@ -282,7 +294,7 @@ Isidro Pelayo (High river); claims MS2602030016 (#83, Suspicious 56%) and MS2501
   contact data.
 
 ## Current status and open items
-- All objectives built; main is at the pre-defense fixes (`244bfdb`), data = v4. The fix
+- All objectives built; main is at the pre-defense fixes (`244bfdb`), data = v4b (v4 + Premium migration, 2026-10-05). The fix
   round for validation Phases 0–8 is on branch `fix-round` (2026-10-02, not yet merged).
 - Open / known (not fixed):
   - Backend requests slow down while a retrain runs (refresh shares the web process).
