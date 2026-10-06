@@ -1,7 +1,7 @@
 import { sharedGet } from "./sharedGet";
 import { fetchClaimPredictions, formatProbability } from "./ml";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { API_BASE_URL } from "../api/config";
 
 function authHeaders() {
   const token = localStorage.getItem("token");

@@ -15,7 +15,7 @@ import {
 import { RiskLevelCell, ClaimPossibilityCell, ModelAccuracyCard } from "../components/ModelShared";
 import { rowMatchesSearch } from "../lib/search";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { API_BASE_URL } from "../api/config";
 
 function authHeaders() {
   const token = localStorage.getItem("token");

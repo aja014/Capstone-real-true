@@ -4,7 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { StatCard, PolicyTable, MiniPie, formatYearOnly, todayISO } from "./PolicyDistributionShared";
 import { mapRenewalRow, RenewalRateCard, RENEWAL_STATUS_OPTIONS, RENEWAL_PIE_COLORS, MonthExpiryFilter, filterRowsByExpiryMonth } from "./RenewalRatioShared";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { API_BASE_URL } from "../api/config";
 
 function legendLabel(v) {
   if (v === "renewed") return "Renewed Policies";

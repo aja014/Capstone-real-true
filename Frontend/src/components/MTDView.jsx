@@ -7,7 +7,7 @@ import {
 } from "./PolicyDistributionShared";
 import { MTDMonthPicker } from "./DatePicker";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { API_BASE_URL } from "../api/config";
 const FIRE_COLORS = ["#a5b4fc", "#c4b5fd"];
 const MOTOR_COLORS = ["#f87171", "#fca5a5"];
 

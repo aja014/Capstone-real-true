@@ -7,7 +7,7 @@ import {
 } from "./PolicyDistributionShared";
 import { MonthYearPicker } from "./DatePicker";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { API_BASE_URL } from "../api/config";
 const FIRE_COLORS = ["#a5b4fc", "#f87171"];
 const MOTOR_COLORS = ["#f87171", "#a5b4fc"];
 

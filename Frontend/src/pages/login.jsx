@@ -4,6 +4,7 @@ import Background_Cars from "../img/Background_Cars.jpg";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { SESSION_EXPIRED_KEY } from "../api/api";
+import { API_BASE_URL } from "../api/config";
 import { usernameFromToken } from "../lib/session";
 
 import Logo from "../img/MAAGAP_LOGO.png";
@@ -28,7 +29,7 @@ export default function MaagapLogin() {
     setLoginError(null);
 
     try {
-      const response = await axios.post("http://127.0.0.1:8000/login", {
+      const response = await axios.post(`${API_BASE_URL}/login`, {
         username: username.trim(),
         password,
       });

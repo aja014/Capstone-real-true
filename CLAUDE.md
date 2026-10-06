@@ -226,9 +226,21 @@ First-time setup (Python 3.14), from `Backend/`: `python -m venv venv`, then
 tests + their dependencies) with `==`; `requirements-dev.txt` is only `-r requirements.txt`.
 Frontend: `npm ci` (uses the committed `package-lock.json`).
 
+## Hosting (IAS2) — branch `deploy-ias2` only, never merged into main
+Hosted copy for the IAS2 scans: Vercel (frontend) + Render free 512 MB (backend) + Aiven MySQL,
+v4b data, its own SECRET_KEY and manager password. Every difference is an env switch whose
+unset value is the local behaviour (`Backend/.env.example`, `tests/test_hosting_switches.py`):
+- Backend: `APP_ENV=production` (refuse to start without SECRET_KEY; DB pre-ping), `CORS_ORIGINS`
+  (comma-separated), `DB_SSL_CA` (Aiven CA path), `DOCS_ENABLED`, `GIS_ENABLED` (false on Render:
+  the river-flood shapefile alone needs ~280 MB; records save with empty GIS fields).
+- Frontend: `VITE_API_BASE_URL` (build time) via `src/api/config.js`; `vercel.json` SPA rewrite.
+- Render: repo root (not `Backend/`), build `pip install -r Backend/requirements.txt`, start
+  `cd Backend && uvicorn main:app --host 0.0.0.0 --port $PORT`, `PYTHON_VERSION=3.14.4`.
+- Facts, measurements and the plan: `docs/validation/IAS2_PART_A.md` (not committed).
+
 ## How to test
 - From `Backend/`: `./venv/Scripts/python -m pip install -r requirements.txt` once, then
-  `./venv/Scripts/python -m pytest tests` (186 tests, ≈ 14 min alone, ≈ 30 min while the backend runs — the LR λ search makes training tests slow). The `db` fixture runs on the dev DB
+  `./venv/Scripts/python -m pytest tests` (194 tests, ≈ 14 min alone, ≈ 30 min while the backend runs — the LR λ search makes training tests slow). The `db` fixture runs on the dev DB
   inside one transaction that is always rolled back (no rows left; auto-increment ids are
   used up). API tests use `TestClient(app)` without `with`; stubs of `get_current_user` must
   return a manager-like object.

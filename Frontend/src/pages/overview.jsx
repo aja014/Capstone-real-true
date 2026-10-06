@@ -18,7 +18,7 @@ import {
 import Sidebar from "../components/sidebar";
 import { StatCard, formatCurrencyPH } from "../components/PolicyDistributionShared";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { API_BASE_URL } from "../api/config";
 const PIE_COLORS = ["#FBBF24", "#FEF3C7"];
 
 // ── QuotationConversionPie ──────────────────────────────────────────────────

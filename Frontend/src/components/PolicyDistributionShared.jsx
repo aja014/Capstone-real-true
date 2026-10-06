@@ -4,7 +4,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { ChevronDown, Search } from "lucide-react";
 import { fieldsMatchSearch } from "../lib/search";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { API_BASE_URL } from "../api/config";
 const PAGE_SIZE = 8;
 
 const MONTH_NAMES = [

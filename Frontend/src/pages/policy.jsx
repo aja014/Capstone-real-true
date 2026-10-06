@@ -15,7 +15,7 @@ import JsonDetails from "../components/JsonDetails";
 import NoticeModal from "../components/NoticeModal";
 import { InvestigationResultCell, FraudWarningCell } from "../components/ClaimsShared";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { API_BASE_URL } from "../api/config";
 
 // ── Stat Cards
 // `type` is the TYPE_OPTIONS value each card switches to on click.

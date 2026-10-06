@@ -1,4 +1,5 @@
 import axios from "axios";
+import { API_BASE_URL } from "./config";
 
 export const SESSION_EXPIRED_KEY = "sessionExpired";
 let redirecting = false;
@@ -21,7 +22,7 @@ function handleUnauthorized(error) {
 axios.interceptors.response.use((response) => response, handleUnauthorized);
 
 const api = axios.create({
-  baseURL: "http://127.0.0.1:8000",
+  baseURL: API_BASE_URL,
 });
 
 api.interceptors.request.use((config) => {

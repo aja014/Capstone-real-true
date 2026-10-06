@@ -3,7 +3,7 @@ import { sharedGet } from "../lib/sharedGet";
 import { formatDateSlash, formatCurrencyPH, todayISO } from "./PolicyDistributionShared";
 import { FullCalendarPicker, MonthYearPicker, MTDMonthPicker } from "./DatePicker";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { API_BASE_URL } from "../api/config";
 
 // Same 3 slices on every pie/bar in this feature (Renewed/Lost/Pending) —
 // unlike Distribution's fire/motor pies, which use different color pairs

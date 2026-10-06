@@ -71,6 +71,7 @@ import requests
 from shapely import Point, from_wkb, prepare
 from sqlalchemy import text
 
+from app.config import settings
 from app.database import engine
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
@@ -292,6 +293,9 @@ def lookup_flood_risk(address: Optional[str]) -> dict:
     falls back to whichever result is available — this is a soft failure by
     design, never an exception, so it never blocks whatever is creating the
     underlying record.
+
+    GIS_ENABLED=false (hosts with too little memory for the shapefiles): all 6
+    are None and nothing is geocoded or loaded.
     """
     empty = {
         "latitude": None,
@@ -301,7 +305,7 @@ def lookup_flood_risk(address: Optional[str]) -> dict:
         "river_flood_category": None,
         "storm_surge_category": None,
     }
-    if not address or not address.strip():
+    if not settings.GIS_ENABLED or not address or not address.strip():
         return empty
 
     try:

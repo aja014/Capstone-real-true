@@ -3,7 +3,7 @@ import { sharedGet } from "../lib/sharedGet";
 import { StatCard, PolicyTable, formatHumanDate, todayISO } from "./PolicyDistributionShared";
 import { mapRenewalRow, RenewalRateCard, RENEWAL_STATUS_OPTIONS, ExpiryDateFilter, filterRowsByExpiryDate } from "./RenewalRatioShared";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { API_BASE_URL } from "../api/config";
 
 export default function RenewalDailyView({ ytdRenewalRate }) {
   const [expiryFilterDate, setExpiryFilterDate] = useState(null);

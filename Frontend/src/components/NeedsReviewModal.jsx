@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { X, Loader2, Link2, UserPlus, Trash2 } from "lucide-react";
 import axios from "axios";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { API_BASE_URL } from "../api/config";
 
 // These two import types finalize a Policy row, which requires picking an
 // existing quotation (no shared ID in the source data to auto-derive it from)

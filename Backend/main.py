@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import HTTPException # for getting users
 from app.routers import auth, users, policyholders, fire_property, motor_car, import_policyholders, import_fire_property, import_motor, import_vehicle, import_batch, stats, claims, import_claims, ml
 from app.ml import jobs as ml_jobs
+from app.config import settings
 
 
 @asynccontextmanager
@@ -19,11 +20,16 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    lifespan=lifespan,
+    docs_url="/docs" if settings.DOCS_ENABLED else None,
+    redoc_url="/redoc" if settings.DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if settings.DOCS_ENABLED else None,
+)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # ✅ Added 5173
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

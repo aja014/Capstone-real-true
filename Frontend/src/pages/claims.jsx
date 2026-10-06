@@ -14,7 +14,7 @@ import { fetchModels, waitForModelRefresh } from "../lib/ml";
 import { ModelAccuracyCard } from "../components/ModelShared";
 import { fieldsMatchSearch } from "../lib/search";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { API_BASE_URL } from "../api/config";
 const PAGE_SIZE = 8;
 const PERIOD_TO_MONTHS = { "Past 6 Months": 6, "Past 3 Months": 3, "Past 12 Months": 12 };
 const PIE_COLORS = ["#6366f1", "#f59e0b", "#ef4444", "#d1d5db"];
