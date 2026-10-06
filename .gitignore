@@ -17,3 +17,4 @@ Thumbs.db
 
 # Generated model reports (app/ml/report.py), copied into Chapter 4 by hand
 model_reports/
+docs/validation/

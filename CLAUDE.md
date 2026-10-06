@@ -10,7 +10,7 @@ is current; the history file explains why.
 FIREMAP — insurance capstone for "Maagap" insurance (Bulacan). Predicts the claim
 probability of a future quotation from PRE-POLICY data (survey / vehicle / quotation + GIS
 flood risk), flags possible fraud on claims, and monitors policies, renewals and claims.
-**Defense: October 14–15, 2026** — favor the simplest defensible change over elegance.
+**Defense: October 19, 2026** — favor the simplest defensible change over elegance.
 
 Study objectives (keep all in scope):
 - 1.1 Policyholder Information Management — DONE (Policy Holder Info page, bulk import).
