@@ -36,6 +36,10 @@ def hash_password(password: str) -> str:
     return hashed_password.decode("utf-8")
 
 
+# Checked when the username doesn't exist, so that answer takes as long as a wrong password.
+DUMMY_PASSWORD_HASH = hash_password("zz-timing-equaliser-not-a-real-password")
+
+
 def verify_password(password: str, hashed_password: str) -> bool:
     if len(password.encode("utf-8")) > PASSWORD_MAX_BYTES:
         return False  # can't match any stored hash; bcrypt 5 would raise (raw 500)

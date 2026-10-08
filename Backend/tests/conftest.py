@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.database import engine  # noqa: E402
+from app.services import login_limiter  # noqa: E402
 
 
 @pytest.fixture
@@ -25,3 +26,11 @@ def db():
         session.close()
         outer.rollback()
         connection.close()
+
+
+@pytest.fixture(autouse=True)
+def clear_login_limiter():
+    """Failed logins of one test must never lock a later test out (the limiter is in memory)."""
+    login_limiter.clear()
+    yield
+    login_limiter.clear()

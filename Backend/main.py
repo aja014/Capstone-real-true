@@ -7,9 +7,10 @@ from app import models, schemas
 from passlib.context import CryptContext
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import HTTPException # for getting users
-from app.routers import auth, users, policyholders, fire_property, motor_car, import_policyholders, import_fire_property, import_motor, import_vehicle, import_batch, stats, claims, import_claims, ml
+from app.routers import auth, users, policyholders, fire_property, motor_car, import_policyholders, import_fire_property, import_motor, import_vehicle, import_batch, stats, claims, import_claims, ml, public
 from app.ml import jobs as ml_jobs
 from app.config import settings
+from app.http_security import SecurityHeadersMiddleware, server_error
 
 
 @asynccontextmanager
@@ -34,6 +35,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Added last = outermost: the headers also go on CORS preflights and every 4xx.
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_exception_handler(Exception, server_error)
 
 Base.metadata.create_all(bind=engine)
 
@@ -62,3 +66,4 @@ app.include_router(import_claims.router)
 app.include_router(stats.router)
 app.include_router(claims.router)
 app.include_router(ml.router)
+app.include_router(public.router)

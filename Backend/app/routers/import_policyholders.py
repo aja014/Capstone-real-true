@@ -2,6 +2,7 @@ import re
 import pandas as pd
 from rapidfuzz import fuzz
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from app.http_security import check_upload_size, row_error_text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -154,6 +155,7 @@ def match_score(candidate_name: str, candidate_addr: str, candidate_phone: str,
 
 @router.post("/upload", response_model=schemas.ImportSummary)
 def upload_policyholders(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    check_upload_size(file)
     if not file.filename.lower().endswith((".xlsx", ".xls", ".csv")):
         raise HTTPException(status_code=400, detail="Only .xlsx, .xls, or .csv files are supported")
 
@@ -290,7 +292,7 @@ def upload_policyholders(file: UploadFile = File(...), db: Session = Depends(get
             # and move on to the next row.
             db.rollback()
             failed_count += 1
-            errors.append(schemas.ImportRowError(source_row=source_row, error=str(e)))
+            errors.append(schemas.ImportRowError(source_row=source_row, error=row_error_text(e, source_row)))
 
     return schemas.ImportSummary(
         source_file=file.filename,

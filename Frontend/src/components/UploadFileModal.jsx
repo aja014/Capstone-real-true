@@ -3,6 +3,7 @@ import { Upload, CheckCircle, XCircle, X, Loader2, FolderUp } from "lucide-react
 import axios from "axios";
 
 import { API_BASE_URL } from "../api/config";
+import { FILE_TOO_LARGE, isTooLarge } from "../lib/uploadLimits";
 
 const IMPORT_TARGETS = [
   { value: "policyholders", label: "Policyholders", endpoint: "/import/policyholders/upload" },
@@ -145,6 +146,12 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, defaultT
     setErrorMsg(null);
     setSummary(null);
     setDetection(null);
+
+    if (isTooLarge(file)) {  // the backend refuses it too; this just saves sending 10+ MB
+      setErrorMsg(FILE_TOO_LARGE);
+      setStatus("error");
+      return;
+    }
 
     const formData = new FormData();
     formData.append("files", file);

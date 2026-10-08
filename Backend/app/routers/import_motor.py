@@ -2,6 +2,7 @@ import re
 import pandas as pd
 from rapidfuzz import fuzz
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from app.http_security import check_upload_size, row_error_text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -184,6 +185,7 @@ def fill_vehicle_ids(db: Session, vehicle, plate_no: str, engine_no: str, chassi
 @router.post("/quotations/upload", response_model=schemas.ImportSummary,
               dependencies=[Depends(schedule_model_refresh)])
 def upload_motor_quotations(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    check_upload_size(file)
     if not file.filename.lower().endswith((".xlsx", ".xls", ".csv")):
         raise HTTPException(status_code=400, detail="Only .xlsx, .xls, or .csv files are supported")
 
@@ -390,7 +392,7 @@ def upload_motor_quotations(file: UploadFile = File(...), db: Session = Depends(
             # and move on to the next row.
             db.rollback()
             failed_count += 1
-            errors.append(schemas.ImportRowError(source_row=source_row, error=str(e)))
+            errors.append(schemas.ImportRowError(source_row=source_row, error=row_error_text(e, source_row)))
 
     return schemas.ImportSummary(
         source_file=file.filename,
@@ -561,6 +563,7 @@ def _resolve_or_create_motor_policy(db: Session, policyholder_id: int, fields: d
 @router.post("/policies/upload", response_model=schemas.ImportSummary,
               dependencies=[Depends(schedule_model_refresh)])
 def upload_motor_policies(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    check_upload_size(file)
     if not file.filename.lower().endswith((".xlsx", ".xls", ".csv")):
         raise HTTPException(status_code=400, detail="Only .xlsx, .xls, or .csv files are supported")
 
@@ -672,7 +675,7 @@ def upload_motor_policies(file: UploadFile = File(...), db: Session = Depends(ge
         except Exception as e:
             db.rollback()
             failed_count += 1
-            errors.append(schemas.ImportRowError(source_row=source_row, error=str(e)))
+            errors.append(schemas.ImportRowError(source_row=source_row, error=row_error_text(e, source_row)))
 
     return schemas.ImportSummary(
         source_file=file.filename,

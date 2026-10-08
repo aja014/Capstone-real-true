@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
+import "leaflet/dist/leaflet.css";
 
 const CATEGORY_STYLE = {
   Low: "text-green-600",
@@ -12,10 +13,9 @@ function LeafletMap({ lat, lng }) {
   const mapInstanceRef = useRef(null);
 
   useEffect(() => {
-    const initMap = () => {
+    let cancelled = false;
+    const initMap = (L) => {
       if (!mapRef.current || mapInstanceRef.current) return;
-      const L = window.L;
-      if (!L) return;
 
       mapInstanceRef.current = L.map(mapRef.current, {
         center: [lat, lng],
@@ -43,34 +43,15 @@ function LeafletMap({ lat, lng }) {
       L.marker([lat, lng], { icon: redIcon }).addTo(mapInstanceRef.current);
     };
 
-    const loadLeaflet = () => {
-      if (window.L) { initMap(); return; }
-
-      if (!document.getElementById("leaflet-css")) {
-        const link = document.createElement("link");
-        link.id = "leaflet-css";
-        link.rel = "stylesheet";
-        link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-        document.head.appendChild(link);
-      }
-
-      if (!document.getElementById("leaflet-js")) {
-        const script = document.createElement("script");
-        script.id = "leaflet-js";
-        script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
-        script.onload = initMap;
-        document.head.appendChild(script);
-      } else {
-        // script already added, wait for it
-        const poll = setInterval(() => {
-          if (window.L) { clearInterval(poll); initMap(); }
-        }, 100);
-      }
-    };
-
-    const timer = setTimeout(loadLeaflet, 80);
+    // Bundled Leaflet (was loaded from unpkg at runtime): no third-party script or stylesheet,
+    // so the CSP keeps script-src and style-src 'self'. Loaded only when a GIS View opens.
+    const timer = setTimeout(async () => {
+      const { default: L } = await import("leaflet");
+      if (!cancelled) initMap(L);
+    }, 80);
 
     return () => {
+      cancelled = true;
       clearTimeout(timer);
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();

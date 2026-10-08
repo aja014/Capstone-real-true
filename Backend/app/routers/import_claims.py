@@ -13,6 +13,7 @@ from decimal import Decimal, InvalidOperation
 import pandas as pd
 from rapidfuzz import fuzz
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from app.http_security import check_upload_size, row_error_text
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -214,6 +215,7 @@ def _policy_links(policy):
 
 def _upload_claims(file: UploadFile, db: Session, import_type):
     spec = LINES[import_type]
+    check_upload_size(file)
     if not file.filename.lower().endswith((".xlsx", ".xls", ".csv")):
         raise HTTPException(status_code=400, detail="Only .xlsx, .xls, or .csv files are supported")
 
@@ -295,7 +297,7 @@ def _upload_claims(file: UploadFile, db: Session, import_type):
         except Exception as e:
             db.rollback()
             failed_count += 1
-            errors.append(schemas.ImportRowError(source_row=source_row, error=str(e)))
+            errors.append(schemas.ImportRowError(source_row=source_row, error=row_error_text(e, source_row)))
 
     return schemas.ImportSummary(
         source_file=file.filename,

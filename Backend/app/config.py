@@ -27,6 +27,9 @@ class Settings:
     # Off = no geocoding and no hazard shapefiles: the river-flood file alone needs ~280 MB, too
     # much for a 512 MB host. Records still save, with empty GIS fields ("not yet available").
     GIS_ENABLED = _env_flag("GIS_ENABLED", True)
+    # How many proxies append to X-Forwarded-For in front of the app (Render: 1). 0 = ignore the
+    # header (local). Used only to key the failed-login limit.
+    TRUSTED_PROXY_HOPS = int(os.getenv("TRUSTED_PROXY_HOPS") or 0)
 
 settings = Settings()
 

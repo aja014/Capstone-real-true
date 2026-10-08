@@ -6,6 +6,7 @@ import axios from "axios";
 import { SESSION_EXPIRED_KEY } from "../api/api";
 import { API_BASE_URL } from "../api/config";
 import { usernameFromToken } from "../lib/session";
+import { loginErrorMessage } from "../lib/loginErrors";
 
 import Logo from "../img/MAAGAP_LOGO.png";
 
@@ -48,13 +49,7 @@ export default function MaagapLogin() {
         navigate("/policy");
       }
     } catch (error) {
-      if (!error.response) {
-        setLoginError("Can't reach the server. Please try again.");
-      } else if (error.response.status === 401) {
-        setLoginError("Invalid username or password");
-      } else {
-        setLoginError("Something went wrong on the server. Please try again.");
-      }
+      setLoginError(loginErrorMessage(error));
     } finally {
       setIsLoading(false);
     }

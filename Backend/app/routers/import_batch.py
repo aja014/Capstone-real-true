@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.http_security import check_upload_size, row_error_text
 from app.security import get_current_user
 from app import models, schemas
 from app.ml.jobs import schedule_model_refresh
@@ -170,11 +171,13 @@ def detect_batch(files: list[UploadFile] = File(...)):
 
     for f in files:
         try:
+            check_upload_size(f)
             headers = _read_header_row(f)
         except Exception as e:
+            error = e.detail if isinstance(e, HTTPException) else f"Could not read file: {e}"
             results.append(schemas.DetectedFile(
                 filename=f.filename, candidates=[], best_guess=None,
-                confidence="none", ambiguous=False, error=f"Could not read file: {e}",
+                confidence="none", ambiguous=False, error=error,
             ))
             continue
 
@@ -268,7 +271,7 @@ def upload_batch(
         except HTTPException as e:
             results_by_index[original_index] = schemas.BatchFileResult(filename=f.filename, import_type=type_str, error=str(e.detail))
         except Exception as e:
-            results_by_index[original_index] = schemas.BatchFileResult(filename=f.filename, import_type=type_str, error=str(e))
+            results_by_index[original_index] = schemas.BatchFileResult(filename=f.filename, import_type=type_str, error=row_error_text(e))
 
-    results = [results_by_index[i] for i in range(len(files))]
+    results =[results_by_index[i] for i in range(len(files))]
     return schemas.BatchImportSummary(files=results)
