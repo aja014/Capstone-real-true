@@ -36,7 +36,7 @@ export default function CreateAccountModal({ isOpen, onClose }) {
   const validate = () => {
     const e = {};
     if (!form.username.trim()) e.username = "Username is required";
-    const passwordError = passwordRuleError(form.password);
+    const passwordError = passwordRuleError(form.password, form.username);
     if (passwordError) e.password = passwordError;
     if (form.password !== form.confirmPassword)
       e.confirmPassword = "Passwords do not match";

@@ -2,7 +2,7 @@ from sqlalchemy import (
     Column, Integer, String, Text, Date, DateTime, Boolean,
     DECIMAL, Double, ForeignKey, JSON, Enum, UniqueConstraint, func
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import declarative_base, relationship
 from app.database import Base
 import enum
 
@@ -603,3 +603,22 @@ class MLPrediction(Base):
 # NOT YET INCLUDED (do not fabricate — build once real data/fields arrive):
 #   - Renewal           -> will link via renewing_policy_no on the policy tables above
 # ------------------------------------------------------------
+
+# ------------------------------------------------------------
+# LOGIN LOG (IAS2, branch deploy-ias2) — its own metadata, so Base.metadata.create_all() never makes
+# it: main.py creates it only when LOGIN_AUDIT=true (a local database keeps its 25 tables).
+# ------------------------------------------------------------
+
+AuditBase = declarative_base()
+
+
+class LoginEvent(AuditBase):
+    __tablename__ = "login_events"
+
+    id = Column(Integer, primary_key=True)
+    occurred_at = Column(DateTime, nullable=False, index=True)  # UTC
+    # NULL for an unknown username or a locked attempt; no FK: the log outlives the account.
+    user_id = Column(Integer, index=True)
+    username = Column(String(255), nullable=False)  # as typed, trimmed
+    ip_address = Column(String(45), nullable=False)
+    result = Column(String(20), nullable=False)  # success | wrong_password | unknown_user | locked

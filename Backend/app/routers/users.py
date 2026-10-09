@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from app.security import hash_password, password_rule_error, verify_password
+from app.config import settings
+from app.security import hash_password, password_rule_error, token_for_user, verify_password
 from app.services.user_service import get_user_by_username
 from app.security import get_current_user
 
@@ -26,7 +27,7 @@ def create_user( user: schemas.UserCreate, db: Session = Depends(get_db), curren
     if not username:
         raise HTTPException(status_code=400, detail="Username is required.")
 
-    rule_error = password_rule_error(user.password)
+    rule_error = password_rule_error(user.password, username)
     if rule_error:
         raise HTTPException(status_code=400, detail=rule_error)
 
@@ -69,7 +70,7 @@ def change_own_password(body: schemas.PasswordChange, db: Session = Depends(get_
     if not verify_password(body.current_password, current_user.password):
         raise HTTPException(status_code=400, detail="Current password is incorrect.")
 
-    rule_error = password_rule_error(body.new_password)
+    rule_error = password_rule_error(body.new_password, current_user.username)
     if rule_error:
         raise HTTPException(status_code=400, detail=rule_error)
 
@@ -82,4 +83,8 @@ def change_own_password(body: schemas.PasswordChange, db: Session = Depends(get_
     current_user.password = hash_password(body.new_password)
     db.commit()
 
-    return {"message": "Password changed."}
+    result = {"message": "Password changed."}
+    if settings.SESSION_ENDS_ON_PASSWORD_CHANGE:
+        # Every older token now fails (new hash); the user who changed it stays logged in.
+        result["access_token"] = token_for_user(current_user)
+    return result

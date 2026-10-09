@@ -43,12 +43,14 @@ function PasswordField({ label, placeholder, value, onChange, error, hint }) {
 }
 
 // Lets the logged-in user change their own password (POST /users/me/password).
-// The user stays logged in afterwards.
+// The user stays logged in afterwards. When the backend ends every older session
+// (SESSION_ENDS_ON_PASSWORD_CHANGE), it sends this browser a new token.
 export default function ChangePasswordModal({ isOpen, onClose }) {
   const [step, setStep] = useState("form"); // "form" | "success"
   const [form, setForm] = useState(EMPTY_FORM);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  const [otherDevicesLoggedOut, setOtherDevicesLoggedOut] = useState(false);
 
   if (!isOpen) return null;
 
@@ -57,7 +59,7 @@ export default function ChangePasswordModal({ isOpen, onClose }) {
   const validate = () => {
     const e = {};
     if (!form.currentPassword) e.currentPassword = "Current password is required";
-    const ruleError = passwordRuleError(form.newPassword);
+    const ruleError = passwordRuleError(form.newPassword, localStorage.getItem("username") || "");
     if (ruleError) e.newPassword = ruleError;
     else if (form.newPassword === form.currentPassword)
       e.newPassword = "New password must be different from the current password.";
@@ -77,10 +79,13 @@ export default function ChangePasswordModal({ isOpen, onClose }) {
     setLoading(true);
 
     try {
-      await api.post("/users/me/password", {
+      const response = await api.post("/users/me/password", {
         current_password: form.currentPassword,
         new_password: form.newPassword,
       });
+      const newToken = response.data?.access_token;
+      if (newToken) localStorage.setItem("token", newToken); // the old one no longer works
+      setOtherDevicesLoggedOut(!!newToken);
       setStep("success");
     } catch (error) {
       console.error(error);
@@ -189,6 +194,7 @@ export default function ChangePasswordModal({ isOpen, onClose }) {
           </h2>
           <p className="text-sm text-gray-500 mb-7 leading-snug">
             Use your new password the next time you log in.
+            {otherDevicesLoggedOut && " You were logged out on every other device."}
           </p>
           <button
             onClick={handleClose}

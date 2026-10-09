@@ -12,3 +12,11 @@ export function usernameFromToken(token, fallback) {
     return fallback;
   }
 }
+
+// Everything a login stores in localStorage. Logout, the 401 handler and the idle logout all
+// remove exactly these keys (nothing else).
+export const SESSION_KEYS = ["token", "role", "username", "lastActivity"];
+
+export function clearSession(storage = localStorage) {
+  SESSION_KEYS.forEach((key) => storage.removeItem(key));
+}

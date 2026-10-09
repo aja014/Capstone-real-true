@@ -7,6 +7,7 @@ import Claims from "./pages/claims";
 import RenewalRatioMonitoring from "./pages/renewal";
 import PolicyHolderInformation from "./pages/policy";
 import PolicyDistribution from "./pages/distribution";
+import SessionGuards from "./components/SessionGuards";
 
 // Sidebar links merely grey out pages a role can't use — they never stopped
 // direct URL navigation. This is the actual enforcement.
@@ -24,6 +25,7 @@ function App() {
 
   return (
     <Router>
+      <SessionGuards />
       <Routes>
         <Route path="/" element={<MaagapLogin />} />
         <Route path="/overview" element={<ProtectedRoute allowedRoles={["manager"]}><Overview /></ProtectedRoute>} />

@@ -40,6 +40,9 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_exception_handler(Exception, server_error)
 
 Base.metadata.create_all(bind=engine)
+if settings.LOGIN_AUDIT:
+    # login_events lives on its own metadata: created only when the login log is on (IAS2).
+    models.AuditBase.metadata.create_all(bind=engine)
 
 
 pwd_context = CryptContext(

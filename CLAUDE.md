@@ -237,10 +237,21 @@ unset value is the local behaviour (`Backend/.env.example`, `tests/test_hosting_
 - Render: repo root (not `Backend/`), build `pip install -r Backend/requirements.txt`, start
   `cd Backend && uvicorn main:app --host 0.0.0.0 --port $PORT`, `PYTHON_VERSION=3.14.4`.
 - Facts, measurements and the plan: `docs/validation/IAS2_PART_A.md` (not committed).
+- Round 2 (stolen-password controls, no MFA; `tests/test_ias2_round2.py`, `tests/test_injection.py`):
+  backend `TOKEN_MINUTES` (Render 30), `SESSION_ENDS_ON_PASSWORD_CHANGE` (HMAC of the password hash
+  in the token's `pwf` claim: any hash change ends older tokens), `LOGIN_AUDIT` (log line
+  `firemap.login` + table `login_events` on its own `AuditBase`, created only when on; 90 days;
+  "Last login" in the login response), `PASSWORD_MIN_LENGTH` (Render 12), `PASSWORD_BLOCK_COMMON`
+  (`app/data/common_passwords.txt`, SecLists 10k, MIT + username check); frontend
+  `VITE_IDLE_TIMEOUT_MINUTES` (Vercel 15), `VITE_PASSWORD_MIN_LENGTH`, `VITE_PASSWORD_BLOCK_COMMON`
+  (`src/lib/securityConfig.js`, `SessionGuards.jsx`). Create/update bodies check text against the
+  column length (`schemas.ColumnLimited`: 422, was a 500). Hosted DB account `firemap_app` = SELECT,
+  INSERT, UPDATE, DELETE only (`scripts/2026-10-09_firemap_app_user.sql`, `scripts/check_db_rights.py`).
+  `login_events` tests skip on `insurance_db`: run the suite with DATABASE_URL on a scratch copy.
 
 ## How to test
 - From `Backend/`: `./venv/Scripts/python -m pip install -r requirements.txt` once, then
-  `./venv/Scripts/python -m pytest tests` (194 tests, ≈ 14 min alone, ≈ 30 min while the backend runs — the LR λ search makes training tests slow). The `db` fixture runs on the dev DB
+  `./venv/Scripts/python -m pytest tests` (476 tests on deploy-ias2, ≈ 35–42 min; 194 before round 2 — the LR λ search makes training tests slow). The `db` fixture runs on the dev DB
   inside one transaction that is always rolled back (no rows left; auto-increment ids are
   used up). API tests use `TestClient(app)` without `with`; stubs of `get_current_user` must
   return a manager-like object.

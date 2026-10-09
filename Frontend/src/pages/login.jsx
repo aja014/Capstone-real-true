@@ -3,10 +3,12 @@ import { Shield, User, Lock, ArrowRight, Eye, EyeOff } from "lucide-react";
 import Background_Cars from "../img/Background_Cars.jpg";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import { SESSION_EXPIRED_KEY } from "../api/api";
 import { API_BASE_URL } from "../api/config";
 import { usernameFromToken } from "../lib/session";
 import { loginErrorMessage } from "../lib/loginErrors";
+import { forgetIdleLogout, forgetLoginNotice, readLoginNotice } from "../lib/logoutReason";
+import { markActivity } from "../lib/idleTimeout";
+import { LAST_LOGIN_KEY, storedLastLogin } from "../lib/lastLogin";
 
 import Logo from "../img/MAAGAP_LOGO.png";
 
@@ -17,11 +19,10 @@ export default function MaagapLogin() {
   const [isLoading, setIsLoading] = useState(false);
   // Shown in red above the Login button (was a browser alert()); cleared on the next try.
   const [loginError, setLoginError] = useState(null);
-  // Set by the shared 401 handler (api/api.js) when a login expired or became invalid.
-  const [sessionNotice] = useState(() =>
-    sessionStorage.getItem(SESSION_EXPIRED_KEY) ? "Your session has expired. Please log in again." : null
-  );
-  useEffect(() => { sessionStorage.removeItem(SESSION_EXPIRED_KEY); }, []);
+  // Why the user is here: session expired / password changed elsewhere (shared 401 handler,
+  // api/api.js) or the idle logout (lib/idleTimeout.js). Read once, then forgotten.
+  const [sessionNotice] = useState(() => readLoginNotice());
+  useEffect(() => { forgetLoginNotice(); }, []);
 
   const navigate = useNavigate();
 
@@ -42,6 +43,12 @@ export default function MaagapLogin() {
       localStorage.setItem("token", token);
       // Settings shows the stored spelling (token "sub"), not what was typed.
       localStorage.setItem("username", usernameFromToken(token, username.trim()));
+      markActivity(); // the idle timer starts from this login
+      forgetIdleLogout();
+      // "Last login" notice (shown by SessionGuards), only when the backend sends last_login.
+      const lastLogin = storedLastLogin(response.data);
+      if (lastLogin) sessionStorage.setItem(LAST_LOGIN_KEY, lastLogin);
+      else sessionStorage.removeItem(LAST_LOGIN_KEY);
 
       if (role === "manager") {
         navigate("/overview");

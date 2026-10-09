@@ -31,7 +31,21 @@ class Settings:
     # header (local). Used only to key the failed-login limit.
     TRUSTED_PROXY_HOPS = int(os.getenv("TRUSTED_PROXY_HOPS") or 0)
 
+    # IAS2 round 2 (stolen-password controls). Unset = today's local behaviour.
+    TOKEN_MINUTES = int(os.getenv("TOKEN_MINUTES") or 60)
+    # On = a login token stops working as soon as its user's password changes (every device).
+    SESSION_ENDS_ON_PASSWORD_CHANGE = _env_flag("SESSION_ENDS_ON_PASSWORD_CHANGE", False)
+    # On = log every login attempt (server log + login_events table) and show "Last login".
+    LOGIN_AUDIT = _env_flag("LOGIN_AUDIT", False)
+    PASSWORD_MIN_LENGTH = int(os.getenv("PASSWORD_MIN_LENGTH") or 8)
+    # On = new passwords may not be a common password or contain the username.
+    PASSWORD_BLOCK_COMMON = _env_flag("PASSWORD_BLOCK_COMMON", False)
+
 settings = Settings()
 
 if settings.APP_ENV == "production" and not os.getenv("SECRET_KEY"):
     raise RuntimeError("SECRET_KEY must be set when APP_ENV=production")
+if not 8 <= settings.PASSWORD_MIN_LENGTH <= 64:
+    raise RuntimeError("PASSWORD_MIN_LENGTH must be between 8 and 64")
+if settings.TOKEN_MINUTES < 1:
+    raise RuntimeError("TOKEN_MINUTES must be at least 1")

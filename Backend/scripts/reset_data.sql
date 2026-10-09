@@ -11,7 +11,9 @@
 --   import_records, ml_predictions, ml_models,
 --   every deleted_* archive table (10).
 -- KEEPS: geocode_cache (address memory — never cleared),
---        users row with username exactly 'Aaron James' (all other users deleted).
+--        users row with username exactly 'Aaron James' (all other users deleted),
+--        login_events (branch deploy-ias2, hosted copy only, LOGIN_AUDIT=true): a security log
+--        that deletes its own rows after 90 days; not touched here, and absent locally.
 -- No migration/version table exists in this project (no Alembic).
 -- If a NEW table is added later, add it here (see CLAUDE.md "Reset script").
 -- =====================================================================

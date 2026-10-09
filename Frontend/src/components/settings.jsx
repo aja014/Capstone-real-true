@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useState } from "react";
 import CreateAccountModal from "./CreateAccountModal";
 import ChangePasswordModal from "./ChangePasswordModal";
+import { clearSession } from "../lib/session";
 
 import Logo from "../img/MAAGAP_LOGO.png";
 
@@ -24,7 +25,7 @@ export default function ProfileModal({
   const [openPasswordModal, setOpenPasswordModal] = useState(false);
 
   const handleLogout = () => {
-    localStorage.clear();
+    clearSession();
     navigate("/");
     onClose();
   };
