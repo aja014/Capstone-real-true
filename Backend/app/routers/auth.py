@@ -17,6 +17,7 @@ router = APIRouter(
 # login endpoint
 @router.post("/login")
 def login(user: schemas.UserLogin, request: Request, db: Session = Depends(get_db)):
+    login_audit.debug_client_ip(request)
     key = login_limiter.key_for(request, user.username)
     if login_limiter.is_locked(key):
         login_audit.record(db, request, user.username, login_audit.LOCKED)

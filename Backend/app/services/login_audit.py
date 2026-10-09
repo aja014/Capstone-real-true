@@ -1,6 +1,7 @@
 """Login attempt log (IAS2), on when LOGIN_AUDIT=true: one server-log line per attempt plus a
 login_events row (kept 90 days). The password is never passed in here, so it can't be logged.
 A failure to write the row is logged and never blocks the login."""
+import ipaddress
 import logging
 import sys
 from datetime import datetime, timedelta, timezone
@@ -20,6 +21,33 @@ if not logger.handlers:
     _handler = logging.StreamHandler(sys.stderr)
     _handler.setFormatter(logging.Formatter("%(levelname)s:     %(message)s"))
     logger.addHandler(_handler)
+
+
+ip_debug_logger = logging.getLogger("firemap.login.client_ip")  # reaches the handler above
+IP_HEADERS = ("cf-connecting-ip", "true-client-ip", "x-real-ip")
+
+
+def _ip_kind(value):
+    try:
+        return "public" if ipaddress.ip_address(value).is_global else "private"
+    except ValueError:
+        return "not-an-ip"
+
+
+def debug_client_ip(request):
+    """DEBUG_CLIENT_IP (temporary): one line per login showing where the client IP could come from.
+    Only the X-Forwarded-For entries and the three IP headers are read; values are %r-quoted and
+    cut short, so a sent header can't fake or flood the log."""
+    if not settings.DEBUG_CLIENT_IP:
+        return
+    xff = [p.strip() for p in request.headers.get("x-forwarded-for", "").split(",") if p.strip()]
+    entries = [f"{e[:64]!r}:{_ip_kind(e)}" for e in xff[:10]]
+    headers = " ".join(f"{h}={request.headers[h][:64]!r}" if h in request.headers else f"{h}=absent"
+                       for h in IP_HEADERS)
+    ip_debug_logger.info(
+        "client-ip debug xff_count=%d xff=[%s] %s peer=%s source=%s hops=%d chosen=%s",
+        len(xff), ", ".join(entries), headers, request.client.host if request.client else "unknown",
+        settings.CLIENT_IP_SOURCE, settings.TRUSTED_PROXY_HOPS, client_ip(request)[:64])
 
 
 def _utcnow():

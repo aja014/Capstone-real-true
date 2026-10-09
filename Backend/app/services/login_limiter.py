@@ -1,5 +1,6 @@
 """Failed-login limit (IAS2): 5 failures for one client IP + username within 5 minutes lock that
 pair for 5 minutes; a successful login clears it. In memory, so it resets on restart (one process)."""
+import ipaddress
 import threading
 import time
 
@@ -16,7 +17,25 @@ _locked_until = {}  # key -> time the lock ends
 _now = time.monotonic
 
 
+def _valid_ip(value):
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError:
+        return None
+
+
 def client_ip(request):
+    """The one client-IP rule of the login limiter, login log and "Last login".
+    CLIENT_IP_SOURCE=cf-connecting-ip / true-client-ip: that header, when it holds an IP; otherwise
+    (and by default, xff_hops) the X-Forwarded-For rule below."""
+    if settings.CLIENT_IP_SOURCE != "xff_hops":
+        ip = _valid_ip(request.headers.get(settings.CLIENT_IP_SOURCE, "").strip())
+        if ip:
+            return ip
+    return _xff_hops_ip(request)
+
+
+def _xff_hops_ip(request):
     """Render's proxy APPENDS to X-Forwarded-For and keeps whatever the client sent, so only
     entries counted from the right are trustworthy: TRUSTED_PROXY_HOPS=1 takes the last one.
     0 (local default) ignores the header and uses the connection's address."""

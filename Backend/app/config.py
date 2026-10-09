@@ -30,6 +30,12 @@ class Settings:
     # How many proxies append to X-Forwarded-For in front of the app (Render: 1). 0 = ignore the
     # header (local). Used only to key the failed-login limit.
     TRUSTED_PROXY_HOPS = int(os.getenv("TRUSTED_PROXY_HOPS") or 0)
+    # Where the login limiter, login log and "Last login" take the client IP from: xff_hops (the
+    # X-Forwarded-For rule above), cf-connecting-ip or true-client-ip (that header; missing or not
+    # an IP = fall back to xff_hops).
+    CLIENT_IP_SOURCE = (os.getenv("CLIENT_IP_SOURCE") or "xff_hops").strip().lower()
+    # Temporary: on = one extra log line per login describing the IP headers (no other headers).
+    DEBUG_CLIENT_IP = _env_flag("DEBUG_CLIENT_IP", False)
 
     # IAS2 round 2 (stolen-password controls). Unset = today's local behaviour.
     TOKEN_MINUTES = int(os.getenv("TOKEN_MINUTES") or 60)
@@ -47,5 +53,7 @@ if settings.APP_ENV == "production" and not os.getenv("SECRET_KEY"):
     raise RuntimeError("SECRET_KEY must be set when APP_ENV=production")
 if not 8 <= settings.PASSWORD_MIN_LENGTH <= 64:
     raise RuntimeError("PASSWORD_MIN_LENGTH must be between 8 and 64")
+if settings.CLIENT_IP_SOURCE not in ("xff_hops", "cf-connecting-ip", "true-client-ip"):
+    raise RuntimeError("CLIENT_IP_SOURCE must be xff_hops, cf-connecting-ip or true-client-ip")
 if settings.TOKEN_MINUTES < 1:
     raise RuntimeError("TOKEN_MINUTES must be at least 1")
