@@ -11,6 +11,7 @@ It never prints the URL or the password. Writes are made inside a transaction th
 rolled back, so nothing is changed; the CREATE TABLE test uses a table name the app never uses
 and drops it again if (wrongly) allowed. Exit code 0 = every check passed."""
 import os
+import re
 import sys
 
 from sqlalchemy import create_engine, text
@@ -19,12 +20,10 @@ from sqlalchemy.exc import DBAPIError
 EXPECTED_RIGHTS = {"SELECT", "INSERT", "UPDATE", "DELETE"}
 TABLES = ["users", "policyholders", "ml_models", "login_events", "deleted_policyholders", "geocode_cache"]
 
-url = os.environ.get("DATABASE_URL")
-if not url:
-    sys.exit("Set DATABASE_URL first (it is not printed).")
-ca = os.environ.get("DB_SSL_CA")
-engine = create_engine(url, connect_args={"ssl": {"ca": ca}} if ca else {})
 failures = []
+# "GRANT <rights> ON <object> TO ...". MySQL quotes identifiers with backticks, or with double quotes
+# under ANSI_QUOTES (Aiven), or not at all.
+GRANT_ON = re.compile(r"^GRANT (?P<rights>.+?) ON (?P<object>\S+) TO ")
 
 
 def check(name, ok, detail=""):
@@ -33,57 +32,78 @@ def check(name, ok, detail=""):
         failures.append(name)
 
 
-with engine.connect() as conn:
-    who, db = conn.execute(text("SELECT CURRENT_USER(), DATABASE()")).one()
-    print(f"Connected as {who.split('@')[0]} to database {db}")
-    check("not the admin account", not who.startswith(("avnadmin@", "root@")), who.split("@")[0])
-
-    grants = [g[0] for g in conn.execute(text("SHOW GRANTS"))]
+def split_grants(grants, db):
+    """SHOW GRANTS lines -> (rights granted on the whole database `db`, every other grant except the
+    global USAGE line, which only means "may log in")."""
+    db_objects = {f"`{db}`.*", f'"{db}".*', f"{db}.*"}
+    rights, others = set(), []
     for g in grants:
-        print("      " + g)
-    db_grants = [g for g in grants if f"`{db}`.*" in g]
-    rights = set()
-    for g in db_grants:
-        rights |= {r.strip() for r in g.split(" ON ")[0].removeprefix("GRANT ").split(",")}
-    check("rights on the database are exactly SELECT, INSERT, UPDATE, DELETE", rights == EXPECTED_RIGHTS,
-          ", ".join(sorted(rights)))
-    others = [g for g in grants if g not in db_grants and not g.startswith("GRANT USAGE ON *.*")]
-    check("no rights anywhere else", not others, "; ".join(others))
+        m = GRANT_ON.match(g)
+        if m and m["object"] in db_objects:
+            rights |= {r.strip() for r in m["rights"].split(",")}
+        elif not g.startswith("GRANT USAGE ON *.*"):
+            others.append(g)
+    return rights, others
 
-    try:
-        ssl = conn.execute(text("SHOW SESSION STATUS LIKE 'Ssl_cipher'")).one()[1]
-        check("connection is encrypted (SSL)", bool(ssl) or not ca, ssl or "no SSL (fine only locally)")
-    except DBAPIError as e:
-        check("connection is encrypted (SSL)", False, str(e.orig))
 
-    for t in TABLES:
+def main():
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        sys.exit("Set DATABASE_URL first (it is not printed).")
+    ca = os.environ.get("DB_SSL_CA")
+    engine = create_engine(url, connect_args={"ssl": {"ca": ca}} if ca else {})
+
+    with engine.connect() as conn:
+        who, db = conn.execute(text("SELECT CURRENT_USER(), DATABASE()")).one()
+        print(f"Connected as {who.split('@')[0]} to database {db}")
+        check("not the admin account", not who.startswith(("avnadmin@", "root@")), who.split("@")[0])
+
+        grants = [g[0] for g in conn.execute(text("SHOW GRANTS"))]
+        for g in grants:
+            print("      " + g)
+        rights, others = split_grants(grants, db)
+        check("rights on the database are exactly SELECT, INSERT, UPDATE, DELETE", rights == EXPECTED_RIGHTS,
+              ", ".join(sorted(rights)))
+        check("no rights anywhere else", not others, "; ".join(others))
+
         try:
-            n = conn.execute(text(f"SELECT COUNT(*) FROM `{t}`")).scalar()
-            check(f"SELECT {t}", True, f"{n} rows")
+            ssl = conn.execute(text("SHOW SESSION STATUS LIKE 'Ssl_cipher'")).one()[1]
+            check("connection is encrypted (SSL)", bool(ssl) or not ca, ssl or "no SSL (fine only locally)")
         except DBAPIError as e:
-            check(f"SELECT {t}", False, str(e.orig))
+            check("connection is encrypted (SSL)", False, str(e.orig))
 
-    conn.rollback()  # end the read-only transaction SQLAlchemy opened by itself
-    tx = conn.begin()
-    try:
-        conn.execute(text("INSERT INTO login_events (occurred_at, username, ip_address, result) "
-                          "VALUES (UTC_TIMESTAMP(), 'ZZTEST rights check', '192.0.2.1', 'success')"))
-        new_id = conn.execute(text("SELECT LAST_INSERT_ID()")).scalar()
-        conn.execute(text("UPDATE login_events SET result = 'locked' WHERE id = :i"), {"i": new_id})
-        conn.execute(text("DELETE FROM login_events WHERE id = :i"), {"i": new_id})
-        check("INSERT, UPDATE, DELETE (rolled back)", True)
-    except DBAPIError as e:
-        check("INSERT, UPDATE, DELETE (rolled back)", False, str(e.orig))
-    finally:
-        tx.rollback()
+        for t in TABLES:
+            try:
+                n = conn.execute(text(f"SELECT COUNT(*) FROM `{t}`")).scalar()
+                check(f"SELECT {t}", True, f"{n} rows")
+            except DBAPIError as e:
+                check(f"SELECT {t}", False, str(e.orig))
 
-    try:
-        conn.execute(text("CREATE TABLE zz_rights_check_never_used (id INT PRIMARY KEY)"))
-        conn.execute(text("DROP TABLE zz_rights_check_never_used"))
-        check("CREATE TABLE is refused", False, "it was allowed (test table dropped again)")
-    except DBAPIError as e:
-        code = e.orig.args[0] if e.orig.args else None
-        check("CREATE TABLE is refused", code == 1142, str(e.orig))
+        conn.rollback()  # end the read-only transaction SQLAlchemy opened by itself
+        tx = conn.begin()
+        try:
+            conn.execute(text("INSERT INTO login_events (occurred_at, username, ip_address, result) "
+                              "VALUES (UTC_TIMESTAMP(), 'ZZTEST rights check', '192.0.2.1', 'success')"))
+            new_id = conn.execute(text("SELECT LAST_INSERT_ID()")).scalar()
+            conn.execute(text("UPDATE login_events SET result = 'locked' WHERE id = :i"), {"i": new_id})
+            conn.execute(text("DELETE FROM login_events WHERE id = :i"), {"i": new_id})
+            check("INSERT, UPDATE, DELETE (rolled back)", True)
+        except DBAPIError as e:
+            check("INSERT, UPDATE, DELETE (rolled back)", False, str(e.orig))
+        finally:
+            tx.rollback()
 
-print("\nAll checks passed." if not failures else f"\n{len(failures)} check(s) FAILED: {', '.join(failures)}")
-sys.exit(1 if failures else 0)
+        try:
+            conn.execute(text("CREATE TABLE zz_rights_check_never_used (id INT PRIMARY KEY)"))
+            conn.execute(text("DROP TABLE zz_rights_check_never_used"))
+            check("CREATE TABLE is refused", False, "it was allowed (test table dropped again)")
+        except DBAPIError as e:
+            code = e.orig.args[0] if e.orig.args else None
+            check("CREATE TABLE is refused", code == 1142, str(e.orig))
+
+    print("\nAll checks passed." if not failures else f"\n{len(failures)} check(s) FAILED: {', '.join(failures)}")
+    sys.exit(1 if failures else 0)
+
+
+if __name__ == "__main__":
+    main()
