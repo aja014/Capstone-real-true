@@ -271,7 +271,7 @@ export function PolicyTable({
   const handleSearch = (e) => { setSearch(e.target.value); setPage(1); };
 
   return (
-    <div className="bg-white min-h-[500px] rounded-2xl p-5 shadow-sm flex flex-col flex-1">
+    <div className="bg-white min-h-[500px] rounded-2xl p-5 shadow-sm flex flex-col flex-1 min-w-0">
       <div className="flex flex-wrap gap-2 mb-4 items-center">
         <Dropdown label="Policy Line: All" options={["Policy Line: All", "Motor Car", "Fire & Property"]} value={lineFilter} onChange={handleLineChange} />
         <Dropdown label="Status: All" options={statusOptions} value={statusFilter} onChange={handleStatusChange} />

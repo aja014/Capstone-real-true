@@ -1,11 +1,40 @@
 from pydantic import BaseModel, field_validator
+from pydantic_core import PydanticCustomError
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional, Any, Literal
+from typing import Optional, Any, Literal, ClassVar
 from enum import Enum
 
+from sqlalchemy import Enum as SAEnum, String
 
-class UserCreate(BaseModel):
+from app import models
+
+
+class ColumnLimited(BaseModel):
+    """Base of the API's create/update bodies: a text longer than its database column is refused
+    with a 422 naming the field (Pydantic's own "String should have at most N characters"),
+    instead of MySQL's "Data too long" turning into a 500. Limits come from models.py, so they
+    always match the columns. Importers don't use these schemas: they already report such a row
+    as an error."""
+    __column_limits__: ClassVar[dict] = {}
+
+    @field_validator("*")
+    @classmethod
+    def _fit_column(cls, value, info):
+        limit = cls.__column_limits__.get(info.field_name)
+        if limit and isinstance(value, str) and len(value) > limit:
+            raise PydanticCustomError("string_too_long", "String should have at most {max_length} characters",
+                                      {"max_length": limit})
+        return value
+
+
+def _column_limits(model, only=None):
+    return {c.name: c.type.length for c in model.__table__.columns
+            if isinstance(c.type, String) and not isinstance(c.type, SAEnum)  # enums: Pydantic checks them
+            and c.type.length and (only is None or c.name in only)}
+
+
+class UserCreate(ColumnLimited):
     username: str
     password: str
 
@@ -46,7 +75,7 @@ class LineType(str, Enum):
 # POLICYHOLDER
 # ------------------------------------------------------------
 
-class PolicyholderCreate(BaseModel):
+class PolicyholderCreate(ColumnLimited):
     last_name: str
     first_name: Optional[str] = None  # blank for business-name-only records (e.g. Fire/Property "Name of Insured")
     middle_name: Optional[str] = None
@@ -85,7 +114,7 @@ class PolicyholderOut(PolicyholderCreate):
 # INSURANCE CASE
 # ------------------------------------------------------------
 
-class InsuranceCaseCreate(BaseModel):
+class InsuranceCaseCreate(ColumnLimited):
     policyholder_id: int
     line_type: LineType
     status: Optional[str] = "open"
@@ -107,7 +136,7 @@ class InsuranceCaseOut(BaseModel):
 # FIRE / PROPERTY — SURVEY
 # ------------------------------------------------------------
 
-class FirePropertySurveyCreate(BaseModel):
+class FirePropertySurveyCreate(ColumnLimited):
     insurance_case_id: int
 
     name_of_insured: Optional[str] = None
@@ -189,7 +218,7 @@ class FirePropertySurveyOut(FirePropertySurveyCreate):
 # FIRE / PROPERTY — QUOTATION
 # ------------------------------------------------------------
 
-class FirePropertyQuotationCreate(BaseModel):
+class FirePropertyQuotationCreate(ColumnLimited):
     insurance_case_id: int
 
     quotation_date: Optional[date] = None
@@ -221,7 +250,7 @@ class FirePropertyQuotationOut(FirePropertyQuotationCreate):
 # FIRE / PROPERTY — POLICY
 # ------------------------------------------------------------
 
-class FirePropertyPolicyCreate(BaseModel):
+class FirePropertyPolicyCreate(ColumnLimited):
     quotation_id: int  # required — a policy must link to the quotation it came from
 
     issue_date: Optional[date] = None
@@ -257,7 +286,7 @@ class FirePropertyPolicyOut(FirePropertyPolicyCreate):
 # MOTOR / CAR — VEHICLE
 # ------------------------------------------------------------
 
-class VehicleCreate(BaseModel):
+class VehicleCreate(ColumnLimited):
     insurance_case_id: int
 
     model: Optional[str] = None
@@ -282,7 +311,7 @@ class VehicleOut(VehicleCreate):
 # MOTOR / CAR — QUOTATION
 # ------------------------------------------------------------
 
-class MotorQuotationCreate(BaseModel):
+class MotorQuotationCreate(ColumnLimited):
     insurance_case_id: int
     vehicle_id: int
 
@@ -318,7 +347,7 @@ class MotorQuotationOut(MotorQuotationCreate):
 # MOTOR / CAR — POLICY
 # ------------------------------------------------------------
 
-class MotorPolicyCreate(BaseModel):
+class MotorPolicyCreate(ColumnLimited):
     quotation_id: int  # required — a policy must link to the quotation it came from
 
     issue_date: Optional[date] = None
@@ -424,7 +453,7 @@ def canonical_choice(v, options, field_name):
     return match
 
 
-class MotorClaimCreate(BaseModel):
+class MotorClaimCreate(ColumnLimited):
     motor_policy_id: int  # required — a claim must link to the policy it was filed against
 
     accuterm_claim_no: Optional[str] = None
@@ -486,7 +515,7 @@ class MotorClaimOut(MotorClaimCreate):
         from_attributes = True
 
 
-class FirePropertyClaimCreate(BaseModel):
+class FirePropertyClaimCreate(ColumnLimited):
     fire_property_policy_id: int  # required — a claim must link to the policy it was filed against
 
     accuterm_claim_no: Optional[str] = None
@@ -1122,3 +1151,17 @@ class ClaimPrediction(BaseModel):
     label: str  # Fraud | Legitimate, at the model's stored fraud_cutoff
     model_version: int
     predicted_at: Optional[datetime] = None
+
+
+# Column limits of the create/update bodies (see ColumnLimited). The Update schemas inherit them.
+UserCreate.__column_limits__ = _column_limits(models.User, only={"username"})
+PolicyholderCreate.__column_limits__ = _column_limits(models.Policyholder)
+InsuranceCaseCreate.__column_limits__ = _column_limits(models.InsuranceCase)
+FirePropertySurveyCreate.__column_limits__ = _column_limits(models.FirePropertySurvey)
+FirePropertyQuotationCreate.__column_limits__ = _column_limits(models.FirePropertyQuotation)
+FirePropertyPolicyCreate.__column_limits__ = _column_limits(models.FirePropertyPolicy)
+VehicleCreate.__column_limits__ = _column_limits(models.Vehicle)
+MotorQuotationCreate.__column_limits__ = _column_limits(models.MotorQuotation)
+MotorPolicyCreate.__column_limits__ = _column_limits(models.MotorPolicy)
+MotorClaimCreate.__column_limits__ = _column_limits(models.MotorClaim)
+FirePropertyClaimCreate.__column_limits__ = _column_limits(models.FirePropertyClaim)

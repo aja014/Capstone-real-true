@@ -65,8 +65,10 @@ export default function CreateAccountModal({ isOpen, onClose }) {
       console.error(error);
 
       if (error.response) {
+        const detail = error.response.data.detail;
         setErrors({
-          submit: error.response.data.detail || "Registration failed",
+          // A 422 lists the refused fields: show them as "field: reason".
+          submit: (Array.isArray(detail) ? detail.map((d) => `${d.loc?.at(-1)}: ${d.msg}`).join(" ") : detail) || "Registration failed",
         });
       } else {
         setErrors({
