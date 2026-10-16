@@ -113,8 +113,9 @@ fire_property_policies/quotations/surveys/claims, motor_policies/quotations/clai
 - `scripts/reset_data.sql` — wipes business data (see "Reset script" below).
 - Auth: every router requires a JWT (router-level `Depends(get_current_user)`) except
   `/login`. `require_manager` (403 "Manager access only.") guards all of `/stats`,
-  `GET /ml/models/{name}` and `GET /ml/predictions/quotations`; `GET /ml/models` and
-  `GET /ml/predictions/claims` and all CRUD/import endpoints are open to both roles.
+  `GET /ml/models/{name}`, `GET /ml/predictions/quotations` and `GET /ml/inputs/quotations`;
+  `GET /ml/models`, `GET /ml/predictions/claims`, `GET /ml/inputs/claims` and all CRUD/import
+  endpoints are open to both roles.
 
 ## Frontend structure (`Frontend/src/`)
 - Pages: `login.jsx`, `overview.jsx`, `proposal.jsx` (Quotations/Proposal),
@@ -203,6 +204,14 @@ fire_property_policies/quotations/surveys/claims, motor_policies/quotations/clai
   λ = 0.0001 runs the full 50,000 epochs) a refresh retraining Motor + Fire ≈ 3 min — the
   defense-morning warm-up measured 3 min 2 s on 2026-10-02 (was 28.6 s).
 - Cards show CV accuracy, recall ("catches X%") and "AUC 0.NN (0.5 = guessing)".
+- Model inputs on screen (2026-10-16): `GET /ml/inputs/quotations?line=` (required, manager)
+  and `GET /ml/inputs/claims?line=` (optional, every role) return each row's inputs straight
+  from the training frames (`features.*_frame`, never edited for this), so the Proposal and
+  Claims tables show IDs → exactly the model's inputs → the prediction. Fire `survey_id` =
+  MAX(survey id) per case by a separate query; no survey → null survey fields. Claims `line`
+  is mapped "Motor" → "Motor Car". Read-only: fingerprint/models/predictions unchanged
+  (`tests/ml/test_ml_inputs.py`). Motor call ≈ 5 s (prior-claim loop). Proposal is one line at
+  a time (default Motor Car, no "All"). `policy.jsx` keeps its full columns.
 
 ## How to run
 ```

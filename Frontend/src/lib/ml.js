@@ -35,6 +35,27 @@ export async function fetchClaimPredictions() {
   }
 }
 
+// What each model saw (GET /ml/inputs/..., read from the same frames as training).
+// quotation_id -> schemas.MotorQuotationInputs | FireQuotationInputs, for ONE line.
+export async function fetchQuotationInputs(line) {
+  try {
+    const res = await sharedGet(`${API_BASE_URL}/ml/inputs/quotations`, { params: { line }, headers: authHeaders() });
+    return new Map(res.data.map((i) => [i.quotation_id, i]));
+  } catch {
+    return new Map();
+  }
+}
+
+// "Motor Car-12" -> schemas.ClaimInputs (Paid Claims only; CNC Issuance rows have none).
+export async function fetchClaimInputs() {
+  try {
+    const res = await sharedGet(`${API_BASE_URL}/ml/inputs/claims`, { headers: authHeaders() });
+    return new Map(res.data.map((i) => [`${i.line}-${i.claim_id}`, i]));
+  } catch {
+    return new Map();
+  }
+}
+
 // { byName: { motor_lr, fire_lr, fraud_nb } (schemas.MLModelSummary), refresh: { running, ... } }
 export async function fetchModels() {
   try {

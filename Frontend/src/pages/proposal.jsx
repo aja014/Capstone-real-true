@@ -10,8 +10,9 @@ import FloodRiskModal from "../components/FloodRiskModal";
 import { MonthYearPicker } from "../components/DatePicker";
 import { fetchAllQuotations } from "../lib/quotations";
 import {
-  fetchQuotationPredictions, fetchModels, waitForModelRefresh, formatPercent, RISK_LEVELS,
+  fetchQuotationPredictions, fetchQuotationInputs, fetchModels, waitForModelRefresh, formatPercent, RISK_LEVELS,
 } from "../lib/ml";
+import { formatCurrencyPH } from "../components/PolicyDistributionShared";
 import { RiskLevelCell, ClaimPossibilityCell, ModelAccuracyCard } from "../components/ModelShared";
 import { rowMatchesSearch } from "../lib/search";
 
@@ -109,15 +110,41 @@ const MiniPie = memo(function MiniPie({ title, data = [], sub }) {
   );
 });
 
-function formatQuoteDate(value) {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (isNaN(d)) return "—";
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(d.getUTCDate()).padStart(2, "0");
-  const yyyy = d.getUTCFullYear();
-  return `${mm}/${dd}/${yyyy}`;
-}
+const LINES = ["Motor Car", "Fire & Property"];
+
+// The table shows only what each Logistic Regression model uses (GET /ml/inputs/quotations,
+// read from the same frames as training): [header, value as shown]. null -> "—".
+const isMissing = (v) => v === null || v === undefined;
+const yesNo = (v) => (isMissing(v) ? null : v ? "Yes" : "No");
+const money = (v) => (isMissing(v) ? null : formatCurrencyPH(v));
+const INPUT_COLUMNS = {
+  "Motor Car": [
+    ["Flood Risk Category", (i) => i.flood_category],
+    ["Classification", (i) => i.classification],
+    ["Make", (i) => i.make],
+    ["Body Type", (i) => i.body_type],
+    ["Color", (i) => i.color],
+    ["Vehicle Age", (i) => (isMissing(i.vehicle_age) ? null : `${i.vehicle_age} yrs`)],
+    ["Sum Insured", (i) => money(i.sum_insured)],
+    ["Deductible", (i) => money(i.deductible)],
+    ["Prior Claim", (i) => yesNo(i.prior_claim)],
+  ],
+  "Fire & Property": [
+    ["Flood Risk Category", (i) => i.flood_category],
+    ["Occupancy", (i) => i.occupancy],
+    ["Overall Risk Assessment", (i) => i.overall_risk_assessment],
+    ["Total Sum Insured", (i) => money(i.total_sum_insured)],
+    ["Fire Protection Count", (i) => (isMissing(i.fire_protection_count) ? null : `${i.fire_protection_count} of 8`)],
+    ["Construction Class B", (i) => yesNo(i.construction_class_b)],
+    ["Loss Record", (i) => yesNo(i.has_loss_record)],
+    ["Prior Claim", (i) => yesNo(i.prior_claim)],
+  ],
+};
+// IDs first: Quote No. (the Quotation ID), the case, then the vehicle (Motor) or survey (Fire).
+const ID_COLUMNS = {
+  "Motor Car": [["Quote No.", (q) => q.quote_number], ["Case ID", (q) => q.insurance_case_id], ["Vehicle ID", (q) => q.vehicle_id]],
+  "Fire & Property": [["Quote No.", (q) => q.quote_number], ["Case ID", (q) => q.insurance_case_id], ["Survey ID", (q) => q.survey_id]],
+};
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -205,7 +232,7 @@ export default function QuotationsProposal() {
   const [page, setPage]           = useState(1);
   const [period, setPeriod]       = useState("Past 6 Months");
   const [riskFilter, setRisk]     = useState("Risk Assessment: All");
-  const [lineFilter, setLine]     = useState("Policy Line: All");
+  const [lineFilter, setLine]     = useState("Motor Car");
   const [statusFilter, setStatus] = useState("Status: All");
   const [month, setMonth]         = useState(null);
   const [search, setSearch]       = useState("");
@@ -222,6 +249,10 @@ export default function QuotationsProposal() {
   const [predictions, setPredictions] = useState(() => new Map());
   const [models, setModels] = useState(null); // GET /ml/models summaries; null while loading
   const [predictionsUpdating, setPredictionsUpdating] = useState(false);
+  // Model inputs of the selected line: { line, byId: quotation_id -> inputs }. Kept with
+  // its line because Motor and Fire quotation ids overlap.
+  const [inputs, setInputs] = useState({ line: null, byId: new Map() });
+  const [inputsVersion, setInputsVersion] = useState(0); // bumped after a background refresh
 
   const [forecast, setForecast] = useState(null);
   const [forecastError, setForecastError] = useState(null);
@@ -291,10 +322,20 @@ export default function QuotationsProposal() {
       if (cancelled) return;
       setPredictions(fresh);
       setModels(latest.byName);
+      setInputsVersion((v) => v + 1);
       setPredictionsUpdating(false);
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Inputs of the selected line; refetched when the line changes and after a refresh.
+  useEffect(() => {
+    let cancelled = false;
+    fetchQuotationInputs(lineFilter).then((byId) => {
+      if (!cancelled) setInputs({ line: lineFilter, byId });
+    });
+    return () => { cancelled = true; };
+  }, [lineFilter, inputsVersion]);
 
   // A quotation without a prediction (its policy has ended, or no model yet) keeps
   // null -> "—".
@@ -303,8 +344,14 @@ export default function QuotationsProposal() {
     // Display-only quote number: Fire and Motor ids overlap, so prefix the line (FQ- / MQ-).
     // Kept on the row so the all-fields search also matches e.g. "fq-1002".
     const quote_number = `${q.line === "Motor Car" ? "MQ" : "FQ"}-${q.id}`;
-    return { ...q, quote_number, risk_level: p?.risk_level ?? null, claim_probability: p?.claim_probability ?? null };
-  }), [quotations, predictions]);
+    const i = (q.line === inputs.line && inputs.byId.get(q.id)) || {};
+    // The model inputs as shown (e.g. "7 yrs", "Yes"), kept on the row so the search matches them.
+    const input_cells = (INPUT_COLUMNS[q.line] ?? []).map(([, show]) => show(i) ?? null);
+    return {
+      ...q, quote_number, survey_id: i.survey_id ?? null, input_cells,
+      risk_level: p?.risk_level ?? null, claim_probability: p?.claim_probability ?? null,
+    };
+  }), [quotations, predictions, inputs]);
 
   // The bar's full height must equal the real total (t.quotation_count),
   // with "Converted" as a segment WITHIN it — not stacked on top of it.
@@ -328,7 +375,7 @@ export default function QuotationsProposal() {
   const filtered = rows.filter((q) => {
     const matchRange = !!stats && !!q.quotation_date
       && q.quotation_date >= stats.range_start && q.quotation_date <= stats.range_end;
-    const matchLine = lineFilter === "Policy Line: All" || q.line === lineFilter;
+    const matchLine = q.line === lineFilter;
     // Low / Medium / High only match rows that have a prediction; "All" also
     // keeps the rows shown as "—".
     const matchRisk = riskFilter === "Risk Assessment: All" || q.risk_level === riskFilter;
@@ -359,8 +406,10 @@ export default function QuotationsProposal() {
   const averageClaimPossibility = predictedRows.length
     ? predictedRows.reduce((sum, q) => sum + q.claim_probability, 0) / predictedRows.length
     : null;
-  const averageCaption = `Based on ${predictedRows.length} quotation${predictedRows.length !== 1 ? "s" : ""} · `
-    + (lineFilter === "Policy Line: All" ? "All lines" : lineFilter);
+  const averageCaption = `Based on ${predictedRows.length} quotation${predictedRows.length !== 1 ? "s" : ""} · ${lineFilter}`;
+  const idColumns = ID_COLUMNS[lineFilter];
+  const inputHeaders = INPUT_COLUMNS[lineFilter].map(([header]) => header);
+  const columnCount = idColumns.length + inputHeaders.length + 3; // + Risk Assessment, Claim Possibility, View
 
   // Drives the "All time" replacement sub-label on the 3 KPI cards + both
   // pies — reflects whichever filter is actually active.
@@ -418,7 +467,7 @@ export default function QuotationsProposal() {
                 <MonthYearPicker value={month} onChange={handleFilterChange(setMonth)} />
               </div>
               <Dropdown label="Risk Assessment: All" options={["Risk Assessment: All", ...RISK_LEVELS]} value={riskFilter} onChange={handleFilterChange(setRisk)} />
-              <Dropdown label="Policy Line: All"     options={["Policy Line: All","Fire & Property","Motor Car"]} value={lineFilter} onChange={handleFilterChange(setLine)} />
+              <Dropdown label="Motor Car"            options={LINES} value={lineFilter} onChange={handleFilterChange(setLine)} />
               <Dropdown label="Status: All"          options={["Status: All","Converted","Not Yet Converted"]} value={statusFilter} onChange={handleFilterChange(setStatus)} />
               <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2">
                 <Search className="w-3.5 h-3.5 text-gray-400" />
@@ -437,7 +486,7 @@ export default function QuotationsProposal() {
               <table className="w-full text-xs text-center">
                 <thead>
                   <tr className="border-b border-gray-100">
-                    {["Quote Number","Client Name","Insurance Line","Quotation Date","Status","Risk Assessment","Claim Possibility"].map(h => (
+                    {[...idColumns.map(([h]) => h), ...inputHeaders, "Risk Assessment", "Claim Possibility"].map(h => (
                       <th key={h} className="py-2 px-2 text-gray-500 font-semibold">{h}</th>
                     ))}
                     {/* Headers may wrap so the table fits a 1280 px screen; the View column is also pinned to
@@ -449,15 +498,16 @@ export default function QuotationsProposal() {
                 </thead>
                 <tbody>
                   {quotationsLoading && (
-                    <tr><td colSpan={8} className="py-6 text-gray-400 text-xs">Loading quotations…</td></tr>
+                    <tr><td colSpan={columnCount} className="py-6 text-gray-400 text-xs">Loading quotations…</td></tr>
                   )}
                   {!quotationsLoading && pageRows.map((r) => (
                     <tr key={`${r.line}-${r.id}`} className="group border-b border-gray-50 hover:bg-gray-50 transition">
-                      <td className="py-2.5 px-2 whitespace-nowrap">{r.quote_number}</td>
-                      <td className="py-2.5 px-2">{r.client_name || "—"}</td>
-                      <td className="py-2.5 px-2">{r.line}</td>
-                      <td className="py-2.5 px-2">{formatQuoteDate(r.quotation_date)}</td>
-                      <td className="py-2.5 px-2">{r.is_converted ? (r.converted_policy_no || "Converted") : "Not Yet Converted"}</td>
+                      {idColumns.map(([h, value]) => (
+                        <td key={h} className="py-2.5 px-2 whitespace-nowrap">{value(r) ?? "—"}</td>
+                      ))}
+                      {r.input_cells.map((v, k) => (
+                        <td key={inputHeaders[k]} className="py-2.5 px-2 whitespace-nowrap">{v ?? "—"}</td>
+                      ))}
                       <td className="py-2.5 px-2"><RiskLevelCell value={r.risk_level} /></td>
                       <td className="py-2.5 px-2"><ClaimPossibilityCell value={r.claim_probability} /></td>
                       <td className="py-2.5 px-2 sticky right-0 bg-white group-hover:bg-gray-50 transition border-l border-gray-100">
@@ -467,7 +517,7 @@ export default function QuotationsProposal() {
                     </tr>
                   ))}
                   {!quotationsLoading && pageRows.length === 0 && (
-                    <tr><td colSpan={8} className="py-6 text-gray-400 text-xs">No records found.</td></tr>
+                    <tr><td colSpan={columnCount} className="py-6 text-gray-400 text-xs">No records found.</td></tr>
                   )}
                 </tbody>
               </table>

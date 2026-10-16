@@ -1153,6 +1153,49 @@ class ClaimPrediction(BaseModel):
     predicted_at: Optional[datetime] = None
 
 
+
+# GET /ml/inputs/... — the model inputs of each row, read from the same frames the models
+# use (app/ml/features.py). null = missing on the record (the model fills it: Unknown /
+# training mean / 0).
+class MotorQuotationInputs(BaseModel):
+    quotation_id: int
+    flood_category: Optional[str] = None  # High / Medium / Low / None / Unknown
+    classification: Optional[str] = None
+    make: Optional[str] = None
+    body_type: Optional[str] = None
+    color: Optional[str] = None
+    vehicle_age: Optional[int] = None  # years, quotation year − model year
+    sum_insured: Optional[float] = None
+    deductible: Optional[float] = None
+    prior_claim: bool  # the frame's prior_counted_loss
+
+
+class FireQuotationInputs(BaseModel):
+    quotation_id: int
+    survey_id: Optional[int] = None  # the case's latest survey; null = no survey
+    flood_category: Optional[str] = None
+    occupancy: Optional[str] = None
+    overall_risk_assessment: Optional[str] = None
+    total_sum_insured: Optional[float] = None
+    fire_protection_count: Optional[int] = None  # of the 8 fire-protection items
+    construction_class_b: Optional[bool] = None
+    has_loss_record: Optional[bool] = None
+    prior_claim: bool
+
+
+class ClaimInputs(BaseModel):
+    line: str  # "Motor Car" | "Fire & Property"
+    claim_id: int
+    days_coverage_start_to_loss: str
+    days_loss_to_report: str
+    estimate_to_sum_insured: str
+    earlier_claims_12_months: str
+    days_loss_to_expiry: str
+    nature_of_loss: str
+    coverage_type: str
+    policy_type: str
+    days_report_to_documents: str
+
 # Column limits of the create/update bodies (see ColumnLimited). The Update schemas inherit them.
 UserCreate.__column_limits__ = _column_limits(models.User, only={"username"})
 PolicyholderCreate.__column_limits__ = _column_limits(models.Policyholder)
