@@ -237,9 +237,22 @@ Frontend: `npm ci` (uses the committed `package-lock.json`).
 
 ## How to test
 - From `Backend/`: `./venv/Scripts/python -m pip install -r requirements.txt` once, then
-  `./venv/Scripts/python -m pytest tests` (186 tests, ≈ 14 min alone, ≈ 30 min while the backend runs — the LR λ search makes training tests slow). The `db` fixture runs on the dev DB
-  inside one transaction that is always rolled back (no rows left; auto-increment ids are
-  used up). API tests use `TestClient(app)` without `with`; stubs of `get_current_user` must
+  `./venv/Scripts/python -m pytest tests` (330 tests, ≈ 40 min for a full run on the v5 data —
+  the LR λ search makes training tests slow).
+- **Run the suite on `insurance_db_test`, never on `insurance_db`** (tests treat `insurance_db`
+  as read-only). `insurance_db_test` is a full copy of `insurance_db` (made 2026-10-18 with
+  `mysqldump --single-transaction --no-create-db`; refresh it the same way if the data changes).
+  The app reads `DATABASE_URL` via `load_dotenv()`, which does not override a variable already in
+  the process environment — so set `DATABASE_URL` in the pytest process's environment to the
+  same URL as in `Backend/.env` but with the database name `insurance_db_test` (never print or
+  write down the URL or password). Before running, check that `app.database.engine.url.database`
+  is `insurance_db_test`; stop if it says `insurance_db`. The `db` fixture runs inside one
+  transaction that is always rolled back (no rows left; auto-increment ids are used up).
+- Data-dependent tests: training row counts (train + test, positives) are exact values for the
+  loaded dataset at the tests' `TODAY`; prediction / claim counts use ranges or invariants;
+  failed-model tests count only rows they create (`id > before`), since loaded data can already
+  hold failed runs.
+- API tests use `TestClient(app)` without `with`; stubs of `get_current_user` must
   return a manager-like object.
 - Test records use a `ZZTEST` prefix; give unrelated test entities distinct name roots
   (Alpha/Bravo/…) — a shared prefix word makes rapidfuzz match them to each other.
