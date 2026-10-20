@@ -37,9 +37,9 @@ def test_train_all_saves_models_and_reports(db, tmp_path):
             assert heading in text, (name, heading)
 
     motor, fire, nb = saved["motor_lr"], saved["fire_lr"], saved["fraud_nb"]
-    assert (motor.train_rows, motor.test_rows, motor.positive_rows) == (678, 227, 294)
-    assert (fire.train_rows, fire.test_rows, fire.positive_rows) == (1389, 463, 51)
-    assert (nb.train_rows, nb.test_rows, nb.positive_rows) == (523, 175, 31)
+    assert (motor.train_rows, motor.test_rows, motor.positive_rows) == (673, 225, 284)
+    assert (fire.train_rows, fire.test_rows, fire.positive_rows) == (1374, 458, 132)
+    assert (nb.train_rows, nb.test_rows, nb.positive_rows) == (620, 207, 56)
     assert set(motor.thresholds) == {"medium_from", "high_from"}
     assert len(motor.metrics["control_check"]) == 9
     assert "Control check" in open(motor.report_path, encoding="utf-8").read()

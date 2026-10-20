@@ -90,33 +90,39 @@ def _auth(username):
     return {"Authorization": f"Bearer {create_access_token({'sub': username})}"}
 
 
-MANAGER = _auth("ZZTEST Role Manager")
-ADMIN = _auth("ZZTEST Role Admin")
+# Tokens are made inside each test, not when the file loads: they expire after 60 min, and a
+# full run of the suite can take longer than that before these tests are reached.
+def _manager():
+    return _auth("ZZTEST Role Manager")
+
+
+def _admin():
+    return _auth("ZZTEST Role Admin")
 
 
 @pytest.mark.parametrize("path", MANAGER_ONLY)
 def test_manager_only_endpoints(client, path):
     no_token = client.get(path)
     assert no_token.status_code == 401
-    admin = client.get(path, headers=ADMIN)
+    admin = client.get(path, headers=_admin())
     assert admin.status_code == 403
     assert admin.json()["detail"] == "Manager access only."
-    assert client.get(path, headers=MANAGER).status_code == 200
+    assert client.get(path, headers=_manager()).status_code == 200
 
 
 @pytest.mark.parametrize("path", ADMIN_READS)
 def test_admin_can_read_policy_holder_information_data(client, path):
-    assert client.get(path, headers=ADMIN).status_code == 200
+    assert client.get(path, headers=_admin()).status_code == 200
 
 
 @pytest.mark.parametrize("method, path", ADMIN_NOT_FOUND)
 def test_admin_can_reach_delete_and_needs_review_endpoints(client, method, path):
     # 404 = the role check let the admin through to the real lookup.
-    assert getattr(client, method)(path, headers=ADMIN).status_code == 404
+    assert getattr(client, method)(path, headers=_admin()).status_code == 404
 
 
 def test_admin_can_reach_resolve(client):
-    r = client.patch(f"/import/policyholders/records/{NO_ID}/resolve", headers=ADMIN, json={"create_new": True})
+    r = client.patch(f"/import/policyholders/records/{NO_ID}/resolve", headers=_admin(), json={"create_new": True})
     assert r.status_code == 404
 
 
@@ -126,15 +132,15 @@ def _txt():
 
 @pytest.mark.parametrize("path", UPLOADS)
 def test_admin_can_reach_every_upload(client, path):
-    r = client.post(path, headers=ADMIN, files=_txt())
+    r = client.post(path, headers=_admin(), files=_txt())
     assert r.status_code == 400
     assert "Only .xlsx" in r.json()["detail"]
 
 
 def test_admin_can_use_folder_upload(client):
     files = [("files", ("notes.txt", io.BytesIO(b"x"), "text/plain"))]
-    detect = client.post("/import/batch/detect", headers=ADMIN, files=files)
+    detect = client.post("/import/batch/detect", headers=_admin(), files=files)
     assert detect.status_code == 200 and detect.json()["files"][0]["error"]
     files = [("files", ("notes.txt", io.BytesIO(b"x"), "text/plain"))]
-    upload = client.post("/import/batch/upload", headers=ADMIN, files=files, data={"import_types": ["policyholder"]})
+    upload = client.post("/import/batch/upload", headers=_admin(), files=files, data={"import_types": ["policyholder"]})
     assert upload.status_code == 200 and "Only .xlsx" in upload.json()["files"][0]["error"]

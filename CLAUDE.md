@@ -237,7 +237,7 @@ Frontend: `npm ci` (uses the committed `package-lock.json`).
 
 ## How to test
 - From `Backend/`: `./venv/Scripts/python -m pip install -r requirements.txt` once, then
-  `./venv/Scripts/python -m pytest tests` (330 tests, ≈ 40 min for a full run on the v5 data —
+  `./venv/Scripts/python -m pytest tests` (330 tests, ≈ 16 min for a full run on the v5d data — much slower when memory is low; close other apps —
   the LR λ search makes training tests slow).
 - **Run the suite on `insurance_db_test`, never on `insurance_db`** (tests treat `insurance_db`
   as read-only). `insurance_db_test` is a full copy of `insurance_db` (made 2026-10-18 with
