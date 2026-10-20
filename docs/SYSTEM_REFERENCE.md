@@ -67,11 +67,12 @@ There are two roles: **manager** and **admin**. The live database has 1 user (ro
   **and on the server** (fixed 2026-09-28). With an admin login the server answers **403
   "Manager access only."** on:
   - every `/stats/*` endpoint (the five manager pages);
-  - `GET /ml/models/{model_name}` and `GET /ml/predictions/quotations`;
+  - `GET /ml/models/{model_name}`, `GET /ml/predictions/quotations` and
+    `GET /ml/inputs/quotations` (since 2026-10-16);
   - `POST /users` (403 "Only managers can create admin accounts.").
 - Everything Policy Holder Information uses stays open to both roles: all lists, uploads,
-  Needs Review, deletes, `GET /ml/models` (upload refresh status) and
-  `GET /ml/predictions/claims` (Fraud Warning on the Claims tab).
+  Needs Review, deletes, `GET /ml/models` (upload refresh status),
+  `GET /ml/predictions/claims` (Fraud Warning on the Claims tab) and `GET /ml/inputs/claims`.
 
 ## 2. Login, session, Settings, passwords, Terms and Privacy
 
@@ -170,7 +171,8 @@ calendar month (1st through the last day of the month).
 
 APIs: `GET /stats/quotation-proposal` (cards, pies, chart), the quotation/policy/case/client/
 survey lists (table, joined in `lib/quotations.js`), `GET /ml/predictions/quotations` (Risk
-Assessment, Claim Possibility), `GET /stats/policy-forecast`, `GET /ml/models`.
+Assessment, Claim Possibility), `GET /ml/inputs/quotations?line=` (the model-input columns, one
+line per call — see §13.10), `GET /stats/policy-forecast`, `GET /ml/models`.
 
 **The page filter.** Two mutually exclusive modes:
 - **Rolling** (default): the "**Past 6 Months**" dropdown on the chart (options Past 3/6/12
@@ -192,25 +194,37 @@ Assessment, Claim Possibility), `GET /stats/policy-forecast`, `GET /ml/models`.
 | Chart "**Monthly Quotation Conversion Trend**" (month mode: "**Daily …**") | Per month (per day in month mode), stacked **Converted** (indigo) + **Not Yet Converted** (light indigo); each segment labelled with its own count; the bar height = total | same counts, grouped by `quotation_date` month/day | period/month | Apr 53+18 · May 46+8 · Jun 49+11 · Jul 52+16 · Aug 46+7 · Sep 45+21 |
 | Pie "**Fire & Property**" (right of chart) | Not Yet Converted vs Converted Account, Fire quotations in range; a grey "No data yet" circle when the range has none (since 2026-10-02) | as above, Fire only | period/month | 30 / 144 |
 | Pie "**Motor & Car**" | same for Motor | as above | period/month | 51 / 147 |
-| Card "**Average Claim Possibility**" (right, below pies), caption "Based on N quotations · All lines" (or the chosen line) | Mean predicted claim probability of the rows the table currently lists that have a prediction | mean of `claim_probability` over the filtered table rows (all pages), rounded to whole % | period/month **and** every table filter + search | **15%**, based on 372 (Motor alone 20.5% → "21%"; Fire alone 9.2% → "9%") |
+| Card "**Average Claim Possibility**" (right, below pies), caption "Based on N quotations · Motor Car" (the chosen line; since 2026-10-16 there is no "All lines") | Mean predicted claim probability of the rows the table currently lists that have a prediction | mean of `claim_probability` over the filtered table rows (all pages), rounded to whole % | period/month **and** every table filter + search | **15%**, based on 372 (Motor alone 20.5% → "21%"; Fire alone 9.2% → "9%") |
 | Card "**<Month> Policy Forecast**" | Next month's expected new policies (statistics, see §14) | `GET /stats/policy-forecast` | **nothing** (fixed) | Example **as of 2026-09-28** (recomputed every day, so today's card differs): "October Policy Forecast ≈ 46 new policies · Motor 25 · Fire & Property 21 · Based on ≈ 57 quotations a month and past conversion rates (Motor 77% · Fire & Property 84%), past 12 months · Open now: 8 quotations → ≈ 5 policies within 7 days · Backtest, last 12 months: off by 11% on average" |
 | Card "**Model accuracy (Logistic Regression)**", "5-fold average (cross-validation)" | Per line: "X% accurate", "catches Y% of losses", "AUC 0.NN (0.5 = guessing)", "vN · trained <date>" | `GET /ml/models`: CV mean accuracy and recall to 1 decimal, CV mean ROC AUC to 3 decimals — the same rounding as the report file (see §13) | nothing | Motor Car **63.6%** accurate, catches **50.6%** of losses, AUC **0.622**, v2 · trained Sep 27, 2026 · Fire & Property **59.7%**, **68.5%**, AUC **0.660**, v2 · Sep 27, 2026 |
 
 **Table** (bottom left). Toolbar: **Select Month**, **Risk Assessment: All** (All/Low/Medium/High),
-**Policy Line: All** (All/Fire & Property/Motor Car), **Status: All** (All/Converted/Not Yet
-Converted), search box "Search Quotation..." (every typed word must appear in some field of the
+**Policy Line** (Motor Car / Fire & Property, default **Motor Car**; one line at a time since
+2026-10-16, because each line has its own model-input columns), **Status: All** (All/Converted/Not Yet
+Converted — the filter stays although the Status column was removed), search box "Search Quotation..." (every typed word must appear in some field of the
 row — words may be in different fields and in any order — including fields not shown such as
 address and middle name; dates also match as shown, MM/DD/YYYY; empty
 fields never match words like "null" — same search as §8, `lib/search.js`); "N results" appears while searching; "Updating
 predictions…" (violet) while a model refresh runs.
 
+Since 2026-10-16 the table shows **IDs → only the variables the model uses → the prediction**
+(Client Name, Insurance Line, Quotation Date and Status columns removed). The input values come
+from `GET /ml/inputs/quotations`, built from the same frames the model trains and predicts on
+(§13.10), so they are exactly what the model saw. Missing = "—"; money as ₱1,234.56.
+
+- **Motor Car**: Quote No. · Case ID · Vehicle ID · Flood Risk Category · Classification · Make ·
+  Body Type · Color · Vehicle Age ("N yrs") · Sum Insured · Deductible · Prior Claim (Yes/No) ·
+  Risk Assessment · Claim Possibility · Geospatial Information.
+- **Fire & Property**: Quote No. · Case ID · Survey ID · Flood Risk Category · Occupancy · Overall
+  Risk Assessment · Total Sum Insured · Fire Protection Count ("N of 8") · Construction Class B
+  (Yes/No) · Loss Record (Yes/No) · Prior Claim (Yes/No) · Risk Assessment · Claim Possibility ·
+  Geospatial Information.
+
 | Column | Meaning / source |
 |---|---|
-| Quote Number | **FQ-<id>** for Fire & Property, **MQ-<id>** for Motor Car (display only, since 2026-09-28 — the ids of the two lines overlap; the database/API id is unchanged). The search also matches this form, e.g. "fq-1002" |
-| Client Name | Resolved client: quotation → insurance case → policyholder (first middle last) |
-| Insurance Line | Fire & Property / Motor Car |
-| Quotation Date | `quotation_date` |
-| Status | The policy number if converted, otherwise "Not Yet Converted" |
+| Quote No. | The Quotation ID: **FQ-<id>** for Fire & Property, **MQ-<id>** for Motor Car (display only, since 2026-09-28 — the ids of the two lines overlap; the database/API id is unchanged). The search also matches this form, e.g. "fq-1002" |
+| Case ID / Vehicle ID / Survey ID | `insurance_case_id`; Motor `vehicle_id`; Fire: the case's latest survey (highest id — the same survey the model uses), "—" if the case has no survey. (In the current data every survey's id equals its case id, so the two columns show the same number.) |
+| Model-input columns | See §13.2 for each one's source. A Fire quotation without a survey shows "—" for Overall Risk Assessment, Fire Protection Count, Construction Class B and Loss Record (the model itself uses Unknown / the training mean / 0 there) and "Unknown" as Flood Risk Category |
 | Risk Assessment | Logistic Regression risk level: Low (grey), **Medium (amber)**, **High (red)**; "—" = no prediction (the quotation's policy has already ended) |
 | Claim Possibility | Predicted probability of a counted loss, 1 decimal rounded down (e.g. "20.9%"); "—" = no prediction |
 | Geospatial Information | Black **View** button → GIS popup (§9.3). The column is pinned to the table's right edge, so View stays visible when the table scrolls sideways on a small screen |
@@ -304,7 +318,7 @@ whole year Jan 1 – Dec 31.
 
 APIs: `GET /stats/claims?months=3|6|12` (cards, chart, pie, Fraud Rate); the claims + policies +
 quotations + cases + clients lists and `GET /ml/predictions/claims` (table, joined in
-`lib/claims.js`); `GET /ml/models`.
+`lib/claims.js`); `GET /ml/inputs/claims` (the clue columns, §13.10); `GET /ml/models`.
 
 **Period** dropdown on the chart: Past 3 / 6 / 12 Months (default 6) = from the 1st of the
 month N−1 months ago to the end of the current month, by **Date Reported** (`date_reported`).
@@ -331,9 +345,16 @@ Reported first, 8 per page.
   Claim No. only; every typed word must appear in one of them, since 2026-10-05).
 - "N results · reported in <Month Year>" appears while any filter is on; "Updating fraud
   predictions…" while a model refresh runs.
-- Columns: Claim ID · Accuterm Claim No. · Policy No. · Client Name · Policy Line · Date of
-  Loss · Date Reported · Nature of Loss · Claim Type · Net Liability · Final Status ·
-  **Claim Investigation Result** · **Fraud Warning**.
+- Columns (since 2026-10-16: IDs → the Naive Bayes clues → the result): Claim ID · Policy No. ·
+  Days from Coverage Start to Loss · Days from Loss to Report · Estimate to Sum Insured ·
+  Earlier Claims (12 Months) · Days from Loss to Expiry · Nature of Loss · Coverage Type ·
+  Policy Type · Days from Report to Documents · Line · **Claim Investigation Result** ·
+  **Fraud Warning**. The clue columns show the clue GROUP exactly as the model uses it (e.g.
+  "16–30 days", "Below 0.50", "2 or more", "Not yet submitted"; §13.2), from
+  `GET /ml/inputs/claims`, matched by line + claim id. CNC Issuance rows have no clues ("—").
+  Accuterm Claim No., Client Name, Date of Loss, Date Reported, Claim Type, Net Liability and
+  Final Status are no longer columns, but the Final Status filter and the search (which still
+  looks at Client Name, Assured and Accuterm Claim No.) work as before.
 - **Claim Investigation Result** = the human label. Legitimate grey, **Suspected Fraud
   amber**, **Confirmed Fraud red**; CNC Issuance rows show "Not applicable (CNC)"
   (light grey); blank = "—".
@@ -968,6 +989,24 @@ the same).
   `2026-09-27_policy_forecast_backtest.md`.
 
 ---
+
+### 13.10 Model inputs on screen (`GET /ml/inputs/...`, since 2026-10-16)
+Read-only; nothing is trained, predicted or stored. Both endpoints call the SAME frame functions
+training and prediction use (`features.motor_quotation_frame`, `fire_quotation_frame`,
+`claim_clue_frame`), so the fingerprint and the models cannot change.
+- `GET /ml/inputs/quotations?line=Motor Car|Fire & Property` (line required; manager only) —
+  every quotation of that line. Motor: `quotation_id, flood_category, classification, make,
+  body_type, color, vehicle_age, sum_insured, deductible, prior_claim`. Fire: `quotation_id,
+  survey_id, flood_category, occupancy, overall_risk_assessment, total_sum_insured,
+  fire_protection_count, construction_class_b, has_loss_record, prior_claim`. `prior_claim` =
+  the frame's `prior_counted_loss`; `survey_id` = MAX(survey id) of the case (same rule as the
+  frame's join, read by a separate query). No survey → `null` survey fields (not false/0).
+  Raw sums insured are returned (the model uses their log). Missing values → `null`.
+- `GET /ml/inputs/claims?line=` (line optional; every role) — every Paid Claim with its 9 clue
+  groups (`line` as "Motor Car" / "Fire & Property", `claim_id`, then the clues). CNC Issuance
+  rows are not returned.
+- Speed: the Motor call takes ≈ 5 s (the frame's prior-claim loop over ≈ 1,500 quotations);
+  Fire ≈ 3 s; claims < 1 s.
 
 ## 14. Policy Forecast (method) — Proposal card, statistics not ML
 

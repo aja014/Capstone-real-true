@@ -66,10 +66,21 @@ export async function fetchAllClaims() {
       client_name: nameByPolicyholder.get(policyholderByCase.get(caseId)) || null,
       investigation_display: isCnc ? CNC_INVESTIGATION_LABEL : claim.claim_investigation_result ?? null,
       fraud_warning: prediction
-        ? `${flagged ? "Suspicious" : "Not suspicious"} · ${formatProbability(prediction.fraud_probability)} fraud chance`
+        ? `${formatProbability(prediction.fraud_probability)} fraud chance`
         : null,
       fraud_flag: flagged,
     };
+    // return {
+    //   ...claim,
+    //   line,
+    //   policy_no: policy?.policy_no ?? null,
+    //   client_name: nameByPolicyholder.get(policyholderByCase.get(caseId)) || null,
+    //   investigation_display: isCnc ? CNC_INVESTIGATION_LABEL : claim.claim_investigation_result ?? null,
+    //   fraud_warning: prediction
+    //     ? `${flagged ? "Suspicious" : "Not suspicious"} · ${formatProbability(prediction.fraud_probability)} fraud chance`
+    //     : null,
+    //   fraud_flag: flagged,
+    // };
   };
 
   const motor = motorC.data.map((c) =>

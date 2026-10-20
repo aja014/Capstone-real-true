@@ -7,10 +7,10 @@ import {
 import { Search } from "lucide-react";
 import Sidebar from "../components/sidebar";
 import { MonthYearPicker } from "../components/DatePicker";
-import { Dropdown, StatCard, MiniPie, formatCurrencyPH, formatDateSlash } from "../components/PolicyDistributionShared";
+import { Dropdown, StatCard, MiniPie, formatCurrencyPH } from "../components/PolicyDistributionShared";
 import { InvestigationResultCell, FraudWarningCell } from "../components/ClaimsShared";
 import { fetchAllClaims, investigationFilterValue, NOT_YET_INVESTIGATED } from "../lib/claims";
-import { fetchModels, waitForModelRefresh } from "../lib/ml";
+import { fetchClaimInputs, fetchModels, waitForModelRefresh } from "../lib/ml";
 import { ModelAccuracyCard } from "../components/ModelShared";
 import { fieldsMatchSearch } from "../lib/search";
 
@@ -31,6 +31,22 @@ const FINAL_STATUS_OPTIONS = [
 const INVESTIGATION_OPTIONS = [
   "Investigation Result: All", "Legitimate", "Suspected Fraud", "Confirmed Fraud", NOT_YET_INVESTIGATED,
 ];
+
+// The table shows the claim's IDs and the Naive Bayes clue groups exactly as the model sees
+// them (GET /ml/inputs/claims): [header, clue key]. CNC Issuance rows have no clues -> "—".
+const CLUE_COLUMNS = [
+  ["Days from Coverage Start to Loss", "days_coverage_start_to_loss"],
+  ["Days from Loss to Report", "days_loss_to_report"],
+  ["Estimate to Sum Insured", "estimate_to_sum_insured"],
+  ["Earlier Claims (12 Months)", "earlier_claims_12_months"],
+  ["Days from Loss to Expiry", "days_loss_to_expiry"],
+  ["Nature of Loss", "nature_of_loss"],
+  ["Coverage Type", "coverage_type"],
+  ["Policy Type", "policy_type"],
+  ["Days from Report to Documents", "days_report_to_documents"],
+];
+const TABLE_HEADERS = ["Claim ID", "Policy No.", ...CLUE_COLUMNS.map(([h]) => h), "Line",
+  "Claim Investigation Result", "Fraud Warning"];
 
 function authHeaders() {
   const token = localStorage.getItem("token");
@@ -107,9 +123,11 @@ export default function Claims() {
     setClaimsLoading(true);
     setClaimsError(null);
     try {
-      const { motor, fire } = await fetchAllClaims();
+      const [{ motor, fire }, inputs] = await Promise.all([fetchAllClaims(), fetchClaimInputs()]);
+      // Motor and Fire claim ids overlap, so the clues are matched by line + id.
+      const withClues = [...motor, ...fire].map((c) => ({ ...c, clues: inputs.get(`${c.line}-${c.id}`) ?? null }));
       // Newest filing first.
-      setClaims([...motor, ...fire].sort((a, b) => (b.date_reported || "").localeCompare(a.date_reported || "")));
+      setClaims(withClues.sort((a, b) => (b.date_reported || "").localeCompare(a.date_reported || "")));
     } catch {
       setClaimsError("Failed to load claims.");
     } finally {
@@ -266,13 +284,11 @@ export default function Claims() {
               : claimsError
               ? <p className="text-center py-8 text-red-400 text-xs">{claimsError}</p>
               : (
-                <table className="min-w-max w-full text-xs text-center">
+                <table className="w-full text-xs text-center">
                   <thead>
                     <tr className="border-b border-gray-100">
-                      {["Claim ID", "Accuterm Claim No.", "Policy No.", "Client Name", "Policy Line", "Date of Loss",
-                        "Date Reported", "Nature of Loss", "Claim Type", "Net Liability", "Final Status",
-                        "Claim Investigation Result", "Fraud Warning"].map((h) => (
-                        <th key={h} className="py-2 px-2 text-gray-500 font-semibold whitespace-nowrap">{h}</th>
+                      {TABLE_HEADERS.map((h) => (
+                        <th key={h} className="py-2 px-2 text-gray-500 font-semibold">{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -280,22 +296,17 @@ export default function Claims() {
                     {pageRows.map((r) => (
                       <tr key={`${r.line}-${r.id}`} className="border-b border-gray-50 hover:bg-gray-50 transition">
                         <td className="py-2.5 px-2">{r.id}</td>
-                        <td className="py-2.5 px-2 whitespace-nowrap">{r.accuterm_claim_no ?? "—"}</td>
                         <td className="py-2.5 px-2 whitespace-nowrap">{r.policy_no ?? "—"}</td>
-                        <td className="py-2.5 px-2 whitespace-nowrap text-left">{r.client_name ?? "—"}</td>
+                        {CLUE_COLUMNS.map(([h, key]) => (
+                          <td key={h} className="py-2.5 px-2 whitespace-nowrap">{r.clues?.[key] ?? "—"}</td>
+                        ))}
                         <td className="py-2.5 px-2 whitespace-nowrap">{r.line}</td>
-                        <td className="py-2.5 px-2">{formatDateSlash(r.date_of_loss)}</td>
-                        <td className="py-2.5 px-2">{formatDateSlash(r.date_reported)}</td>
-                        <td className="py-2.5 px-2 whitespace-nowrap">{r.nature_of_loss ?? "—"}</td>
-                        <td className="py-2.5 px-2 whitespace-nowrap">{r.claim_type ?? "—"}</td>
-                        <td className="py-2.5 px-2 whitespace-nowrap">{formatCurrencyPH(r.net_liability)}</td>
-                        <td className="py-2.5 px-2 whitespace-nowrap">{r.final_status ?? "—"}</td>
                         <td className="py-2.5 px-2 whitespace-nowrap"><InvestigationResultCell value={r.investigation_display} /></td>
                         <td className="py-2.5 px-2 whitespace-nowrap"><FraudWarningCell value={r.fraud_warning} flagged={r.fraud_flag} /></td>
                       </tr>
                     ))}
                     {pageRows.length === 0 && (
-                      <tr><td colSpan={13} className="py-6 text-gray-400 text-xs">No records found.</td></tr>
+                      <tr><td colSpan={TABLE_HEADERS.length} className="py-6 text-gray-400 text-xs">No records found.</td></tr>
                     )}
                   </tbody>
                 </table>

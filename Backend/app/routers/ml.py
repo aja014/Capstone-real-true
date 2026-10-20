@@ -1,14 +1,16 @@
-"""Read-only access to the trained models and their predictions (Models Phase 2).
+"""Read-only access to the trained models, their predictions and their inputs (Models Phase 2).
 There is deliberately no "train" endpoint — training runs automatically (app/ml/jobs.py)."""
 from pathlib import Path
 from typing import Literal, Optional
 
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.database import get_db
-from app.ml import jobs, training
+from app.ml import features, jobs, training
 from app.ml.report import TITLES
 from app.security import get_current_user, require_manager
 
@@ -113,3 +115,87 @@ def claim_predictions(line: Optional[Literal["Motor Car", "Fire & Property"]] = 
              "fraud_probability": float(p.probability), "label": p.label,
              "model_version": version, "predicted_at": p.predicted_at}
             for p, version in _predictions(db, types)]
+
+
+# ------------------------------------------------------------ model inputs
+# What each model saw for a row, read from the SAME frames training and prediction use
+# (app/ml/features.py), so the Proposal and Claims tables show exactly the model's inputs.
+
+def _value(v):
+    """NaN / NaT / None -> None; numpy scalars -> plain Python."""
+    if v is None or (not isinstance(v, (list, dict, str)) and pd.isna(v)):
+        return None
+    return v.item() if hasattr(v, "item") else v
+
+
+def _int(v):
+    v = _value(v)
+    return None if v is None else int(v)
+
+
+def _float(v):
+    v = _value(v)
+    return None if v is None else float(v)
+
+
+def _latest_survey_by_case(db):
+    # Same rule as fire_quotation_frame's join: the case's latest survey = MAX(id).
+    rows = db.execute(text(
+        "SELECT insurance_case_id, MAX(id) FROM fire_property_surveys GROUP BY insurance_case_id")).all()
+    return {case_id: survey_id for case_id, survey_id in rows}
+
+
+@router.get("/inputs/quotations",
+            response_model=list[schemas.MotorQuotationInputs] | list[schemas.FireQuotationInputs],
+            dependencies=[Depends(require_manager)])  # Proposal page only (manager)
+def quotation_inputs(line: Literal["Motor Car", "Fire & Property"] = Query(...),
+                     db: Session = Depends(get_db)):
+    """Every quotation of one line with the Logistic Regression inputs it is described by."""
+    if line == "Motor Car":
+        frame = features.motor_quotation_frame(db)
+        return [schemas.MotorQuotationInputs(
+            quotation_id=int(r.quotation_id), flood_category=_value(r.flood_category),
+            classification=_value(r.classification), make=_value(r.make), body_type=_value(r.body_type),
+            color=_value(r.color), vehicle_age=_int(r.vehicle_age), sum_insured=_float(r.sum_insured),
+            deductible=_float(r.deductible), prior_claim=bool(r.prior_counted_loss),
+        ) for r in frame.itertuples(index=False)]
+
+    frame = features.fire_quotation_frame(db)
+    survey_by_case = _latest_survey_by_case(db)
+    out = []
+    for r in frame.itertuples(index=False):
+        survey_id = survey_by_case.get(_int(r.insurance_case_id))
+        has_survey = survey_id is not None
+        out.append(schemas.FireQuotationInputs(
+            quotation_id=int(r.quotation_id), survey_id=survey_id,
+            flood_category=_value(r.flood_category), occupancy=_value(r.occupancy),
+            overall_risk_assessment=_value(r.overall_risk_assessment),
+            total_sum_insured=_float(r.total_sum_insured),
+            fire_protection_count=_int(r.fire_protection_count),
+            # The frame gives 0 here when there is no survey; null shows it was never surveyed.
+            construction_class_b=bool(r.construction_class_b) if has_survey else None,
+            has_loss_record=bool(r.has_loss_record) if has_survey else None,
+            prior_claim=bool(r.prior_counted_loss),
+        ))
+    return out
+
+
+CLUE_LINE = {"Motor": "Motor Car", "Fire & Property": "Fire & Property"}
+CLUE_COLUMNS = ("days_coverage_start_to_loss", "days_loss_to_report", "estimate_to_sum_insured",
+                "earlier_claims_12_months", "days_loss_to_expiry", "nature_of_loss", "coverage_type",
+                "policy_type", "days_report_to_documents")
+
+
+@router.get("/inputs/claims", response_model=list[schemas.ClaimInputs])
+def claim_inputs(line: Optional[Literal["Motor Car", "Fire & Property"]] = Query(None),
+                 db: Session = Depends(get_db)):
+    """Every Paid Claim with its Naive Bayes clue groups. CNC Issuance rows have none."""
+    frame = features.claim_clue_frame(db)
+    out = []
+    for r in frame.to_dict("records"):
+        row_line = CLUE_LINE[r["line"]]
+        if line and row_line != line:
+            continue
+        out.append({"line": row_line, "claim_id": int(r["claim_id"]),
+                    **{c: str(r[c]) for c in CLUE_COLUMNS}})
+    return out

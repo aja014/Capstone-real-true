@@ -3,6 +3,7 @@ import datetime as dt
 import threading
 
 import pytest
+from sqlalchemy import func
 
 from app import models
 from app.ml import jobs, training
@@ -52,12 +53,14 @@ def test_a_new_open_quotation_does_not_retrain_the_lr_model(db, tmp_path):
 
 def test_identical_failure_is_not_retried(db, tmp_path, monkeypatch, forget_fingerprints):
     active_before = training.active_model(db, "fire_lr")  # may be None on an empty database
+    before = db.query(func.max(models.MLModel.id)).scalar() or 0  # loaded data may hold failed runs
     monkeypatch.setattr(training, "MIN_ROWS", 10_000)
     assert training.retrain_if_changed(db, "fire_lr", TODAY, tmp_path) == (None, True)
     # Same data, same failure: not retried, and any older active version is still the one in use
     assert training.retrain_if_changed(db, "fire_lr", TODAY, tmp_path) == (active_before, False)
     assert training.active_model(db, "fire_lr") is active_before
-    assert db.query(models.MLModel).filter_by(model_name="fire_lr", status="failed").count() == 1
+    assert (db.query(models.MLModel).filter_by(model_name="fire_lr", status="failed")
+            .filter(models.MLModel.id > before).count()) == 1
 
 
 def test_run_refresh_upload_and_startup(db, tmp_path, monkeypatch, forget_fingerprints):

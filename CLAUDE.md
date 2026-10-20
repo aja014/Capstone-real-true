@@ -113,8 +113,9 @@ fire_property_policies/quotations/surveys/claims, motor_policies/quotations/clai
 - `scripts/reset_data.sql` — wipes business data (see "Reset script" below).
 - Auth: every router requires a JWT (router-level `Depends(get_current_user)`) except
   `/login`. `require_manager` (403 "Manager access only.") guards all of `/stats`,
-  `GET /ml/models/{name}` and `GET /ml/predictions/quotations`; `GET /ml/models` and
-  `GET /ml/predictions/claims` and all CRUD/import endpoints are open to both roles.
+  `GET /ml/models/{name}`, `GET /ml/predictions/quotations` and `GET /ml/inputs/quotations`;
+  `GET /ml/models`, `GET /ml/predictions/claims`, `GET /ml/inputs/claims` and all CRUD/import
+  endpoints are open to both roles.
 
 ## Frontend structure (`Frontend/src/`)
 - Pages: `login.jsx`, `overview.jsx`, `proposal.jsx` (Quotations/Proposal),
@@ -203,6 +204,14 @@ fire_property_policies/quotations/surveys/claims, motor_policies/quotations/clai
   λ = 0.0001 runs the full 50,000 epochs) a refresh retraining Motor + Fire ≈ 3 min — the
   defense-morning warm-up measured 3 min 2 s on 2026-10-02 (was 28.6 s).
 - Cards show CV accuracy, recall ("catches X%") and "AUC 0.NN (0.5 = guessing)".
+- Model inputs on screen (2026-10-16): `GET /ml/inputs/quotations?line=` (required, manager)
+  and `GET /ml/inputs/claims?line=` (optional, every role) return each row's inputs straight
+  from the training frames (`features.*_frame`, never edited for this), so the Proposal and
+  Claims tables show IDs → exactly the model's inputs → the prediction. Fire `survey_id` =
+  MAX(survey id) per case by a separate query; no survey → null survey fields. Claims `line`
+  is mapped "Motor" → "Motor Car". Read-only: fingerprint/models/predictions unchanged
+  (`tests/ml/test_ml_inputs.py`). Motor call ≈ 5 s (prior-claim loop). Proposal is one line at
+  a time (default Motor Car, no "All"). `policy.jsx` keeps its full columns.
 
 ## How to run
 ```
@@ -228,7 +237,7 @@ Frontend: `npm ci` (uses the committed `package-lock.json`).
 
 ## Hosting (IAS2) — branch `deploy-ias2` only, never merged into main
 Hosted copy for the IAS2 scans: Vercel (frontend) + Render free 512 MB (backend) + Aiven MySQL,
-v4b data, its own SECRET_KEY and manager password. Every difference is an env switch whose
+v5d data, its own SECRET_KEY and manager password. Every difference is an env switch whose
 unset value is the local behaviour (`Backend/.env.example`, `tests/test_hosting_switches.py`):
 - Backend: `APP_ENV=production` (refuse to start without SECRET_KEY; DB pre-ping), `CORS_ORIGINS`
   (comma-separated), `DB_SSL_CA` (Aiven CA path), `DOCS_ENABLED`, `GIS_ENABLED` (false on Render:
@@ -251,9 +260,22 @@ unset value is the local behaviour (`Backend/.env.example`, `tests/test_hosting_
 
 ## How to test
 - From `Backend/`: `./venv/Scripts/python -m pip install -r requirements.txt` once, then
-  `./venv/Scripts/python -m pytest tests` (476 tests on deploy-ias2, ≈ 35–42 min; 194 before round 2 — the LR λ search makes training tests slow). The `db` fixture runs on the dev DB
-  inside one transaction that is always rolled back (no rows left; auto-increment ids are
-  used up). API tests use `TestClient(app)` without `with`; stubs of `get_current_user` must
+  `./venv/Scripts/python -m pytest tests` (476+ tests on deploy-ias2 (330 on main), ≈ 35–42 min on deploy-ias2; ≈ 16 min for main's suite on the v5d data — much slower when memory is low; close other apps —
+  the LR λ search makes training tests slow).
+- **Run the suite on `insurance_db_test`, never on `insurance_db`** (tests treat `insurance_db`
+  as read-only). `insurance_db_test` is a full copy of `insurance_db` (made 2026-10-18 with
+  `mysqldump --single-transaction --no-create-db`; refresh it the same way if the data changes).
+  The app reads `DATABASE_URL` via `load_dotenv()`, which does not override a variable already in
+  the process environment — so set `DATABASE_URL` in the pytest process's environment to the
+  same URL as in `Backend/.env` but with the database name `insurance_db_test` (never print or
+  write down the URL or password). Before running, check that `app.database.engine.url.database`
+  is `insurance_db_test`; stop if it says `insurance_db`. The `db` fixture runs inside one
+  transaction that is always rolled back (no rows left; auto-increment ids are used up).
+- Data-dependent tests: training row counts (train + test, positives) are exact values for the
+  loaded dataset at the tests' `TODAY`; prediction / claim counts use ranges or invariants;
+  failed-model tests count only rows they create (`id > before`), since loaded data can already
+  hold failed runs.
+- API tests use `TestClient(app)` without `with`; stubs of `get_current_user` must
   return a manager-like object.
 - Test records use a `ZZTEST` prefix; give unrelated test entities distinct name roots
   (Alpha/Bravo/…) — a shared prefix word makes rapidfuzz match them to each other.

@@ -1,11 +1,11 @@
-import { useState, memo } from "react";
+import { useState, useRef, memo } from "react";
 import { sharedGet } from "../lib/sharedGet";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { ChevronDown, Search } from "lucide-react";
 import { fieldsMatchSearch } from "../lib/search";
+import useFitRows from "../lib/useFitRows";
 
 import { API_BASE_URL } from "../api/config";
-const PAGE_SIZE = 8;
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -236,6 +236,9 @@ export function PolicyTable({
   const [lineFilter, setLine] = useState("Policy Line: All");
   const [statusFilter, setStatus] = useState("Status: All");
   const [expirySort, setExpirySort] = useState(null); // null | "asc" | "desc"
+  // Rows per page = as many as fit the card down to the pagination (Policy Distribution and Renewal Ratio).
+  const tableAreaRef = useRef(null);
+  const rowsPerPage = useFitRows(tableAreaRef);
 
   let filtered = (data ?? []).filter((r) => {
     const matchLine = lineFilter === "Policy Line: All" || r.line === lineFilter;
@@ -262,16 +265,16 @@ export function PolicyTable({
     setPage(1);
   };
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(filtered.length / rowsPerPage));
   const safePage = Math.min(page, totalPages);
-  const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pageRows = filtered.slice((safePage - 1) * rowsPerPage, safePage * rowsPerPage);
 
   const handleLineChange = (val) => { setLine(val); setPage(1); };
   const handleStatusChange = (val) => { setStatus(val); setPage(1); };
   const handleSearch = (e) => { setSearch(e.target.value); setPage(1); };
 
   return (
-    <div className="bg-white min-h-[500px] rounded-2xl p-5 shadow-sm flex flex-col flex-1">
+    <div className="bg-white min-h-[500px] rounded-2xl p-5 shadow-sm flex flex-col flex-1 min-w-0">
       <div className="flex flex-wrap gap-2 mb-4 items-center">
         <Dropdown label="Policy Line: All" options={["Policy Line: All", "Motor Car", "Fire & Property"]} value={lineFilter} onChange={handleLineChange} />
         <Dropdown label="Status: All" options={statusOptions} value={statusFilter} onChange={handleStatusChange} />
@@ -282,7 +285,7 @@ export function PolicyTable({
         {extraFilters}
       </div>
 
-      <div className="overflow-x-auto">
+      <div ref={tableAreaRef} className="overflow-x-auto">
         <table className="w-full text-xs text-center">
           <thead>
             <tr className="border-b border-gray-200">
@@ -318,10 +321,10 @@ export function PolicyTable({
         </table>
       </div>
 
-      <div className="flex justify-end items-center gap-2 mt-auto text-xs text-gray-500">
-        <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage === 1} className="disabled:opacity-30">«</button>
+      <div className="flex justify-end items-center gap-2 mt-auto pt-3 text-xs text-gray-500">
+        <button onClick={() => setPage(Math.max(1, safePage - 1))} disabled={safePage === 1} className="disabled:opacity-30">«</button>
         <span>{safePage} / {totalPages}</span>
-        <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage === totalPages} className="disabled:opacity-30">»</button>
+        <button onClick={() => setPage(Math.min(totalPages, safePage + 1))} disabled={safePage === totalPages} className="disabled:opacity-30">»</button>
       </div>
     </div>
   );

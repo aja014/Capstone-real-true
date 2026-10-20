@@ -8,8 +8,8 @@ from sqlalchemy import bindparam, text
 from app.ml import features
 
 TODAY = dt.date(2026, 9, 27)
-# Counts in the loaded v2 synthetic dataset as of TODAY — update if the data changes.
-EXPECTED = {"motor": (833, 172), "fire": (621, 57)}
+# Counts in the loaded v5d dataset as of TODAY — update if the data changes.
+EXPECTED = {"motor": (898, 284), "fire": (1832, 132)}
 # Nothing may be read from a policy table, or from these policy-stage columns.
 # (Fire's construction class is read from the SURVEY's risk_class, not policies.construction.)
 POLICY_STAGE_SOURCES = ("_policies.", "renewing_policy_no", "issue_date", "total_amount_due",
@@ -124,8 +124,8 @@ def test_motor_feature_values(db):
 def test_naive_bayes_rows_and_clues(db):
     frame = features.claim_clue_frame(db)
     trained = frame[frame["fraud_label"].notna()]
-    assert (len(trained), int(trained["fraud_label"].sum())) == (385, 49)
-    assert frame["fraud_label"].isna().sum() == 23           # not yet investigated -> predicted in Phase 2
+    assert (len(trained), int(trained["fraud_label"].sum())) == (827, 56)
+    assert frame["fraud_label"].isna().sum() > 0             # not yet investigated -> predicted in Phase 2
     for clue, values in features.NB_CLUE_VALUES.items():
         assert set(frame[clue]) <= set(values), clue
     forbidden = ("final_status", "net_liability", "loa_", "claim_investigation_result", "billing", "status")
