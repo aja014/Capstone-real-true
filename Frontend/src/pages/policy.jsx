@@ -11,6 +11,7 @@ import { fetchAllClaims } from "../lib/claims";
 import { waitForModelRefresh } from "../lib/ml";
 import { rowMatchesSearch } from "../lib/search";
 import { matchesPickedDate } from "../lib/dateFilter";
+import useFitRows from "../lib/useFitRows";
 import JsonDetails from "../components/JsonDetails";
 import NoticeModal from "../components/NoticeModal";
 import { InvestigationResultCell, FraudWarningCell } from "../components/ClaimsShared";
@@ -35,7 +36,6 @@ const TYPE_OPTIONS = ["Policy", "Quotation", "Claims", "Client Information", "Su
 // Vehicle ID), so there's no shared table to fall back to. Shared by both
 // tabs' secondary "Insurance Line" dropdown.
 const LINE_ONLY_OPTIONS = ["Fire & Property", "Motor Car"];
-const PAGE_SIZE = 8;
 
 // ── Helpers for backend data → display strings ─────────────────────────────
 function formatDate(value) {
@@ -523,6 +523,9 @@ export default function PolicyHolderInformation() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [type, setType] = useState("Policy");
+  // Rows per page = as many as fit the table card down to the pagination (measured again per Type).
+  const tableAreaRef = useRef(null);
+  const rowsPerPage = useFitRows(tableAreaRef, type);
   // Which of the two Quotation line views is showing — no "All Lines"
   // merge (see LINE_ONLY_OPTIONS above), defaults to Fire & Property,
   // matching Policy's own default.
@@ -1054,9 +1057,9 @@ export default function PolicyHolderInformation() {
     return matchSearch && matchDate && matchLine;
   });
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(filtered.length / rowsPerPage));
   const safePage = Math.min(page, totalPages);
-  const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pageRows = filtered.slice((safePage - 1) * rowsPerPage, safePage * rowsPerPage);
 
   // Policy's and Claims' importer defaults depend on which line sub-filter is
   // active, rather than a single static entry in IMPORT_TARGET_BY_TYPE.
@@ -1164,7 +1167,7 @@ export default function PolicyHolderInformation() {
           </div>
 
           {/* Dynamic Table */}
-          <div className="overflow-x-auto flex-1">
+          <div ref={tableAreaRef} className="overflow-x-auto flex-1">
             {LOADING_MAP[type]
               ? <p className="text-center py-8 text-gray-400 text-xs">Loading {type.toLowerCase()}...</p>
               : ERROR_MAP[type]
@@ -1209,9 +1212,9 @@ export default function PolicyHolderInformation() {
 
           {/* Pagination */}
           <div className="flex justify-end items-center gap-2 mt-auto pt-4 text-xs text-gray-500">
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={safePage === 1} className="disabled:opacity-30">«</button>
+            <button onClick={() => setPage(Math.max(1, safePage - 1))} disabled={safePage === 1} className="disabled:opacity-30">«</button>
             <span>{safePage} / {totalPages}</span>
-            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={safePage === totalPages} className="disabled:opacity-30">»</button>
+            <button onClick={() => setPage(Math.min(totalPages, safePage + 1))} disabled={safePage === totalPages} className="disabled:opacity-30">»</button>
           </div>
         </div>
       </div>

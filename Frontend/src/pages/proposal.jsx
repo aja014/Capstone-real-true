@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, memo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react";
 import { sharedGet } from "../lib/sharedGet";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -15,6 +15,7 @@ import {
 import { formatCurrencyPH } from "../components/PolicyDistributionShared";
 import { RiskLevelCell, ClaimPossibilityCell, ModelAccuracyCard } from "../components/ModelShared";
 import { rowMatchesSearch } from "../lib/search";
+import useFitRows from "../lib/useFitRows";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -26,8 +27,6 @@ function authHeaders() {
 const PERIOD_TO_MONTHS = { "Past 6 Months": 6, "Past 3 Months": 3, "Past 12 Months": 12 };
 
 const PIE_COLORS = ["#a5b4fc", "#6366f1"]; // [Not Yet Converted, Converted Account] — matches backend fire_pie/motor_pie order
-
-const PAGE_SIZE = 5;
 
 function Dropdown({ label, options, value, onChange, disabled }) {
   const [open, setOpen] = useState(false);
@@ -256,6 +255,9 @@ export default function QuotationsProposal() {
 
   const [forecast, setForecast] = useState(null);
   const [forecastError, setForecastError] = useState(null);
+  // Rows per page = as many as fit the table card (as tall as the right-hand column, or down to the window bottom).
+  const tableAreaRef = useRef(null);
+  const rowsPerPage = useFitRows(tableAreaRef, lineFilter);
 
   const fetchStats = useCallback(async (params) => {
     setStatsError(null);
@@ -392,9 +394,9 @@ export default function QuotationsProposal() {
     return matchRange && matchLine && matchRisk && matchStatus && matchSearch;
   });
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(filtered.length / rowsPerPage));
   const safePage   = Math.min(page, totalPages);
-  const pageRows   = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pageRows   = filtered.slice((safePage - 1) * rowsPerPage, safePage * rowsPerPage);
 
   const handleFilterChange = (setter) => (val) => { setter(val); setPage(1); };
 
@@ -482,7 +484,7 @@ export default function QuotationsProposal() {
               {predictionsUpdating && <span className="text-xs text-violet-500">Updating predictions…</span>}
             </div>
             {quotationsError && <p className="text-xs text-red-600 mb-3">{quotationsError}</p>}
-            <div className="overflow-x-auto">
+            <div ref={tableAreaRef} className="overflow-x-auto">
               <table className="w-full text-xs text-center">
                 <thead>
                   <tr className="border-b border-gray-100">
@@ -522,10 +524,10 @@ export default function QuotationsProposal() {
                 </tbody>
               </table>
             </div>
-            <div className="flex justify-end items-center gap-2 mt-auto text-xs text-gray-500">
-              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={safePage === 1} className="disabled:opacity-30">«</button>
+            <div className="flex justify-end items-center gap-2 mt-auto pt-3 text-xs text-gray-500">
+              <button onClick={() => setPage(Math.max(1, safePage - 1))} disabled={safePage === 1} className="disabled:opacity-30">«</button>
               <span>{safePage} / {totalPages}</span>
-              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={safePage === totalPages} className="disabled:opacity-30">»</button>
+              <button onClick={() => setPage(Math.min(totalPages, safePage + 1))} disabled={safePage === totalPages} className="disabled:opacity-30">»</button>
             </div>
           </div>
 
