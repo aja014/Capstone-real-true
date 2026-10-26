@@ -14,6 +14,28 @@ class User(Base):
     username = Column(String(255), unique=True, index=True)
     password = Column(String(255))
     role = Column(String(20), nullable=False, default="admin")
+    # Forgot password without email (scripts/2026-10-26_recovery_codes.sql adds these 3 columns).
+    # The recovery code is kept only as a bcrypt hash; NULL = no code yet.
+    recovery_code_hash = Column(String(255), nullable=True)
+    recovery_code_set_at = Column(DateTime, nullable=True)  # UTC
+    # Set by a Manager reset (temporary password): every route except the password change and
+    # GET /users/me/account-status answers 403 until the user picks a new password.
+    must_change_password = Column(Boolean, nullable=False, default=False, server_default="0")
+
+
+class AccountEvent(Base):
+    """Recovery code / password events of one account (never the code or a password).
+    No FK on user_id: the log outlives the account."""
+    __tablename__ = "account_events"
+
+    id = Column(Integer, primary_key=True)
+    occurred_at = Column(DateTime, nullable=False, index=True)  # UTC
+    user_id = Column(Integer, nullable=False, index=True)
+    # code_created | code_changed | code_used_reset | manager_reset | temp_password_changed
+    event = Column(String(30), nullable=False)
+    actor_username = Column(String(255))  # who did it (the user, the Manager, or the script)
+    ip_address = Column(String(45))
+    seen = Column(Boolean, nullable=False, default=False, server_default="0")  # "Not you?" notice shown
 
 
 # ------------------------------------------------------------

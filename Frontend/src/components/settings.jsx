@@ -1,7 +1,10 @@
 import { Shield, X, LogOut, UserCircle2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import api from "../api/api";
+import RecoveryCodeModal from "./RecoveryCodeModal";
+import ResetPasswordModal from "./ResetPasswordModal";
 import CreateAccountModal from "./CreateAccountModal";
 import ChangePasswordModal from "./ChangePasswordModal";
 
@@ -22,6 +25,19 @@ export default function ProfileModal({
 
   const [openAccountModal, setOpenAccountModal] = useState(false);
   const [openPasswordModal, setOpenPasswordModal] = useState(false);
+  const [openRecoveryModal, setOpenRecoveryModal] = useState(false);
+  const [openResetModal, setOpenResetModal] = useState(false);
+  // null = not known yet; false shows the "No recovery code yet" reminder.
+  const [hasRecoveryCode, setHasRecoveryCode] = useState(null);
+
+  useEffect(() => {
+    if (!isOpen || openRecoveryModal) return;
+    let cancelled = false;
+    api.get("/users/me/recovery-code")
+      .then((r) => { if (!cancelled) setHasRecoveryCode(r.data.has_code); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isOpen, openRecoveryModal]);
 
   const handleLogout = () => {
     localStorage.clear();
@@ -177,6 +193,45 @@ export default function ProfileModal({
                 Change Password
               </button>
 
+              <button
+                style={{
+                  fontSize: 13,
+                  color: "#2f62a8",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  textDecoration: "underline",
+                  textUnderlineOffset: 3,
+                  marginBottom: hasRecoveryCode === false ? 2 : 10,
+                }}
+                onClick={() => setOpenRecoveryModal(true)}
+              >
+                Recovery Code
+              </button>
+              {hasRecoveryCode === false && (
+                <p style={{ fontSize: 11, color: "#8a3b00", fontWeight: 600, marginBottom: 10 }}>
+                  No recovery code yet
+                </p>
+              )}
+
+              {userRole === "manager" && (
+                <button
+                  style={{
+                    fontSize: 13,
+                    color: "#2f62a8",
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                    textUnderlineOffset: 3,
+                    marginBottom: 10,
+                  }}
+                  onClick={() => setOpenResetModal(true)}
+                >
+                  Reset a Password
+                </button>
+              )}
+
               {userRole === "manager" && (
                 <button
                   style={{
@@ -220,6 +275,18 @@ export default function ProfileModal({
         isOpen={openPasswordModal}
         onClose={() => setOpenPasswordModal(false)}
       />
+      <RecoveryCodeModal
+        key="recovery-code-modal"
+        isOpen={openRecoveryModal}
+        onClose={() => setOpenRecoveryModal(false)}
+      />
+      {userRole === "manager" && (
+        <ResetPasswordModal
+          key="reset-password-modal"
+          isOpen={openResetModal}
+          onClose={() => setOpenResetModal(false)}
+        />
+      )}
     </AnimatePresence>
   );
 }

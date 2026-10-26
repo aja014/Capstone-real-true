@@ -7,12 +7,14 @@ import { SESSION_EXPIRED_KEY } from "../api/api";
 import { usernameFromToken } from "../lib/session";
 
 import Logo from "../img/MAAGAP_LOGO.png";
+import ForgotPasswordModal from "../components/ForgotPasswordModal";
 
 export default function MaagapLogin() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false); // Forgot password window
   // Shown in red above the Login button (was a browser alert()); cleared on the next try.
   const [loginError, setLoginError] = useState(null);
   // Set by the shared 401 handler (api/api.js) when a login expired or became invalid.
@@ -178,11 +180,16 @@ export default function MaagapLogin() {
             </button>
           </div>
 
-          {/* <p className="text-xs text-black/50 mt-1">
-            Forgot your password?{" "}
-            <span className="underline cursor-pointer hover:text-black transition">Reset here</span>
-          </p> */}
+          <button
+            type="button"
+            onClick={() => setForgotOpen(true)}
+            className="-mt-8 self-start text-xs font-semibold text-black underline underline-offset-2 hover:text-black/70 transition"
+          >
+            Forgot password?
+          </button>
         </div>
+
+        <ForgotPasswordModal isOpen={forgotOpen} onClose={() => setForgotOpen(false)} />
 
         {/* Footer */}
         <p className="text-[10px] text-black/40 relative z-30">

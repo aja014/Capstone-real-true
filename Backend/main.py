@@ -4,6 +4,7 @@ from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 from app.database import engine, Base, get_db
 from app import models, schemas
+from app.routers import account_recovery
 from passlib.context import CryptContext
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import HTTPException # for getting users
@@ -44,6 +45,7 @@ def get_user_by_username(db: Session, username: str):
     
 app.include_router(auth.router)
 app.include_router(users.router)
+app.include_router(account_recovery.router)
 app.include_router(policyholders.router)
 app.include_router(fire_property.router) 
 app.include_router(motor_car.router)
