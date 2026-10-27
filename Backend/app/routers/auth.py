@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from app.config import settings
 from app.security import verify_password, token_for_user, DUMMY_PASSWORD_HASH
-from app.services import login_audit, login_limiter
+from app.services import login_audit, login_limiter, recovery
 from app.services.user_service import get_user_by_username
 
 
@@ -49,8 +49,13 @@ def login(user: schemas.UserLogin, request: Request, db: Session = Depends(get_d
     body = {
         "access_token": access_token,
         "token_type": "bearer",
-        "role": db_user.role
+        "role": db_user.role,
+        # The same values GET /users/me/account-status gives (AccountGuards reads that after login).
+        "must_change_password": bool(db_user.must_change_password),
     }
+    notice = recovery.unseen_notice(db, db_user)
+    body["notice"] = (schemas.AccountNotice.model_validate(notice).model_dump(mode="json")
+                      if notice else None)
     if settings.LOGIN_AUDIT:
         body["last_login"] = login_audit.last_login_out(previous)  # None on the first login
     return body

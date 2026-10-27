@@ -2,17 +2,19 @@
 `window_seconds` lock that pair for `lock_seconds`; a success clears it. In memory, so it resets on
 restart (one process). Used by Forgot password and the recovery code change.
 
-client_ip() is the connection's address, the same as the login uses on main. On deploy-ias2 it must
-return login_limiter.client_ip(request) instead (TRUSTED_PROXY_HOPS / CLIENT_IP_SOURCE), or every
-user behind Render's proxy shares one IP and one lock."""
+client_ip() is login_limiter.client_ip(): the same TRUSTED_PROXY_HOPS / CLIENT_IP_SOURCE rule as the
+login, so users behind Render's proxy don't all share one IP and one lock. Unset = the connection's
+address (the laptop behaviour). account_events.ip_address uses it too."""
 import threading
 import time
+
+from app.services import login_limiter
 
 MESSAGE = "Too many attempts. Please try again in 5 minutes."
 
 
 def client_ip(request):
-    return request.client.host if request.client else "unknown"
+    return login_limiter.client_ip(request)
 
 
 def key_for(request, username):

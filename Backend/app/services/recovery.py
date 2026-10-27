@@ -64,13 +64,14 @@ def set_new_code(user) -> str:
     return code
 
 
-def temporary_password() -> str:
-    """Random letters and digits that already pass the password rule (at least 12 characters, or
-    the minimum length if a hosted copy sets it higher)."""
-    length = max(TEMP_PASSWORD_LENGTH, getattr(settings, "PASSWORD_MIN_LENGTH", 8))
+def temporary_password(username: str | None = None) -> str:
+    """Random letters and digits that already pass the password rule for `username` (at least 12
+    characters, or PASSWORD_MIN_LENGTH if a hosted copy sets it higher; not common, no username
+    when PASSWORD_BLOCK_COMMON is on)."""
+    length = max(TEMP_PASSWORD_LENGTH, settings.PASSWORD_MIN_LENGTH)
     while True:
         password = "".join(secrets.choice(TEMP_PASSWORD_ALPHABET) for _ in range(length))
-        if password_rule_error(password) is None:
+        if password_rule_error(password, username) is None:
             return password
 
 

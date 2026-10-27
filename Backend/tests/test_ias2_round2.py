@@ -132,7 +132,8 @@ def test_defaults_login_response_and_token_are_unchanged(client, db):
     _add_user(db)
     r = _login(client)
     assert r.status_code == 200
-    assert set(r.json()) == {"access_token", "token_type", "role"}  # no last_login
+    # no last_login; must_change_password + notice come from Forgot password (test_recovery_hosted.py)
+    assert set(r.json()) == {"access_token", "token_type", "role", "must_change_password", "notice"}
     claims = _claims(r.json()["access_token"])
     assert set(claims) == {"sub", "role", "exp"}  # no password fingerprint
     lifetime = datetime.fromtimestamp(claims["exp"], timezone.utc) - datetime.now(timezone.utc)

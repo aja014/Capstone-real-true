@@ -36,7 +36,7 @@ def main(ask=input, ask_secret=getpass.getpass, out=print, session_factory=Sessi
             return 1
 
         password = ask_secret("New password: ")
-        rule_error = password_rule_error(password)
+        rule_error = password_rule_error(password, user.username)
         if rule_error:
             out(rule_error + " Nothing changed.")
             return 1

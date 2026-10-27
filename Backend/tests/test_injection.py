@@ -22,7 +22,7 @@ from app import models
 from app.config import settings
 from app.database import get_db
 from app.ml import jobs
-from app.security import get_current_user, hash_password
+from app.security import get_current_user, get_logged_in_user, hash_password
 from app.services import flood_risk
 from app.services.user_service import get_user_by_username
 from main import app
@@ -82,6 +82,7 @@ def world(db, monkeypatch):
                                    role="manager"))
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_current_user] = lambda: manager
+    app.dependency_overrides[get_logged_in_user] = lambda: manager  # POST /users/me/password (forgot-password merge)
     app.dependency_overrides[jobs.schedule_model_refresh] = lambda: None
     ids = {
         "policyholder_id": ph.id, "vehicle_id": vehicle.id, "motor_policy_id": mpol.id,

@@ -35,7 +35,7 @@ def forgot_password(body: schemas.ForgotPassword, request: Request, db: Session 
     if forgot_limiter.is_locked(key):
         raise _too_many()
 
-    rule_error = password_rule_error(body.new_password)
+    rule_error = password_rule_error(body.new_password, body.username.strip())
     if rule_error:
         raise HTTPException(status_code=400, detail=rule_error)
 
@@ -129,7 +129,7 @@ def reset_password(user_id: int, request: Request, db: Session = Depends(get_db)
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Only Admin & Finance accounts can be reset here.")
 
-    temporary_password = recovery.temporary_password()
+    temporary_password = recovery.temporary_password(user.username)
     user.password = hash_password(temporary_password)
     user.must_change_password = True
     new_code = recovery.set_new_code(user)

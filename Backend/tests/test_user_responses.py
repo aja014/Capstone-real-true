@@ -26,7 +26,8 @@ def _add_user(db, username, password, role="admin"):
 
 
 def _assert_no_secret(response, *hashes):
-    assert "password" not in response.text
+    # The login's must_change_password flag (deploy-ias2) is the one allowed "password" key.
+    assert "password" not in response.text.replace('"must_change_password"', "")
     for h in hashes:
         assert h not in response.text
 
@@ -65,7 +66,7 @@ def test_login_returns_no_hash(client, db):
     user = _add_user(db, "ZZTEST Juliet Login", PASSWORD)
     r = client.post("/login", json={"username": "ZZTEST Juliet Login", "password": PASSWORD})
     assert r.status_code == 200
-    assert set(r.json()) == {"access_token", "token_type", "role"}
+    assert set(r.json()) == {"access_token", "token_type", "role", "must_change_password", "notice"}
     _assert_no_secret(r, user.password)
 
 

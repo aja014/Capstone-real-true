@@ -1,5 +1,6 @@
 import { useState } from "react";
 import axios from "axios";
+import { API_BASE_URL } from "../api/config";
 import { PASSWORD_HINT, passwordRuleError } from "../lib/passwordRule";
 import { NO_CODE_HELP, looksLikeCode, requestErrorMessage } from "../lib/recoveryCode";
 import { Field, ModalCard, PrimaryButton, SaveRecoveryCodeModal, SubmitError, TextButton } from "./RecoveryShared";
@@ -29,7 +30,7 @@ export default function ForgotPasswordModal({ isOpen, onClose }) {
     const e = {};
     if (!form.username.trim()) e.username = "Username is required";
     if (!looksLikeCode(form.code)) e.code = "Enter the 12-character code, for example ABCD-EFGH-JKMN";
-    const ruleError = passwordRuleError(form.newPassword);
+    const ruleError = passwordRuleError(form.newPassword, form.username.trim());
     if (ruleError) e.newPassword = ruleError;
     if (form.newPassword !== form.confirmPassword) e.confirmPassword = "Passwords do not match";
     return e;
@@ -45,7 +46,7 @@ export default function ForgotPasswordModal({ isOpen, onClose }) {
     setErrors({});
     setLoading(true);
     try {
-      const response = await axios.post("http://127.0.0.1:8000/auth/forgot-password", {
+      const response = await axios.post(`${API_BASE_URL}/auth/forgot-password`, {
         username: form.username.trim(),
         recovery_code: form.code,
         new_password: form.newPassword,

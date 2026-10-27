@@ -41,7 +41,7 @@ export default function AccountGuards() {
     ev.preventDefault();
     const e = {};
     if (!form.currentPassword) e.currentPassword = "Temporary password is required";
-    const ruleError = passwordRuleError(form.newPassword);
+    const ruleError = passwordRuleError(form.newPassword, localStorage.getItem("username") || "");
     if (ruleError) e.newPassword = ruleError;
     else if (form.newPassword === form.currentPassword)
       e.newPassword = "New password must be different from the temporary password.";
