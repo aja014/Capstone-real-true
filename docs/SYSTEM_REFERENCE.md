@@ -55,7 +55,7 @@ There are two roles: **manager** and **admin**. The live database has 1 user (ro
 
 | | Manager | Admin ("Admin & Finance") |
 |---|---|---|
-| Overview, Quotations/Proposal, Policy Distribution, Renewal Ratio Monitoring, Claims pages | ✅ | ❌ (sidebar item greyed out; typing the URL redirects to Policy Holder Information) |
+| Overview, Quotations/Proposal, Policy Distribution, Renewal Ratio Monitoring, Claims pages | ✅ | ❌ (not shown in the sidebar; typing the URL redirects to Policy Holder Information) |
 | Policy Holder Information page (all 6 tabs, Upload, Needs Review, every Delete) | ✅ | ✅ |
 | Settings → **Create an Account** | ✅ | ❌ (link hidden; the API also returns 403 "Only managers can create admin accounts.") |
 | Settings → Change Password, Log out | ✅ | ✅ |

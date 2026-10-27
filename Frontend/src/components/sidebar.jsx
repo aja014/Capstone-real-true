@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { NavLink } from "react-router-dom";
 import {
-  Shield,
   LayoutDashboard,
   FileText,
   BarChart2,
@@ -94,23 +93,8 @@ export default function Sidebar() {
               const hasAccess =
                 allowedRoles.includes(role);
 
-              if (!hasAccess) {
-                return (
-                  <div
-                    key={path}
-                    className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl text-gray-400 opacity-50 cursor-not-allowed"
-                  >
-                    <Icon
-                      className="w-4 h-4 mt-0.5 flex-shrink-0"
-                      strokeWidth={1.8}
-                    />
-
-                    <span className="text-xs leading-tight">
-                      {label}
-                    </span>
-                  </div>
-                );
-              }
+              // Admin & Finance sees only the pages it can open (no greyed-out items).
+              if (!hasAccess) return null;
 
               return (
                 <NavLink
