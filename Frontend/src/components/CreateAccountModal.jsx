@@ -13,6 +13,7 @@ import api from "../api/api";
 import { PASSWORD_HINT, passwordRuleError } from "../lib/passwordRule";
 import LegalModal from "./LegalModal";
 import { TERMS_OF_SERVICE, PRIVACY_POLICY } from "../content/legal";
+import { SavedCheckbox, SecretBox } from "./RecoveryShared";
 
 import Logo from "../img/MAAGAP_LOGO.png";
 
@@ -30,6 +31,9 @@ export default function CreateAccountModal({ isOpen, onClose }) {
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false); // disables Sign Up while the request runs
   const [legalDoc, setLegalDoc] = useState(null); // Terms / Privacy shown on top; form state kept
+  // The new account's first recovery code: shown once on the success step, never stored.
+  const [recoveryCode, setRecoveryCode] = useState(null);
+  const [codeSaved, setCodeSaved] = useState(false);
 
   if (!isOpen) return null;
 
@@ -55,11 +59,13 @@ export default function CreateAccountModal({ isOpen, onClose }) {
     setLoading(true);
 
     try {
-      await api.post("/users", {
+      const response = await api.post("/users", {
         username: form.username,
         password: form.password,
       });
 
+      setRecoveryCode(response.data.recovery_code);
+      setCodeSaved(false);
       setStep("success");
     } catch (error) {
       console.error(error);
@@ -88,6 +94,8 @@ export default function CreateAccountModal({ isOpen, onClose }) {
     setErrors({});
     setShowPass(false);
     setShowConfirm(false);
+    setRecoveryCode(null);
+    setCodeSaved(false);
     onClose();
   };
 
@@ -95,7 +103,7 @@ export default function CreateAccountModal({ isOpen, onClose }) {
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
       onClick={(e) => {
-        if (e.target === e.currentTarget) handleClose();
+        if (e.target === e.currentTarget && step === "form") handleClose(); // the success step holds the code
       }}
     >
       {step === "form" ? (
@@ -306,7 +314,7 @@ export default function CreateAccountModal({ isOpen, onClose }) {
         </div>
       ) : (
         /* ── SUCCESS STEP ──────────────────────────────────────────── */
-        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs mx-4 px-8 py-10 flex flex-col items-center text-center">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 px-8 py-10 flex flex-col items-center text-center">
           {/* Animated check circle */}
           <div className="relative flex items-center justify-center mb-6">
             <svg width="90" height="90" viewBox="0 0 90 90" fill="none">
@@ -345,9 +353,21 @@ export default function CreateAccountModal({ isOpen, onClose }) {
             Your account has been successfully created.
           </p>
 
+          {recoveryCode && (
+            <div className="w-full flex flex-col gap-3 mb-6 text-left">
+              <SecretBox label="Recovery code for this account" value={recoveryCode} />
+              <p className="text-xs text-gray-700 leading-snug">
+                Give this code to the user together with the password. It is shown only once and lets them
+                reset a forgotten password from the login page.
+              </p>
+              <SavedCheckbox checked={codeSaved} onChange={setCodeSaved} />
+            </div>
+          )}
+
           <button
             onClick={handleClose}
-            className="w-full bg-yellow-400 hover:bg-yellow-500 active:scale-[0.98] text-black font-bold text-sm rounded-xl py-3 transition-all"
+            disabled={!!recoveryCode && !codeSaved}
+            className="w-full bg-yellow-400 hover:bg-yellow-500 active:scale-[0.98] text-black font-bold text-sm rounded-xl py-3 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Continue
           </button>

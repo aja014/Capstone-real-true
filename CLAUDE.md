@@ -66,8 +66,8 @@ Study objectives (keep all in scope):
 - No Alembic: `Base.metadata.create_all()` creates NEW tables on startup but never ALTERs
   existing ones — any column change needs a manual `ALTER TABLE` (backup first).
 
-## Database (25 tables)
-`users`, `policyholders`, `insurance_cases`, `fire_property_surveys`,
+## Database (26 tables)
+`users`, `account_events`, `policyholders`, `insurance_cases`, `fire_property_surveys`,
 `fire_property_quotations`, `fire_property_policies`, `fire_property_claims`, `vehicles`,
 `motor_quotations`, `motor_policies`, `motor_claims`, `import_records`, `geocode_cache`,
 `ml_models`, `ml_predictions`, and 10 archives `deleted_*` (policyholders, import_records,
@@ -89,6 +89,10 @@ fire_property_policies/quotations/surveys/claims, motor_policies/quotations/clai
 - `import_records.import_type` is a native MySQL ENUM — a new import type needs a manual
   `ALTER TABLE ... MODIFY import_type ENUM(...)` as well as the Python enums.
 - `users.username` has a unique index; the collation is case-insensitive.
+- `users.recovery_code_hash` / `recovery_code_set_at` / `must_change_password` and the table
+  `account_events` (2026-10-26, Forgot password) come from `Backend/scripts/2026-10-26_recovery_codes.sql`
+  (create_all can't add the columns). Run it after restoring ANY older backup (they bring back the
+  old `users` table), and on Aiven as `avnadmin` (the app user `firemap_app` can't ALTER/CREATE).
 - Fixed-list fields (claims) are `String(50)` + Pydantic validation via
   `schemas.canonical_choice()`, not SQL ENUMs.
 - Not built (don't fabricate): renewal tables; an `insurance_cases` delete endpoint.
@@ -98,21 +102,26 @@ fire_property_policies/quotations/surveys/claims, motor_policies/quotations/clai
 ## Backend structure (`Backend/`)
 - `main.py` — app, routers, `lifespan` → `ml.jobs.start_startup_refresh()`.
 - `app/routers/`: `auth.py` (JWT login, `get_current_user` — reuse, don't rebuild),
-  `users.py` (create account, change password), `policyholders.py`, `fire_property.py`,
+  `users.py` (create account, change password), `account_recovery.py` (forgot password, recovery
+  code, Manager reset, account status), `policyholders.py`, `fire_property.py`,
   `motor_car.py`, `claims.py`, `stats.py` (all dashboard aggregates + `/stats/policy-forecast`),
   `ml.py` (`/ml/models`, `/ml/predictions/...`), importers `import_policyholders.py` (also the
   shared Needs Review queue + resolve), `import_fire_property.py` (survey/quotation/policy),
   `import_motor.py` (quotation/policy), `import_vehicle.py`, `import_claims.py`,
   `import_shared.py` (policy↔quotation matching, `parse_import_date`), `import_batch.py`
   (folder detect + upload). `upload.py` is an empty dead file.
-- `app/services/flood_risk.py` (`lookup_flood_risk(address)`), `app/services/policy_forecast.py`.
+- `app/services/flood_risk.py` (`lookup_flood_risk(address)`), `app/services/policy_forecast.py`,
+  `recovery.py` (codes, temporary password, account events), `attempt_limiter.py` (5 failures /
+  5 min per IP + username → 429 for 5 min; `client_ip()`).
 - `app/ml/`: `features.py`, `logistic_regression.py`, `naive_bayes.py`, `metrics.py`,
   `training.py`, `predict.py`, `jobs.py`, `report.py`.
 - `app/security.py`: hashing, `create_access_token`, `password_rule_error()`,
-  `require_manager`.
+  `get_logged_in_user` (token → user), `get_current_user` (same + 403 "Password change required"
+  while `must_change_password`), `require_manager`.
 - `scripts/reset_data.sql` — wipes business data (see "Reset script" below).
+- `scripts/reset_password.py` — system administrator reset (see Key business rules).
 - Auth: every router requires a JWT (router-level `Depends(get_current_user)`) except
-  `/login`. `require_manager` (403 "Manager access only.") guards all of `/stats`,
+  `/login` and `POST /auth/forgot-password`. `require_manager` (403 "Manager access only.") guards all of `/stats`,
   `GET /ml/models/{name}`, `GET /ml/predictions/quotations` and `GET /ml/inputs/quotations`;
   `GET /ml/models`, `GET /ml/predictions/claims`, `GET /ml/inputs/claims` and all CRUD/import
   endpoints are open to both roles.
@@ -126,7 +135,9 @@ fire_property_policies/quotations/surveys/claims, motor_policies/quotations/clai
   `ml.js` (predictions, `/ml/models`, `waitForModelRefresh()`), `passwordRule.js`.
 - `components/`: `UploadFileModal.jsx` (single file + folder), `NeedsReviewModal.jsx`,
   `FloodRiskModal.jsx` (GIS view), `ModelShared.jsx`, `ClaimsShared.jsx`, `LegalModal.jsx`,
-  `ChangePasswordModal.jsx`, renewal views. Legal text: `content/legal.js`.
+  `ChangePasswordModal.jsx`, renewal views; recovery codes: `RecoveryShared.jsx`,
+  `ForgotPasswordModal.jsx`, `RecoveryCodeModal.jsx`, `ResetPasswordModal.jsx`, `AccountGuards.jsx`
+  (in `ProtectedRoute`: forced password change + "Not you?" notice), `lib/recoveryCode.js`. Legal text: `content/legal.js`.
 - `api/api.js` — one 401 handler (clears login, "Your session has expired", back to `/`).
 - Base styles must go in `@layer base` — unlayered element rules beat Tailwind classes (this
   broke light mode once).
@@ -167,6 +178,23 @@ fire_property_policies/quotations/surveys/claims, motor_policies/quotations/clai
   conversion rate per line, waiting period W = p95 days quote→issue.
 - **Passwords**: new ones need ≥ 8 chars incl. 2 letters, ≤ 72 bytes; login never checks the
   rule. New accounts are always role `admin`; only SQL can make a manager.
+- **Forgot password (recovery codes, 2026-10-26)**: no email, so each account can have a one-time
+  recovery code (12 chars from `ABCDEFGHJKMNPQRSTUVWXYZ23456789`, shown `XXXX-XXXX-XXXX`, stored
+  only as a bcrypt hash; compared without dashes/spaces, upper case). Login page Forgot password? →
+  `POST /auth/forgot-password` (username + code + new password): success changes the password,
+  replaces the code (new one shown once), clears `must_change_password`; any wrong part → 400
+  "Invalid username or recovery code"; 5 failures per IP + username in 5 min → 429. First code:
+  Create Account returns it (Admin & Finance), or Settings → Recovery Code → Generate (current
+  password only). Changing a code needs the current password AND the current code. Settings →
+  Reset a Password (Manager, `GET /users/staff` + `POST /users/{id}/reset-password`): Admin &
+  Finance only, gives a temporary password + new code and sets `must_change_password` (every other
+  route 403 until `POST /users/me/password`; `GET /users/me/account-status` stays allowed).
+  `account_events` (code_created, code_changed, code_used_reset, manager_reset,
+  temp_password_changed; never codes or passwords) drives the once-only "Not you?" notice.
+  **System administrator reset** (last resort, any role): from `Backend/` on the server, with the
+  database in the environment, `./venv/Scripts/python scripts/reset_password.py` — asks the
+  username and the new password twice (hidden), applies the rule, prints a new code once and sets
+  `must_change_password` (the user picks a new password at the next login).
 - **Usernames**: trimmed on create; `get_user_by_username` compares TRIM(username) to the
   trimmed input (login too), so "X " / " x" = "X" (case via the column collation).
 
@@ -257,10 +285,21 @@ unset value is the local behaviour (`Backend/.env.example`, `tests/test_hosting_
   column length (`schemas.ColumnLimited`: 422, was a 500). Hosted DB account `firemap_app` = SELECT,
   INSERT, UPDATE, DELETE only (`scripts/2026-10-09_firemap_app_user.sql`, `scripts/check_db_rights.py`).
   `login_events` tests skip on `insurance_db`: run the suite with DATABASE_URL on a scratch copy.
+- Forgot password (recovery codes, merged from main 2026-10-27; `tests/test_recovery_hosted.py`): the
+  forgot / code-change limit and `account_events.ip_address` use `login_limiter.client_ip()`
+  (TRUSTED_PROXY_HOPS / CLIENT_IP_SOURCE); forgot password, the forced "Set a new password" and
+  `scripts/reset_password.py` call `password_rule_error(password, username)`; the Manager's temporary
+  password is max(12, PASSWORD_MIN_LENGTH) and passes the hosted rule; a forgot-password or Manager reset
+  changes the hash, so with SESSION_ENDS_ON_PASSWORD_CHANGE that user's older tokens end (the forced step
+  returns a new token, like Change Password). `/login` also returns `must_change_password` + `notice`.
+  No new env switch. **Aiven schema step (before redeploying Render):** run
+  `Backend/scripts/2026-10-26_recovery_codes.sql` on Aiven as `avnadmin` (not `firemap_app`, which can't
+  ALTER/CREATE; take a dump first), check the 3 `users` columns and `account_events` exist, then redeploy
+  Render (code expecting the columns on the old schema answers every login with a 500), then Vercel.
 
 ## How to test
 - From `Backend/`: `./venv/Scripts/python -m pip install -r requirements.txt` once, then
-  `./venv/Scripts/python -m pytest tests` (476+ tests on deploy-ias2 (330 on main), ≈ 35–42 min on deploy-ias2; ≈ 16 min for main's suite on the v5d data — much slower when memory is low; close other apps —
+  `./venv/Scripts/python -m pytest tests` (691 tests on deploy-ias2 incl. `test_recovery_codes.py` + `test_recovery_hosted.py` (359 on main), ≈ 35–42 min on deploy-ias2; ≈ 16 min for main's suite on the v5d data — much slower when memory is low; close other apps —
   the LR λ search makes training tests slow).
 - **Run the suite on `insurance_db_test`, never on `insurance_db`** (tests treat `insurance_db`
   as read-only). `insurance_db_test` is a full copy of `insurance_db` (made 2026-10-18 with
@@ -297,7 +336,8 @@ and the app now expects `premium`. Stop uvicorn first, then:
 turns "ñ" into "?" (seen 2026-10-05 in a test restore). Use `-e "source <path>"` (path without
 spaces) or Workbench. Write dumps with `mysqldump --result-file=…`, not `>` (UTF-16).
 (Workbench: Server → Data Import → Self-Contained File → target `insurance_db`.) Start the
-backend; it doesn't retrain (models are active), it only rewrites predictions (~10 s).
+backend; it doesn't retrain (models are active), it only rewrites predictions (~10 s). Before
+starting it, run `Backend/scripts/2026-10-26_recovery_codes.sql` again (the backup predates it).
 Expected counts: policyholders 1,129 · cases 1,224 · surveys 481 · vehicles 743 · motor
 quotations 1,450 · fire quotations 1,032 · fire policies 876 · motor policies 1,139 · motor
 claims 351 · fire claims 90 · import_records 6,548 · geocode_cache 500 · ml_models 7 · users
@@ -305,7 +345,7 @@ claims 351 · fire claims 90 · import_records 6,548 · geocode_cache 500 · ml_
 `model_reports/` files created since (list by exact name first). Older backups (v3, v2, v1,
 pre-reset): see `docs/history/backups_and_demo.md`.
 
-**Reset script** `Backend/scripts/reset_data.sql`: empties 23 tables, keeps `geocode_cache`
+**Reset script** `Backend/scripts/reset_data.sql`: empties 24 tables (incl. `account_events`), keeps `geocode_cache`
 and the user `Aaron James`. TRUNCATE can't be undone — full `mysqldump` backup first. Never
 run it without an explicit instruction. Any new table must be added to it (or listed as kept).
 
@@ -331,7 +371,8 @@ Isidro Pelayo (High river); claims MS2602030016 (#83, Suspicious 56%) and MS2501
   `Backend/.env`, never committed). The `DATABASE_URL` in that initial commit contains the
   old MySQL root password, which was already rotated earlier in the project, so it no
   longer works.
-- JWTs are stateless, 60 min, never revoked; no forgot-password flow.
+- JWTs are stateless, 60 min, never revoked. Forgot password works with recovery codes (no email);
+  codes and temporary passwords appear only in the one response that hands them out.
 - No response ever contains a password hash: `POST /users` returns `schemas.UserOut` (id,
   username, role) via `response_model`; reuse `UserOut` for any future user endpoint
   (`tests/test_user_responses.py`, 2026-10-03).

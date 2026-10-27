@@ -124,10 +124,12 @@ def verify_token(token: str):
             detail="Invalid or expired token"
         )
         
-def get_current_user(
+def get_logged_in_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
 ):
+    """The token's user, even while a temporary password must still be changed. Only
+    POST /users/me/password and GET /users/me/account-status use this directly."""
     payload = verify_token(token)
 
     username = payload.get("sub")
@@ -151,6 +153,17 @@ def get_current_user(
         if not isinstance(claim, str) or not hmac.compare_digest(claim, password_fingerprint(user.password or "")):
             raise HTTPException(status_code=401, detail=SESSION_ENDED_MESSAGE)
 
+    return user
+
+
+PASSWORD_CHANGE_REQUIRED_MESSAGE = "Password change required"
+
+
+def get_current_user(user=Depends(get_logged_in_user)):
+    """Every other route: 403 (not 401, which logs the frontend out) until a temporary password
+    from a Manager reset has been changed."""
+    if user.must_change_password:
+        raise HTTPException(status_code=403, detail=PASSWORD_CHANGE_REQUIRED_MESSAGE)
     return user
 
 def require_manager(current_user=Depends(get_current_user)):

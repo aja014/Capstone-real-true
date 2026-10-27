@@ -60,6 +60,63 @@ class UserOut(BaseModel):
 class UserCreated(BaseModel):
     message: str
     user: UserOut
+    recovery_code: str  # shown once on the Account Created screen; only its hash is stored
+
+
+# ---- Forgot password / recovery codes ----
+
+class ForgotPassword(BaseModel):
+    username: str
+    recovery_code: str
+    new_password: str
+
+
+class RecoveryCodeChange(BaseModel):
+    current_password: str
+    current_code: Optional[str] = None  # required once the account has a code
+
+
+class NewRecoveryCode(BaseModel):
+    recovery_code: str
+
+
+class RecoveryCodeStatus(BaseModel):
+    has_code: bool
+    set_at: Optional[datetime] = None  # UTC
+
+
+class StaffAccount(BaseModel):
+    id: int
+    username: str
+
+    class Config:
+        from_attributes = True
+
+
+class PasswordResetOut(BaseModel):
+    username: str
+    temporary_password: str
+    recovery_code: str
+
+
+class AccountNotice(BaseModel):
+    id: int
+    event: str
+    occurred_at: datetime  # UTC
+    ip_address: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AccountStatus(BaseModel):
+    must_change_password: bool
+    has_recovery_code: bool
+    notice: Optional[AccountNotice] = None
+
+
+class NoticeSeen(BaseModel):
+    id: int
 
 
 # ------------------------------------------------------------

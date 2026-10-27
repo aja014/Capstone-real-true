@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { useState } from 'react'
+import AccountGuards from "./components/AccountGuards";
 import MaagapLogin from "./pages/login";
 import Overview from "./pages/overview";
 import QuotationsProposal from "./pages/proposal";
@@ -18,7 +19,13 @@ function ProtectedRoute({ allowedRoles, children }) {
   if (!token) return <Navigate to="/" replace />;
   if (!allowedRoles.includes(role)) return <Navigate to="/policy" replace />;
 
-  return children;
+  // AccountGuards: the forced password change and the "Not you?" notice, on every logged-in page.
+  return (
+    <>
+      <AccountGuards />
+      {children}
+    </>
+  );
 }
 
 function App() {
