@@ -65,7 +65,7 @@ export default function MaagapLogin() {
     <div className="min-h-screen w-full flex flex-col overflow-x-hidden font-sans">
       <div className="flex flex-1">
         {/* Left Panel */}
-        <div className="relative w-full md:w-[55%] lg:w-[48%] bg-[#F5C800] flex flex-col px-10 sm:px-14 lg:pl-[100px] lg:pr-10 pt-[52px] pb-6 z-10">
+        <div className="relative w-full md:w-[55%] lg:w-[48%] bg-[#F5C800] flex flex-col px-10 sm:px-14 lg:pl-[100px] lg:pr-10 pt-[56px] pb-6 z-10">
           {/* Diagonal clip on right side — desktop only */}
           <div
             className="hidden md:block absolute top-0 right-0 h-full w-24 bg-[#F5C800] z-20"
@@ -73,24 +73,24 @@ export default function MaagapLogin() {
           />
 
           {/* Logo (the image has transparent padding, so the text overlaps it slightly) */}
-          <div className="flex items-center -ml-[18px]">
-            <img className="h-[72px] w-auto" src={Logo} alt="MAAGAP logo" />
-            <div className="-ml-[11px]">
-              <p className="font-black text-black text-[35px] leading-[18px] tracking-[-0.45px]">
+          <div className="flex items-center -ml-[28px]">
+            <img className="h-[88px] lg:h-[127px] w-auto" src={Logo} alt="MAAGAP logo" />
+            <div className="-ml-[16px] flex flex-col">
+              <p className="font-black text-black text-[34px] sm:text-[42px] lg:text-[55px] leading-none tracking-[-0.45px]">
                 MAAGAP
               </p>
-              <p className="mt-[9px] text-black text-[17px] leading-[14px] font-semibold tracking-[1.1px] uppercase">
+              <p className="ml-[2px] text-black text-[20px] sm:text-[25px] lg:text-[33px] leading-none font-semibold tracking-[1.1px] uppercase">
                 Insurance, Inc.
               </p>
             </div>
           </div>
 
           {/* Hero Text */}
-          <div className="mt-[127px]">
+          <div className="mt-[67px]">
             <h1
-              className="text-7xl text-black font-black leading-[1.05] mb-4"
+              className="text-7xl text-black font-black leading-[0.81] mb-4"
               style={{
-                fontSize: "clamp(2.4rem, 5vw, 3.6rem)",
+                fontSize: "clamp(2.4rem, 4.3vw, 4.6875rem)",
                 fontFamily: "'Inter', 'Times New Roman', serif",
                 textAlign: "justify",
                 textAlignLast: "left",
@@ -101,7 +101,7 @@ export default function MaagapLogin() {
               Be Protected.
             </h1>
             <p
-              className="text-black/70 text-sm sm:text-base leading-relaxed max-w-sm"
+              className="text-black/70 text-sm sm:text-base lg:text-[20px] leading-relaxed lg:leading-[26px] max-w-[498px]"
               style={{ textAlign: "justify" }}
             >
               Protect your vehicle and your future with coverage designed for real
@@ -110,7 +110,7 @@ export default function MaagapLogin() {
           </div>
 
           {/* Form */}
-          <div className="flex flex-col gap-4 max-w-sm w-full mt-[38px] z-30 relative">
+          <div className="flex flex-col gap-4 max-w-[470px] w-full mt-[36px] z-30 relative">
             {sessionNotice && (
               <p className="text-xs font-semibold text-black bg-white/70 rounded-lg px-3 py-2">
                 {sessionNotice}
@@ -157,12 +157,12 @@ export default function MaagapLogin() {
               </p>
             )}
 
-            {/* Login Button */}
-            <div>
+            {/* Login Button and Forgot password? on one row */}
+            <div className="mt-[10px] flex items-center justify-between">
               <button
                 onClick={handleLogin}
                 disabled={isLoading}
-                className="flex items-center gap-2 border border-black text-black bg-transparent hover:bg-black hover:text-[#F5C800] px-[30px] py-3.5 rounded-full font-bold text-sm transition-all duration-200 group"
+                className="w-[168px] flex items-center justify-center gap-2 border border-black text-black bg-transparent hover:bg-black hover:text-[#F5C800] py-3.5 rounded-full font-bold text-sm transition-all duration-200 group"
               >
                 {isLoading ? (
                   <span className="flex items-center gap-2">
@@ -176,14 +176,14 @@ export default function MaagapLogin() {
                   </>
                 )}
               </button>
+              <button
+                type="button"
+                onClick={() => setForgotOpen(true)}
+                className="mr-[10px] text-xs font-semibold text-black/75 underline underline-offset-2 hover:text-black transition"
+              >
+                Forgot password?
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setForgotOpen(true)}
-              className="mt-[35px] ml-4 self-start text-xs font-semibold text-black underline underline-offset-2 hover:text-black/70 transition"
-            >
-              Forgot password?
-            </button>
           </div>
           <ForgotPasswordModal isOpen={forgotOpen} onClose={() => setForgotOpen(false)} />
         </div>
