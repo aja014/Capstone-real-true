@@ -61,7 +61,10 @@ export default function Sidebar() {
 
   return (
     <>
-      <aside className="w-48 min-h-full bg-white flex flex-col py-6 px-4 rounded-2xl shadow-sm">
+      {/* The menu is fixed to the window (not sticky), so it never moves while the page scrolls;
+          this empty box keeps its 192 px of space in the page layout. top/left/height match the page padding (p-6). */}
+      <div className="w-48 flex-shrink-0">
+      <aside className="w-48 md:fixed md:top-6 md:left-6 md:h-[calc(100vh-3rem)] bg-white flex flex-col py-6 px-4 rounded-2xl shadow-sm">
 
         {/* Logo */}
         <div className="flex items-center mb-6">
@@ -143,6 +146,7 @@ export default function Sidebar() {
           </span>
         </button>
       </aside>
+      </div>
 
       <ProfileModal
         isOpen={openModal}
