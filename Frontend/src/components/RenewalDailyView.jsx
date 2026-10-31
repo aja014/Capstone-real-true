@@ -36,7 +36,7 @@ export default function RenewalDailyView({ ytdRenewalRate }) {
   const rate = ytdRenewalRate != null ? `${Number(ytdRenewalRate).toFixed(2)}%` : "…";
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 flex-1">
       {error && <p className="text-red-500 text-xs">{error}</p>}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard sub={sub} value={loading ? "…" : String(stats?.expiring_count ?? 0)} label="Expiring Policy" />
@@ -45,7 +45,7 @@ export default function RenewalDailyView({ ytdRenewalRate }) {
         <StatCard sub={sub} value={loading ? "…" : String(stats?.pending_count ?? 0)} label="Pending" />
       </div>
 
-      <div className="flex gap-4">
+      <div className="flex gap-4 flex-1">
         <PolicyTable
           data={rows}
           statusOptions={RENEWAL_STATUS_OPTIONS}

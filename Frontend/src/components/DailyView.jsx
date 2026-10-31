@@ -40,7 +40,7 @@ export default function DailyView() {
   const sub = `As of ${formatHumanDate(date)}`;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 flex-1">
       {error && <p className="text-red-500 text-xs">{error}</p>}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard sub={sub} value={loading ? "…" : String(stats?.total_policies ?? 0)} label="Total Policies Today" />
