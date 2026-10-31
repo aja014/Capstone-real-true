@@ -189,10 +189,15 @@ export default function Overview() {
           />
         </div>
 
-        {/* Line Chart */}
-        <div className="bg-white rounded-2xl p-5 shadow-sm">
+        {/* Line Chart: the card grows down to the bottom of the screen (like the tables on Policy
+            Distribution and Renewal Ratio). The chart sits in an absolutely positioned box that fills
+            the space under the title, so Recharts measures a fixed box and can never stretch the card;
+            it keeps at least the old 220 px on short screens. */}
+        <div className="bg-white rounded-2xl p-5 shadow-sm flex-1 flex flex-col">
           <h2 className="font-bold text-black text-sm mb-4">Policy Line (Past 6 Months)</h2>
-          <ResponsiveContainer width="100%" height={220}>
+          <div className="relative flex-1 min-h-[220px]">
+          <div className="absolute inset-0">
+          <ResponsiveContainer width="100%" height="100%">
             <LineChart data={monthlyLine}>
               <CartesianGrid stroke="#f3f4f6" />
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
@@ -220,6 +225,8 @@ export default function Overview() {
               />
             </LineChart>
           </ResponsiveContainer>
+          </div>
+          </div>
         </div>
 
       </div>
