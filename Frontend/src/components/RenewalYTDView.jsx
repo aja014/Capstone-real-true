@@ -70,10 +70,10 @@ export default function RenewalYTDView({ ytdRenewalRate }) {
           </h2>
           <ResponsiveContainer width="100%" height={230}>
             <BarChart data={barData} barCategoryGap="30%">
-              <CartesianGrid vertical={false} stroke="#f3f4f6" />
-              <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false}
-                label={{ value: "count", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: "#9ca3af" } }} />
+              <CartesianGrid vertical={false} stroke="#9ca3af" strokeDasharray="4 4" />
+              <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={{ stroke: "#6b7280" }} tickLine={{ stroke: "#6b7280" }} />
+              <YAxis tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={{ stroke: "#6b7280" }} tickLine={{ stroke: "#6b7280" }} allowDecimals={false}
+                label={{ value: "count", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: "#6b7280" } }} />
               <Tooltip contentStyle={{ borderRadius: 10, border: "none", fontSize: 12 }} />
               <Legend wrapperStyle={{ fontSize: 11 }} formatter={legendLabel} />
               <Bar dataKey="renewed" name="renewed" stackId="a" fill="#6366f1" />

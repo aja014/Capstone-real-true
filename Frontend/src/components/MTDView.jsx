@@ -69,10 +69,10 @@ export default function MTDView() {
           </h2>
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={barData} barCategoryGap="15%" margin={{ left: -10 }}>
-              <CartesianGrid vertical={false} stroke="#f3f4f6" />
-              <XAxis dataKey="day" tick={{ fontSize: 9, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false}
-                label={{ value: "count", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: "#9ca3af" } }} />
+              <CartesianGrid vertical={false} stroke="#9ca3af" strokeDasharray="4 4" />
+              <XAxis dataKey="day" tick={{ fontSize: 9, fill: "#6b7280" }} axisLine={{ stroke: "#6b7280" }} tickLine={{ stroke: "#6b7280" }} />
+              <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={{ stroke: "#6b7280" }} tickLine={{ stroke: "#6b7280" }} allowDecimals={false}
+                label={{ value: "count", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: "#6b7280" } }} />
               <Tooltip contentStyle={{ borderRadius: 10, border: "none", fontSize: 11 }} />
               <Bar dataKey="fire" name="Fire & Property" stackId="a" fill="#a5b4fc" />
               <Bar dataKey="motor" name="Motor & Car" stackId="a" fill="#f87171" radius={[2, 2, 0, 0]} />
