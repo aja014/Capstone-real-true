@@ -16,7 +16,10 @@ import {
   Cell,
 } from "recharts";
 import Sidebar from "../components/sidebar";
-import { StatCard, formatCurrencyPH } from "../components/PolicyDistributionShared";
+import {
+  StatCard,
+  formatCurrencyPH,
+} from "../components/PolicyDistributionShared";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 const PIE_COLORS = ["#FBBF24", "#FEF3C7"];
@@ -39,10 +42,21 @@ function QuotationConversionPie({ title, data, colors, sub }) {
       </div>
       <div className="flex flex-col items-center justify-center flex-1 gap-2">
         {total === 0 ? (
-          <div style={{ width: "100%", height: 180 }} className="flex items-center justify-center flex-shrink-0">
+          <div
+            style={{ width: "100%", height: 180 }}
+            className="flex items-center justify-center flex-shrink-0"
+          >
             <svg width={160} height={160}>
               <circle cx={80} cy={80} r={80} fill="#e5e7eb" />
-              <text x={80} y={80} textAnchor="middle" dominantBaseline="central" fontSize={13} fontWeight={700} fill="#9ca3af">
+              <text
+                x={80}
+                y={80}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize={13}
+                fontWeight={700}
+                fill="#9ca3af"
+              >
                 No data yet
               </text>
             </svg>
@@ -50,15 +64,51 @@ function QuotationConversionPie({ title, data, colors, sub }) {
         ) : (
           <ResponsiveContainer width="100%" height={180}>
             <PieChart>
-              <Pie data={data} dataKey="value" cx="50%" cy="50%" outerRadius={80} labelLine={false}
-                label={({ cx, cy, midAngle, innerRadius, outerRadius, value }) => {
-                  if (!value) return null;
+              <Pie
+                data={data}
+                dataKey="value"
+                cx="50%"
+                cy="50%"
+                outerRadius={80}
+                labelLine={false}
+                // label={({ cx, cy, midAngle, innerRadius, outerRadius, value }) => {
+                //   if (!value) return null;
+                //   const RADIAN = Math.PI / 180;
+                //   const r = innerRadius + (outerRadius - innerRadius) * 0.5;
+                //   return <text x={cx + r * Math.cos(-midAngle * RADIAN)} y={cy + r * Math.sin(-midAngle * RADIAN)}
+                //     fill="#000000" textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={700}>{value}</text>;
+                // }}
+                label={({
+                  cx,
+                  cy,
+                  midAngle,
+                  innerRadius,
+                  outerRadius,
+                  value,
+                }) => {
+                  if (!value || total === 0) return null;
                   const RADIAN = Math.PI / 180;
                   const r = innerRadius + (outerRadius - innerRadius) * 0.5;
-                  return <text x={cx + r * Math.cos(-midAngle * RADIAN)} y={cy + r * Math.sin(-midAngle * RADIAN)}
-                    fill="#fff" textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={700}>{value}</text>;
-                }}>
-                {data.map((_, i) => <Cell key={i} fill={colors[i]} />)}
+                  const percentage = ((value / total) * 100).toFixed(1);
+
+                  return (
+                    <text
+                      x={cx + r * Math.cos(-midAngle * RADIAN)}
+                      y={cy + r * Math.sin(-midAngle * RADIAN)}
+                      fill="#000000"
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      fontSize={11}
+                      fontWeight={700}
+                    >
+                      {`${percentage}%`}
+                    </text>
+                  );
+                }}
+              >
+                {data.map((_, i) => (
+                  <Cell key={i} fill={colors[i]} />
+                ))}
               </Pie>
             </PieChart>
           </ResponsiveContainer>
@@ -66,7 +116,10 @@ function QuotationConversionPie({ title, data, colors, sub }) {
         <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
           {data.map((d, i) => (
             <div key={d.name} className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: colors[i] }} />
+              <span
+                className="w-2.5 h-2.5 rounded-sm flex-shrink-0"
+                style={{ background: colors[i] }}
+              />
               <span className="text-[10px] text-gray-600">{d.name}</span>
             </div>
           ))}
@@ -88,7 +141,9 @@ export default function Overview() {
     try {
       const token = localStorage.getItem("token");
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      const res = await sharedGet(`${API_BASE_URL}/stats/overview`, { headers });
+      const res = await sharedGet(`${API_BASE_URL}/stats/overview`, {
+        headers,
+      });
       setStats(res.data);
     } catch {
       setError("Failed to load Overview data.");
@@ -97,11 +152,15 @@ export default function Overview() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   // One caption for all four cards: each counts the current calendar month.
   const sub = loading ? "…" : `This Month (${stats?.month_label ?? ""})`;
-  const quotationPieSub = loading ? "…" : (stats?.quotation_pie_label ?? "Past 3 Months");
+  const quotationPieSub = loading
+    ? "…"
+    : (stats?.quotation_pie_label ?? "Past 3 Months");
   const quotationPie = stats?.quotation_pie ?? [];
   const yearlyBar = (stats?.yearly_bar ?? []).map((b) => ({
     year: b.label,
@@ -129,7 +188,11 @@ export default function Overview() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard
             sub={sub}
-            value={loading ? "…" : formatCurrencyPH(stats?.gross_premium_written, false)}
+            value={
+              loading
+                ? "…"
+                : formatCurrencyPH(stats?.gross_premium_written, false)
+            }
             label="Gross Premium Written"
           />
           <StatCard
@@ -153,27 +216,63 @@ export default function Overview() {
 
         {/* Charts Row */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-
           {/* Bar Chart */}
           <div className="lg:col-span-2 bg-white rounded-2xl p-5 shadow-sm">
-            <h2 className="font-bold text-black text-sm mb-4">Policy Made (Past 4 Years)</h2>
+            <h2 className="font-bold text-black text-sm mb-4">
+              Policy Made (Past 4 Years)
+            </h2>
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={yearlyBar} barCategoryGap="15%">
-                <CartesianGrid vertical={false} stroke="#9ca3af" strokeDasharray="4 4" />
-                <XAxis dataKey="year" tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={{ stroke: "#6b7280" }} tickLine={{ stroke: "#6b7280" }} />
-                <YAxis tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={{ stroke: "#6b7280" }} tickLine={{ stroke: "#6b7280" }} allowDecimals={false} />
+                <CartesianGrid
+                  vertical={false}
+                  stroke="#9ca3af"
+                  strokeDasharray="4 4"
+                />
+                <XAxis
+                  dataKey="year"
+                  tick={{ fontSize: 11, fill: "#6b7280" }}
+                  axisLine={{ stroke: "#6b7280" }}
+                  tickLine={{ stroke: "#6b7280" }}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: "#6b7280" }}
+                  axisLine={{ stroke: "#6b7280" }}
+                  tickLine={{ stroke: "#6b7280" }}
+                  allowDecimals={false}
+                />
                 <Tooltip
-                  contentStyle={{ borderRadius: 10, border: "none", fontSize: 12 }}
+                  contentStyle={{
+                    borderRadius: 10,
+                    border: "none",
+                    fontSize: 12,
+                  }}
                   cursor={{ fill: "#f9fafb" }}
                 />
-                <Bar dataKey="fire" name="Fire & Property" stackId="a" fill="#a5b4fc" />
-                <Bar dataKey="motor" name="Motor & Car" stackId="a" fill="#6b9bd2" radius={[4, 4, 0, 0]} />
+                <Bar
+                  dataKey="fire"
+                  name="Fire & Property"
+                  stackId="a"
+                  fill="#a5b4fc"
+                />
+                <Bar
+                  dataKey="motor"
+                  name="Motor & Car"
+                  stackId="a"
+                  fill="#6b9bd2"
+                  radius={[4, 4, 0, 0]}
+                />
               </BarChart>
             </ResponsiveContainer>
             <div className="flex items-center gap-4 mt-1 justify-center">
-              {[["#a5b4fc", "Fire & Property"], ["#6b9bd2", "Motor & Car"]].map(([c, l]) => (
+              {[
+                ["#a5b4fc", "Fire & Property"],
+                ["#6b9bd2", "Motor & Car"],
+              ].map(([c, l]) => (
                 <div key={l} className="flex items-center gap-1.5">
-                  <span className="w-3 h-3 rounded-sm" style={{ background: c }} />
+                  <span
+                    className="w-3 h-3 rounded-sm"
+                    style={{ background: c }}
+                  />
                   <span className="text-[10px] text-gray-500">{l}</span>
                 </div>
               ))}
@@ -194,41 +293,66 @@ export default function Overview() {
             the space under the title, so Recharts measures a fixed box and can never stretch the card;
             it keeps at least the old 220 px on short screens. */}
         <div className="bg-white rounded-2xl p-5 shadow-sm flex-1 flex flex-col">
-          <h2 className="font-bold text-black text-sm mb-4">Policy Line (Past 6 Months)</h2>
+          <h2 className="font-bold text-black text-sm mb-4">
+            Policy Line (Past 6 Months)
+          </h2>
           <div className="relative flex-1 min-h-[220px]">
-          <div className="absolute inset-0">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={monthlyLine}>
-              <CartesianGrid stroke="#9ca3af" strokeDasharray="4 4" />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={{ stroke: "#6b7280" }} tickLine={{ stroke: "#6b7280" }} />
-              <YAxis tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={{ stroke: "#6b7280" }} tickLine={{ stroke: "#6b7280" }} allowDecimals={false} label={{ value: "count", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: "#6b7280" } }} />
-              <Tooltip contentStyle={{ borderRadius: 10, border: "none", fontSize: 12 }} />
-              <Legend
-                wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
-                formatter={(value) => value === "motor" ? "Motor & Car" : "Fire & Prop."}
-              />
-              <Line
-                type="monotone"
-                dataKey="motor"
-                stroke="#6366f1"
-                strokeWidth={2}
-                dot={{ r: 4, fill: "#6366f1", strokeWidth: 0 }}
-                activeDot={{ r: 5 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="fire"
-                stroke="#f87171"
-                strokeWidth={2}
-                dot={{ r: 4, fill: "#f87171", strokeWidth: 0 }}
-                activeDot={{ r: 5 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-          </div>
+            <div className="absolute inset-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={monthlyLine}>
+                  <CartesianGrid stroke="#9ca3af" strokeDasharray="4 4" />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 11, fill: "#6b7280" }}
+                    axisLine={{ stroke: "#6b7280" }}
+                    tickLine={{ stroke: "#6b7280" }}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: "#6b7280" }}
+                    axisLine={{ stroke: "#6b7280" }}
+                    tickLine={{ stroke: "#6b7280" }}
+                    allowDecimals={false}
+                    label={{
+                      value: "count",
+                      angle: -90,
+                      position: "insideLeft",
+                      style: { fontSize: 10, fill: "#6b7280" },
+                    }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: 10,
+                      border: "none",
+                      fontSize: 12,
+                    }}
+                  />
+                  <Legend
+                    wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+                    formatter={(value) =>
+                      value === "motor" ? "Motor & Car" : "Fire & Prop."
+                    }
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="motor"
+                    stroke="#6366f1"
+                    strokeWidth={2}
+                    dot={{ r: 4, fill: "#6366f1", strokeWidth: 0 }}
+                    activeDot={{ r: 5 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="fire"
+                    stroke="#f87171"
+                    strokeWidth={2}
+                    dot={{ r: 4, fill: "#f87171", strokeWidth: 0 }}
+                    activeDot={{ r: 5 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
-
       </div>
     </div>
   );
