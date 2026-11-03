@@ -8,8 +8,18 @@ import useFitRows from "../lib/useFitRows";
 import { API_BASE_URL } from "../api/config";
 
 const MONTH_NAMES = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
 ];
 
 // ── Date/format helpers ─────────────────────────────────────────────────────
@@ -90,13 +100,18 @@ export function getPeriodRange(period, refDateISO) {
     // full range, nothing left to cut off.
     if (y === ty && m === tm) return { start, end: todayIso };
     const lastDay = new Date(y, m, 0).getDate();
-    return { start, end: `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}` };
+    return {
+      start,
+      end: `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
+    };
   }
   return { start: `${y}-01-01`, end: refDateISO }; // ytd
 }
 
 export function filterRowsByRange(rows, start, end) {
-  return rows.filter((r) => r.issuedRaw && r.issuedRaw >= start && r.issuedRaw <= end);
+  return rows.filter(
+    (r) => r.issuedRaw && r.issuedRaw >= start && r.issuedRaw <= end,
+  );
 }
 
 // Pure client-side table filter, same pattern as RenewalRatioShared's
@@ -125,25 +140,36 @@ export async function fetchDistributionPolicies() {
   const token = localStorage.getItem("token");
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-  const [firePolRes, fireQuoRes, motorPolRes, motorQuoRes, casesRes, phRes] = await Promise.all([
-    sharedGet(`${API_BASE_URL}/fire-property/policies`, { headers }),
-    sharedGet(`${API_BASE_URL}/fire-property/quotations`, { headers }),
-    sharedGet(`${API_BASE_URL}/motor/policies`, { headers }),
-    sharedGet(`${API_BASE_URL}/motor/quotations`, { headers }),
-    sharedGet(`${API_BASE_URL}/insurance-cases`, { headers }),
-    sharedGet(`${API_BASE_URL}/policyholders`, { headers }),
-  ]);
+  const [firePolRes, fireQuoRes, motorPolRes, motorQuoRes, casesRes, phRes] =
+    await Promise.all([
+      sharedGet(`${API_BASE_URL}/fire-property/policies`, { headers }),
+      sharedGet(`${API_BASE_URL}/fire-property/quotations`, { headers }),
+      sharedGet(`${API_BASE_URL}/motor/policies`, { headers }),
+      sharedGet(`${API_BASE_URL}/motor/quotations`, { headers }),
+      sharedGet(`${API_BASE_URL}/insurance-cases`, { headers }),
+      sharedGet(`${API_BASE_URL}/policyholders`, { headers }),
+    ]);
 
-  const policyholderByCase = new Map(casesRes.data.map((c) => [c.id, c.policyholder_id]));
-  const nameByPolicyholder = new Map(
-    phRes.data.map((p) => [p.id, [p.first_name, p.middle_name, p.last_name].filter(Boolean).join(" ")])
+  const policyholderByCase = new Map(
+    casesRes.data.map((c) => [c.id, c.policyholder_id]),
   );
-  const fireCaseByQuotation = new Map(fireQuoRes.data.map((q) => [q.id, q.insurance_case_id]));
-  const motorCaseByQuotation = new Map(motorQuoRes.data.map((q) => [q.id, q.insurance_case_id]));
+  const nameByPolicyholder = new Map(
+    phRes.data.map((p) => [
+      p.id,
+      [p.first_name, p.middle_name, p.last_name].filter(Boolean).join(" "),
+    ]),
+  );
+  const fireCaseByQuotation = new Map(
+    fireQuoRes.data.map((q) => [q.id, q.insurance_case_id]),
+  );
+  const motorCaseByQuotation = new Map(
+    motorQuoRes.data.map((q) => [q.id, q.insurance_case_id]),
+  );
 
   function clientNameFor(caseByQuotation, quotationId) {
     const caseId = caseByQuotation.get(quotationId);
-    const policyholderId = caseId !== undefined ? policyholderByCase.get(caseId) : undefined;
+    const policyholderId =
+      caseId !== undefined ? policyholderByCase.get(caseId) : undefined;
     return nameByPolicyholder.get(policyholderId) || "—";
   }
 
@@ -183,16 +209,26 @@ export function Dropdown({ label, options, value, onChange }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
-      <button onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2 text-xs font-medium text-gray-700 hover:border-gray-400 transition whitespace-nowrap">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2 text-xs font-medium text-gray-700 hover:border-gray-400 transition whitespace-nowrap"
+      >
         {value || label}
-        <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown
+          className={`w-3.5 h-3.5 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
+        />
       </button>
       {open && options && (
         <div className="absolute top-full mt-1 left-0 z-20 bg-white border border-gray-100 rounded-xl shadow-lg min-w-[140px]">
           {options.map((opt) => (
-            <button key={opt} onClick={() => { onChange?.(opt); setOpen(false); }}
-              className={`block w-full text-left px-4 py-2 text-xs hover:bg-yellow-50 transition ${(value || label) === opt ? "font-bold text-black" : "text-gray-600"}`}>
+            <button
+              key={opt}
+              onClick={() => {
+                onChange?.(opt);
+                setOpen(false);
+              }}
+              className={`block w-full text-left px-4 py-2 text-xs hover:bg-yellow-50 transition ${(value || label) === opt ? "font-bold text-black" : "text-gray-600"}`}
+            >
               {opt}
             </button>
           ))}
@@ -212,11 +248,17 @@ export function StatCard({ sub, value, label, note }) {
   return (
     <div className="@container bg-white rounded-2xl px-5 py-4 shadow-sm flex flex-col justify-between min-h-[110px]">
       <p className="text-gray-400 text-xs">{sub}</p>
-      <p className="text-black font-black leading-none my-2 whitespace-nowrap [--stat-max:1.25rem] md:[--stat-max:2.25rem]"
-        style={{ fontSize: `min(var(--stat-max), ${fitWidth})` }}>{value}</p>
+      <p
+        className="text-black font-black leading-none my-2 whitespace-nowrap [--stat-max:1.25rem] md:[--stat-max:2.25rem]"
+        style={{ fontSize: `min(var(--stat-max), ${fitWidth})` }}
+      >
+        {value}
+      </p>
       <div>
         <p className="text-gray-500 text-xs">{label}</p>
-        {note && <p className="text-gray-400 text-[10px] leading-snug">{note}</p>}
+        {note && (
+          <p className="text-gray-400 text-[10px] leading-snug">{note}</p>
+        )}
       </div>
     </div>
   );
@@ -224,7 +266,8 @@ export function StatCard({ sub, value, label, note }) {
 
 // ── PolicyTable ───────────────────────────────────────────────────────────────
 export function PolicyTable({
-  extraFilters, data,
+  extraFilters,
+  data,
   statusOptions = ["Status: All", "New", "Renewal"],
   premiumLabel = "Total Amount Due",
 }) {
@@ -241,8 +284,10 @@ export function PolicyTable({
   const rowsPerPage = useFitRows(tableAreaRef);
 
   let filtered = (data ?? []).filter((r) => {
-    const matchLine = lineFilter === "Policy Line: All" || r.line === lineFilter;
-    const matchStatus = statusFilter === "Status: All" || r.status === statusFilter;
+    const matchLine =
+      lineFilter === "Policy Line: All" || r.line === lineFilter;
+    const matchStatus =
+      statusFilter === "Status: All" || r.status === statusFilter;
     // Every typed word must appear in the policy number or the client (lib/search.js).
     const matchSearch = fieldsMatchSearch([r.policy, r.client], search);
     return matchLine && matchStatus && matchSearch;
@@ -255,7 +300,9 @@ export function PolicyTable({
     const withExpiry = filtered.filter((r) => r.expiryRaw);
     const withoutExpiry = filtered.filter((r) => !r.expiryRaw);
     withExpiry.sort((a, b) =>
-      expirySort === "asc" ? a.expiryRaw.localeCompare(b.expiryRaw) : b.expiryRaw.localeCompare(a.expiryRaw)
+      expirySort === "asc"
+        ? a.expiryRaw.localeCompare(b.expiryRaw)
+        : b.expiryRaw.localeCompare(a.expiryRaw),
     );
     filtered = [...withExpiry, ...withoutExpiry];
   }
@@ -267,20 +314,47 @@ export function PolicyTable({
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / rowsPerPage));
   const safePage = Math.min(page, totalPages);
-  const pageRows = filtered.slice((safePage - 1) * rowsPerPage, safePage * rowsPerPage);
+  const pageRows = filtered.slice(
+    (safePage - 1) * rowsPerPage,
+    safePage * rowsPerPage,
+  );
 
-  const handleLineChange = (val) => { setLine(val); setPage(1); };
-  const handleStatusChange = (val) => { setStatus(val); setPage(1); };
-  const handleSearch = (e) => { setSearch(e.target.value); setPage(1); };
+  const handleLineChange = (val) => {
+    setLine(val);
+    setPage(1);
+  };
+  const handleStatusChange = (val) => {
+    setStatus(val);
+    setPage(1);
+  };
+  const handleSearch = (e) => {
+    setSearch(e.target.value);
+    setPage(1);
+  };
 
   return (
     <div className="bg-white min-h-[500px] rounded-2xl p-5 shadow-sm flex flex-col flex-1 min-w-0">
       <div className="flex flex-wrap gap-2 mb-4 items-center">
-        <Dropdown label="Policy Line: All" options={["Policy Line: All", "Motor Car", "Fire & Property"]} value={lineFilter} onChange={handleLineChange} />
-        <Dropdown label="Status: All" options={statusOptions} value={statusFilter} onChange={handleStatusChange} />
+        <Dropdown
+          label="Policy Line: All"
+          options={["Policy Line: All", "Motor Car", "Fire & Property"]}
+          value={lineFilter}
+          onChange={handleLineChange}
+        />
+        <Dropdown
+          label="Status: All"
+          options={statusOptions}
+          value={statusFilter}
+          onChange={handleStatusChange}
+        />
         <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2">
           <Search className="w-3.5 h-3.5 text-gray-400" />
-          <input className="text-xs outline-none text-gray-600 w-36" placeholder="Search Policy Number" value={search} onChange={handleSearch} />
+          <input
+            className="text-xs outline-none text-gray-600 w-36"
+            placeholder="Search Policy Number"
+            value={search}
+            onChange={handleSearch}
+          />
         </div>
         {extraFilters}
       </div>
@@ -289,21 +363,47 @@ export function PolicyTable({
         <table className="w-full text-xs text-center">
           <thead>
             <tr className="border-b border-gray-200">
-              {["Policy Number", "Client Name", "Policy Line", "Issued Date", "Expiry Date", premiumLabel, "Sum Insured", "Status"].map((h) =>
+              {[
+                "Policy Number",
+                "Client Name",
+                "Policy Line",
+                "Issued Date",
+                "Expiry Date",
+                premiumLabel,
+                "Sum Insured",
+                "Status",
+              ].map((h) =>
                 h === "Expiry Date" ? (
-                  <th key={h} onClick={toggleExpirySort} title="Sort by expiry date"
-                    className="py-3 px-3 text-gray-700 font-bold whitespace-nowrap cursor-pointer select-none hover:text-black transition">
-                    Expiry Date {expirySort === "asc" ? "▲" : expirySort === "desc" ? "▼" : ""}
+                  <th
+                    key={h}
+                    onClick={toggleExpirySort}
+                    title="Sort by expiry date"
+                    className="py-3 px-3 text-gray-700 font-bold whitespace-nowrap cursor-pointer select-none hover:text-black transition"
+                  >
+                    Expiry Date{" "}
+                    {expirySort === "asc"
+                      ? "▲"
+                      : expirySort === "desc"
+                        ? "▼"
+                        : ""}
                   </th>
                 ) : (
-                  <th key={h} className="py-3 px-3 text-gray-700 font-bold whitespace-nowrap">{h}</th>
-                )
+                  <th
+                    key={h}
+                    className="py-3 px-3 text-gray-700 font-bold whitespace-nowrap"
+                  >
+                    {h}
+                  </th>
+                ),
               )}
             </tr>
           </thead>
           <tbody>
             {pageRows.map((r) => (
-              <tr key={r.key} className="border-b border-gray-50 hover:bg-gray-50 transition">
+              <tr
+                key={r.key}
+                className="border-b border-gray-50 hover:bg-gray-50 transition"
+              >
                 <td className="py-3 px-3">{r.policy}</td>
                 <td className="py-3 px-3">{r.client}</td>
                 <td className="py-3 px-3">{r.line}</td>
@@ -315,16 +415,34 @@ export function PolicyTable({
               </tr>
             ))}
             {pageRows.length === 0 && (
-              <tr><td colSpan={8} className="py-6 text-gray-400 text-xs">No records found.</td></tr>
+              <tr>
+                <td colSpan={8} className="py-6 text-gray-400 text-xs">
+                  No records found.
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
       </div>
 
       <div className="flex justify-end items-center gap-2 mt-auto pt-3 text-xs text-gray-500">
-        <button onClick={() => setPage(Math.max(1, safePage - 1))} disabled={safePage === 1} className="disabled:opacity-30">«</button>
-        <span>{safePage} / {totalPages}</span>
-        <button onClick={() => setPage(Math.min(totalPages, safePage + 1))} disabled={safePage === totalPages} className="disabled:opacity-30">»</button>
+        <button
+          onClick={() => setPage(Math.max(1, safePage - 1))}
+          disabled={safePage === 1}
+          className="disabled:opacity-30"
+        >
+          «
+        </button>
+        <span>
+          {safePage} / {totalPages}
+        </span>
+        <button
+          onClick={() => setPage(Math.min(totalPages, safePage + 1))}
+          disabled={safePage === totalPages}
+          className="disabled:opacity-30"
+        >
+          »
+        </button>
       </div>
     </div>
   );
@@ -336,7 +454,13 @@ export function PolicyTable({
 // props are unchanged — see PolicyTable's search note above.
 // Callers pass `stats?.x_pie` as is (undefined while loading): a `?? []` there would be a new
 // array on every render and defeat the memo, so the empty fallback is this default instead.
-export const MiniPie = memo(function MiniPie({ title, data = [], colors, sub, note }) {
+export const MiniPie = memo(function MiniPie({
+  title,
+  data = [],
+  colors,
+  sub,
+  note,
+}) {
   // All-zero total (e.g. zero quotations this month): Recharts can't
   // compute slice angles from an all-zero pie and draws nothing, leaving a
   // blank gap. Swap in a neutral placeholder circle sized to match the real
@@ -359,10 +483,21 @@ export const MiniPie = memo(function MiniPie({ title, data = [], colors, sub, no
           resolves to the row's natural height there. */}
       <div className="flex items-center gap-3 flex-1">
         {total === 0 ? (
-          <div style={{ width: 110, height: 100 }} className="flex items-center justify-center flex-shrink-0">
+          <div
+            style={{ width: 110, height: 100 }}
+            className="flex items-center justify-center flex-shrink-0"
+          >
             <svg width={92} height={92}>
               <circle cx={46} cy={46} r={46} fill="#e5e7eb" />
-              <text x={46} y={46} textAnchor="middle" dominantBaseline="central" fontSize={9} fontWeight={700} fill="#9ca3af">
+              <text
+                x={46}
+                y={46}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize={9}
+                fontWeight={700}
+                fill="#9ca3af"
+              >
                 No data yet
               </text>
             </svg>
@@ -370,32 +505,94 @@ export const MiniPie = memo(function MiniPie({ title, data = [], colors, sub, no
         ) : (
           <ResponsiveContainer width={110} height={100}>
             <PieChart>
-              <Pie data={data} dataKey="value" cx="50%" cy="50%" outerRadius={46} labelLine={false}
-                label={({ cx, cy, midAngle, innerRadius, outerRadius, value }) => {
-                  // A 0-value slice has no arc to anchor a label to — Recharts
-                  // still calls this with a midAngle sitting on the boundary
-                  // between its neighbors, so the "0" renders overlapping
-                  // whichever slice edge is there. Suppress it; the category
-                  // still shows in the legend below, just without a number.
-                  if (!value) return null;
-                  const RADIAN = Math.PI / 180;
-                  const r = innerRadius + (outerRadius - innerRadius) * 0.5;
-                  return <text x={cx + r * Math.cos(-midAngle * RADIAN)} y={cy + r * Math.sin(-midAngle * RADIAN)}
-                    fill="#fff" textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={700}>{value}</text>;
-                }}>
-                {data.map((_, i) => <Cell key={i} fill={colors[i]} />)}
+              <Pie
+                data={data}
+                dataKey="value"
+                cx="50%"
+                cy="50%"
+                outerRadius={46}
+                labelLine={false}
+
+                // label={({ cx, cy, midAngle, innerRadius, outerRadius, value }) => {
+                //   // A 0-value slice has no arc to anchor a label to — Recharts
+                //   // still calls this with a midAngle sitting on the boundary
+                //   // between its neighbors, so the "0" renders overlapping
+                //   // whichever slice edge is there. Suppress it; the category
+                //   // still shows in the legend below, just without a number.
+                //   if (!value) return null;
+                //   const RADIAN = Math.PI / 180;
+                //   const r = innerRadius + (outerRadius - innerRadius) * 0.5;
+                //   return <text x={cx + r * Math.cos(-midAngle * RADIAN)} y={cy + r * Math.sin(-midAngle * RADIAN)}
+                //     fill="#fff" textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={700}>{value}</text>;
+                // }
+
+                // label={({ cx, cy, midAngle, innerRadius, outerRadius, value }) => {
+                //   // Hide labels for zero-value and very small slices.
+                //   // This prevents numbers from overlapping.
+                //   if (!value || Number(value) / total < 0.05) return null;
+
+                //   const RADIAN = Math.PI / 180;
+                //   const r = innerRadius + (outerRadius - innerRadius) * 0.5;
+
+                //   return (
+                //     <text
+                //       x={cx + r * Math.cos(-midAngle * RADIAN)}
+                //       y={cy + r * Math.sin(-midAngle * RADIAN)}
+                //       fill="#fff"
+                //       textAnchor="middle"
+                //       dominantBaseline="central"
+                //       fontSize={11}
+                //       fontWeight={700}
+                //     >
+                //       {value}
+                //     </text>
+                //   );
+                // }}
+              >
+                {data.map((_, i) => (
+                  <Cell key={i} fill={colors[i]} />
+                ))}
               </Pie>
             </PieChart>
           </ResponsiveContainer>
         )}
-        <div className="flex flex-col gap-2">
+        {
+          /* <div className="flex flex-col gap-2">
           {data.map((d, i) => (
             <div key={d.name} className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: colors[i] }} />
               <span className="text-[10px] text-gray-600">{d.name}</span>
             </div>
           ))}
-        </div>
+        </div> */
+          <div className="flex flex-col gap-2 flex-1 min-w-0">
+            {data.map((d, i) => (
+              <div
+                key={d.name}
+                className="flex items-center justify-between gap-2"
+              >
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span
+                    className="w-2.5 h-2.5 rounded-sm flex-shrink-0"
+                    style={{ background: colors[i] }}
+                  />
+                  <span className="text-[10px] text-gray-600">{d.name}</span>
+                </div>
+
+                {
+                  /* <span className="text-[10px] font-bold text-gray-800 tabular-nums">
+                  {d.value}
+                </span> */
+                  <span className="text-[10px] font-bold text-gray-800 tabular-nums">
+                    {total > 0
+                      ? `${((d.value / total) * 100).toFixed(1)}%`
+                      : "0%"}
+                  </span>
+                }
+              </div>
+            ))}
+          </div>
+        }
       </div>
       {note && <p className="text-gray-400 text-[10px] mt-2">{note}</p>}
     </div>
